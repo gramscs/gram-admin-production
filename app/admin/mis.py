@@ -13,6 +13,7 @@ from app import limiter
 from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.admin.documents import cleanup_documents, open_stored_document
+from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError
 from app.admin.input_validation import clean_text, payload
 from app.admin.mis_exports import MIMES, export_bytes
 from app.admin.reporting import COLUMNS, DEFAULT_COLUMNS, IST, analyze, filter_options, normalize_filters, validate_columns
@@ -32,6 +33,9 @@ def protect_errors(fn):
         except ValueError as error:
             db.session.rollback()
             return jsonify(success=False, message=str(error)), 400
+        except StorageSyncError as error:
+            db.session.rollback()
+            return jsonify(success=False, message=str(error)), 500
         except Exception:
             db.session.rollback()
             current_app.logger.exception('MIS operation failed')
@@ -187,8 +191,7 @@ def mis_report_manage(report_id):
             db.session.flush()
             if not db.session.query(ShipmentDocument).filter_by(file_id=file.id).first() and not db.session.query(ERReport).filter_by(file_id=file.id).first():
                 db.session.delete(file)
-        db.session.commit()
-        cleanup_documents([stored])
+        commit_document_cleanup([stored])
     else:
         row.name = clean_text(data, 'name', 120, required=True)
         row.notes = clean_text(data, 'notes', 500)

@@ -441,7 +441,7 @@ previews appear in the form; PDFs use **Download** instead of an embedded viewer
 
 Choose, replace, remove or undo a document change in the form, then click
 **Save → Save All**. **Cancel** discards the form's changes. Files already saved
-are retained until the database save succeeds. Staged changes survive shipment
+are untouched until you submit the save. Staged changes survive shipment
 filtering/pagination. Download buttons work for saved and selected documents.
 
 Supabase uploads use two private buckets, with the same server credentials:
@@ -480,8 +480,39 @@ support 200 shipments and 250 MB per download. Special characters in download
 filenames are sanitized. Ambiguous upload names are rejected rather than linked
 to the wrong shipment. Rare duplicate ZIP names use a shipment-ID subfolder.
 Bulk uploads save immediately; the form's individual uploads still use Save All.
-ER databases retain previous document versions; legacy local databases retain
-previous documents until the replacement save succeeds.
+ER databases retain previous document versions when you **replace** a file;
+legacy local databases delete the previous file after a successful replacement.
+Explicit **Remove** deletes every saved version of that shipment's selected
+document type, its attachment records and its unshared file metadata/bytes.
+Deleting a shipment does the same for both PODs and invoices. Files still used
+by another shipment (including its history) or an MIS report are kept. Audit logs
+and original migration archives remain for traceability.
+
+Removal checks the saved reference's actual bucket, even if bucket settings have
+since changed. A failed or silently denied Storage delete returns an error and
+rolls back the database changes. Temporary copies restore files already deleted
+if a later delete or database commit fails. Restored bytes are verified. If
+restoration fails, the error says manual recovery is needed and the app attempts
+to save a private copy under `instance/uploads/.document-recovery/`. The server
+log identifies that folder; `reference.json` maps each copy to its original
+storage reference. Complete backups include these recovery copies too.
+Storage and SQL are separate services: this is
+compensating rollback, not a distributed transaction; an interrupted process or
+an uncertain database commit can still need reconciliation.
+
+For documents removed by the old ER behavior, use the targeted repair below.
+It refuses to touch a current attachment and preserves shared files. The first
+command previews the already-removed POD versions of exactly `DEMO0017`; the
+second applies that cleanup. It does not scan or wipe a bucket.
+
+```bash
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app purge-removed-documents --identifier DEMO0017 --kind pod
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app purge-removed-documents --identifier DEMO0017 --kind pod --apply
+```
+
+Use the running app's environment and database. Replace the identifier and
+`--kind invoice` to repair another previously removed attachment. Repeating the
+cleanup is safe. Restart the app after updating the code; no migration is needed.
 
 **Measure shipment by** selects **Weight (kg)** or **Volume (m³ / CBM)** in both
 the form and table. Only the selected input appears. Changing the basis preserves

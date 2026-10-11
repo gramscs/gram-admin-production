@@ -148,7 +148,7 @@ def register_file(reference, original_name=None, mime=None):
     reference = reference.removeprefix('local:')
     metadata = storage.describe(reference)
     with db.session.no_autoflush:
-        existing = db.session.query(File).filter_by(storage_path=metadata.path).first()
+        existing = db.session.query(File).filter_by(storage_path=metadata.path).with_for_update().first()
     if existing:
         return existing
     row = File(id=uuid4(), uploaded_by=actor_id(), storage_bucket=metadata.bucket,

@@ -10,7 +10,7 @@
         if (!editor) return;
         revoke();
         const attached = !editor.remove && (editor.file || editor.reference);
-        part('status').textContent = editor.remove ? 'Removal staged. Save changes to remove this document.' : editor.file ? 'Selected: ' + editor.file.name + ' · awaiting save' : editor.reference ? 'Attached: ' + editor.name : 'No document attached.';
+        part('status').textContent = editor.remove ? 'Removal staged. Save changes to delete this document and its saved versions.' : editor.file ? 'Selected: ' + editor.file.name + ' · awaiting save' : editor.reference ? 'Attached: ' + editor.name : 'No document attached.';
         part('error').textContent = editor.error;
         part('error').classList.toggle('d-none', !editor.error);
         part('download').classList.toggle('d-none', !editor.reference);

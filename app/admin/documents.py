@@ -21,6 +21,8 @@ from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
+from app.admin.document_lifecycle import (commit_document_cleanup, document_is_retained,
+    purge_shipment_documents, StorageSyncError)
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 DOCUMENTS = {'pod': ('pod_image', 'pod_original_name'), 'invoice': ('invoice_file', 'invoice_original_name')}
@@ -170,8 +172,7 @@ def store_document_changes(consignment, changes, created, obsolete):
             setattr(consignment, field, value)
             setattr(consignment, name_field, original)
         else:
-            setattr(consignment, field, None)
-            setattr(consignment, name_field, None)
+            purge_shipment_documents(consignment, obsolete, kind)
         if old:
             obsolete.append(old)
 
@@ -180,11 +181,8 @@ def cleanup_documents(values):
     from app.admin.consignment_controller import _delete_pod_file
     for value in set(values):
         try:
-            if models.using_er():
-                from app.er_adapter import File
-                canonical = value if value.startswith(('local:', 'supabase:')) else 'local:' + value
-                if db.session.query(File).filter_by(storage_path=canonical).first():
-                    continue
+            if document_is_retained(value):
+                continue
             _delete_pod_file(value)
         except Exception:
             current_app.logger.exception('Unable to remove obsolete shipment document')
@@ -229,17 +227,20 @@ def consignment_document(consignment_id, kind):
                     return _response_error('Choose a document to upload.')
                 document = validate_document(uploaded.read(MAX_DOCUMENT_BYTES+1), uploaded.filename)
             store_document_changes(row, [(kind, document)], created, obsolete)
-            db.session.commit()
+            commit_document_cleanup(obsolete)
         except ValueError as error:
             db.session.rollback()
             cleanup_documents(created)
             return _response_error(str(error))
+        except StorageSyncError as error:
+            db.session.rollback()
+            cleanup_documents(created)
+            return _response_error(str(error), 500)
         except Exception:
             db.session.rollback()
             cleanup_documents(created)
             current_app.logger.exception('Unable to update shipment document')
             return _response_error('Document could not be saved. Your previous document was preserved.', 500)
-        cleanup_documents(obsolete)
         return jsonify(success=True, **{field: getattr(row, field)})
     value = getattr(row, field)
     if not value:

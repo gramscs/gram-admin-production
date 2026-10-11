@@ -88,7 +88,10 @@ def bucket_separation(client, app, monkeypatch):
     class Bucket:
         def __init__(self, name): self.name = name
         def upload(self, path, content, options): objects[self.name, path] = content
-        def download(self, path): return objects[self.name, path]
+        def download(self, path):
+            if (self.name, path) not in objects:
+                raise FileNotFoundError('Object not found')
+            return objects[self.name, path]
         def remove(self, paths):
             for path in paths: objects.pop((self.name, path), None)
     class Storage:

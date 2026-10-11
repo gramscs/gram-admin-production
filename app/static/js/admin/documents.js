@@ -18,7 +18,7 @@
         revoke(item);
         item.previewURL = null;
         const attached = !item.removed && (item.upload || item.reference);
-        element(kind, 'status').textContent = item.removed ? 'Removal staged. Save All will remove this document.' : item.upload ? 'Selected: ' + item.upload.name + ' · awaiting Save All' : item.reference ? 'Attached: ' + item.name : 'No document attached.';
+        element(kind, 'status').textContent = item.removed ? 'Removal staged. Save All will delete this document and its saved versions.' : item.upload ? 'Selected: ' + item.upload.name + ' · awaiting Save All' : item.reference ? 'Attached: ' + item.name : 'No document attached.';
         element(kind, 'error').textContent = item.error;
         element(kind, 'download').classList.toggle('d-none', !attached);
         element(kind, 'remove').classList.toggle('d-none', !attached);

@@ -104,6 +104,8 @@ def create_app(test_config=None):
     app.register_blueprint(admin_bp)
     from app.seed_data import seed_demo
     app.cli.add_command(seed_demo)
+    from app.admin.document_lifecycle import purge_removed_documents
+    app.cli.add_command(purge_removed_documents)
 
     @app.get("/")
     def index():

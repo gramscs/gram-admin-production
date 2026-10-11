@@ -17,6 +17,7 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
+from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
 
 logger = logging.getLogger(__name__)
 
@@ -179,23 +180,27 @@ def _delete_pod_file(pod_value):
     if isinstance(pod_value, str) and pod_value.startswith("supabase:"):
         client = _get_supabase_client()
         if not client:
-            return
+            raise RuntimeError('Supabase is not configured; the stored document could not be removed.')
+        bucket, object_path = _parse_supabase_pod_value(pod_value)
+        storage = client.storage.from_(bucket)
+        storage.remove([object_path])
+        # A denied DELETE can return an empty list instead of an error. Verify
+        # the exact object is absent rather than reporting false success.
+        from app.admin.document_lifecycle import storage_object_missing
         try:
-            _, rest = pod_value.split(":", 1)
-            bucket, object_path = rest.split("/", 1)
-            client.storage.from_(bucket).remove([object_path])
-        except Exception:
-            logger.exception("Failed to remove POD from Supabase")
+            storage.download(object_path)
+        except Exception as error:
+            if not storage_object_missing(error):
+                raise
+        else:
+            raise RuntimeError('Storage did not remove the requested document.')
         return
 
     upload_folder = os.path.join(current_app.instance_path, "uploads")
     pod_value = pod_value.removeprefix('local:')
     pod_path = os.path.normpath(os.path.join(upload_folder, pod_value))
     if Path(pod_path).resolve().is_relative_to(Path(upload_folder).resolve()) and os.path.isfile(pod_path):
-        try:
-            os.remove(pod_path)
-        except Exception:
-            logger.exception("Failed to remove POD file from disk")
+        os.remove(pod_path)
 
 
 def _is_external_pod_url(value):
@@ -603,9 +608,9 @@ def consignments_save():
                 deleted_id_int = models.record_id(deleted_id)
             except (TypeError, ValueError):
                 continue
-            consignment = db.session.get(models.Consignment, deleted_id_int)
+            consignment = db.session.get(models.Consignment, deleted_id_int, with_for_update=True)
             if consignment:
-                obsolete_files.extend(value for value in (consignment.pod_image, consignment.invoice_file) if value)
+                purge_shipment_documents(consignment, obsolete_files)
                 db.session.delete(consignment)
                 deleted_count += 1
 
@@ -633,7 +638,7 @@ def consignments_save():
                 row_id = None
             if row_id not in (None, ""):
                 try:
-                    consignment = db.session.get(models.Consignment, models.record_id(row_id))
+                    consignment = db.session.get(models.Consignment, models.record_id(row_id), with_for_update=True)
                 except (TypeError, ValueError):
                     errors.append({"index": index, "field": "id", "message": "Invalid consignment id."})
                     continue
@@ -677,8 +682,7 @@ def consignments_save():
         for consignment, changes in document_plans:
             store_document_changes(consignment, changes, created_files, obsolete_files)
         total = models.shipment_query().count()
-        db.session.commit()
-        cleanup_documents(obsolete_files)
+        commit_document_cleanup(obsolete_files)
         return jsonify({
             "success": True,
             "message": "Saved.",
@@ -686,6 +690,10 @@ def consignments_save():
             "deleted_count": deleted_count,
             "total": total,
         })
+    except StorageSyncError as error:
+        db.session.rollback()
+        cleanup_documents(created_files)
+        return jsonify(success=False, message=str(error)), 500
     except Exception:
         db.session.rollback()
         cleanup_documents(created_files)

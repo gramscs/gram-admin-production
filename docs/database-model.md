@@ -111,10 +111,17 @@ exist. Deactivate a company/user instead, or explicitly remove a preset link
 without changing the shipment's copied address. These restrictions apply
 to ORM deletion as well as raw SQL; relationships do not silently clear links.
 
-Deleting a shipment cascades to its events and document links. Its stored file
-records/bytes and audit entries remain. File deletion is a separate cleanup
-operation that must check all document/report references first. Database
-cascades never delete objects from Supabase or local storage automatically.
+At the SQL level, deleting a shipment cascades to its events and document links;
+stored file records/bytes and audit entries remain. Database cascades never
+delete objects from Supabase or local storage automatically.
+
+The portal coordinates explicit removal with storage cleanup: removing a POD or
+invoice purges that shipment's selected document versions, and deleting a
+shipment purges both types. It deletes only file records/bytes with no remaining
+document or MIS report references. Storage failure rolls back SQL changes and
+restores files already deleted; failed restoration is explicitly reported.
+Replacements still retain ER history. Audit records and migration archives remain.
+This coordinated cleanup does not change the underlying FK/cascade rules.
 
 Actor fields are nullable for legacy/system records where attribution is
 unknown. New authenticated actions should populate the real user ID. The

@@ -177,6 +177,8 @@ def test_private_supabase_document_roundtrip(admin_client, monkeypatch):
             assert options['content-type'] == 'application/pdf'
             objects[path] = data
         def download(self, path):
+            if path not in objects:
+                raise FileNotFoundError('Object not found')
             return objects[path]
         def remove(self, paths):
             for path in paths:

@@ -1,6 +1,6 @@
 # System testing — 11 October 2026
 
-The latest full-suite run passed **392 tests**, with **10 backend-specific skips**
+The latest full-suite run passed **490 tests**, with **10 backend-specific skips**
 and **no failures**. Browser workflows also passed after correcting one saving
 bug found during this review. These results validate the tested application;
 live Supabase storage and the team's running Codespaces app still need an
@@ -261,3 +261,44 @@ user's running app; no live Supabase Storage check was claimed from mock tests.
 ```bash
 AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-storage
 ```
+
+## Explicit document deletion and storage synchronization
+
+The full-suite run passed **490 tests**, with **10 skips**, no failures and two
+dependency deprecation warnings, using disposable SQLite/PostgreSQL databases.
+After adding checksum-verified restoration and private recovery copies, the
+focused document-deletion suite was rerun against the final implementation:
+**97 tests passed**, with no skips or failures. All **25 restoration/object-error
+checks** also passed during the recovery safeguard review.
+
+The new deletion tests cover removal from Documents and Shipments Save All,
+whole-shipment deletion, POD/invoice routing, all selected ER versions and File
+metadata, validation rollback, shared shipment/report files, missing objects,
+and safe provider error messages. Mock Storage tests simulate a thrown delete
+error and a silently denied DELETE that leaves the exact object readable; both
+return failure and retain database attachments. A later delete/commit failure
+restores previously deleted bytes. Irrecoverable restoration reports failure,
+keeps a private local recovery copy and includes that copy in a complete backup.
+Object-not-found checks distinguish missing objects from bucket/permission errors.
+
+The repair command was tested with an isolated `DEMO0017` fixture reproducing the
+previous ER soft-removal behavior. Dry run changes nothing; apply deletes only
+that removed document kind's versions and unshared files. Current attachments
+are refused, other shipments/invoices remain, failed cleanup preserves metadata,
+and repeating cleanup is safe. These tests did not access the user's live bucket.
+
+All **15 browser workflow groups** passed: six document-editor workflows, two
+shipment-staging regressions and seven shipment/document-library workflows.
+They covered uploads, replacements, removal/undo, stale edits, filter changes,
+downloads, bulk uploads, exact shipment links and responsive light/dark layouts.
+
+```bash
+python -m pytest -q tests/test_document_deletion.py
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app purge-removed-documents --identifier DEMO0017 --kind pod
+# Run with --apply only when the preview names the intended removed attachment.
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app purge-removed-documents --identifier DEMO0017 --kind pod --apply
+```
+
+No schema migration or new dependency is required. Pull the update and restart
+the running app. Actual Supabase deletion still requires that app's private
+Storage credentials and permissions; no live object cleanup was claimed here.
