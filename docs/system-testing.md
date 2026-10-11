@@ -1,11 +1,11 @@
 # System testing — 11 October 2026
 
-The latest automated run passed **379 tests**, with **10 backend-specific skips**
+The latest automated run passed **382 tests**, with **10 backend-specific skips**
 and **no failures**. Browser workflows also passed after correcting one saving
 bug found during this review. These results validate the tested application;
 live Supabase storage and the team's running Codespaces app still need an
-environment-specific check. The shipment filters and Documents follow-up below
-adds coverage to the original 359-test baseline.
+environment-specific check. The shipment filters, Documents and dashboard follow-ups below
+add coverage to the original 359-test baseline.
 
 ## Environment and isolation
 
@@ -162,3 +162,35 @@ node tests/browser/shipment-documents.cjs
 
 Optional `SYSTEM_TEST_ARTIFACTS_DIR` chooses where this runner saves its test
 downloads, screenshot and result JSON. Its default is a temporary directory.
+
+
+## Dashboard missing-document follow-up
+
+The 382-test run passed against disposable SQLite and PostgreSQL databases
+(10 backend-specific skips; no failures). New integration scenarios verify that
+missing PODs include shipments in transit, fully documented shipments disappear,
+and missing POD/invoice/both counts agree. Company, identifier type, search,
+custom pickup dates, status and unassigned-company scope all apply to the list.
+Original legacy records and migrated ER records are covered. The separate
+Delivered without POD management metric retains its existing meaning.
+
+Four Chromium workflow groups passed on the disposable migrated ER app:
+
+1. Keyboard expansion, missing-category counts and filters, identifier types,
+   25-row pagination, and resetting the page when changing category.
+2. Opening Documents targets the original shipment, company and identifier type.
+3. Custom date/status scope and empty-category messaging.
+4. Light/dark theme and usable controls without page overflow at widths 390,
+   768 and 1440 pixels. The list scrolls inside the panel to keep it compact.
+
+No browser JavaScript errors or unexpected server 5xx responses occurred.
+Screenshots were saved outside the repository. The fixture used synthetic
+shipments and local uploads; operational data and Supabase storage were untouched.
+
+Using the same isolated browser server and Playwright configuration above:
+
+```bash
+SYSTEM_TEST_URL=http://127.0.0.1:10003 \
+SYSTEM_TEST_PASSWORD=system-test-only \
+node tests/browser/dashboard-documents.cjs
+```

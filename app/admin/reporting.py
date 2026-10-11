@@ -155,12 +155,19 @@ def analyze(filters, today=None):
     counts = {key: 0 for key in (*STATUSES, 'No status', 'Other')}
     totals = {'total': len(shipments), 'pieces': 0, 'weight': Decimal(0), 'volume': Decimal(0), 'weight_recorded': 0, 'volume_recorded': 0, 'past_expected': 0, 'missing_pod': 0, 'missing_invoice': 0, 'undated': 0, 'unassigned': 0, 'invalid_measurements': 0}
     clients, routes, dates, details, exceptions = {}, {}, {}, [], []
+    missing_documents = []
     for row in shipments:
         group = status_group(row.status)
         counts[group] += 1
         pickup, expected = parse_date(row.pickup_date), parse_date(row.drop_date) or parse_date(row.eta)
         client = row.company.name if row.company else 'Unassigned client'
         client_key = str(row.company_id) if row.company else 'unassigned'
+        if not row.pod_image or not row.invoice_file:
+            missing_documents.append({
+                'identifier': row.consignment_number, 'identifier_type': row.identifier_type or 'LRN',
+                'company': client, 'company_id': client_key, 'status': row.status or 'No status',
+                'missing_pod': not bool(row.pod_image), 'missing_invoice': not bool(row.invoice_file),
+            })
         pieces = row.pieces if isinstance(row.pieces, int) and row.pieces > 0 else 0
         weight, volume = number(row.chargeable_weight), number(row.chargeable_volume)
         flags = []
@@ -242,7 +249,8 @@ def analyze(filters, today=None):
         item['weight'] = float(item['weight'])
     company_label = next((item.name for item in models.Company.query.all() if str(item.id) == filters['company']), 'Unassigned client' if filters['company'] else 'All clients')
     period_label = f'{filters["start"]} to {filters["end"]}' if filters['start'] else 'All time'
-    return {'metrics': totals, 'saved_total': models.shipment_query().count(), 'statuses': [{'label': key, 'count': value} for key, value in counts.items() if value], 'trend': trend, 'grain': grain, 'clients': clients, 'routes': [{'label': key, 'count': value} for key, value in sorted(routes.items(), key=lambda item: (-item[1], item[0]))], 'exceptions': exceptions, 'details': details, 'recent': list(reversed(shipments[-5:])), 'filters': filters, 'period_label': period_label, 'client_label': company_label, 'status_label': filters['status'] or 'All statuses', 'generated_at': datetime.now(IST).strftime('%d %b %Y, %I:%M %p IST'), 'definition': DEFINITION}
+    missing_documents.sort(key=lambda item: (item['identifier'].casefold(), item['identifier_type'], item['company']))
+    return {'missing_documents': missing_documents, 'document_counts': {'any': len(missing_documents), 'pod': sum(item['missing_pod'] for item in missing_documents), 'invoice': sum(item['missing_invoice'] for item in missing_documents), 'both': sum(item['missing_pod'] and item['missing_invoice'] for item in missing_documents)}, 'metrics': totals, 'saved_total': models.shipment_query().count(), 'statuses': [{'label': key, 'count': value} for key, value in counts.items() if value], 'trend': trend, 'grain': grain, 'clients': clients, 'routes': [{'label': key, 'count': value} for key, value in sorted(routes.items(), key=lambda item: (-item[1], item[0]))], 'exceptions': exceptions, 'details': details, 'recent': list(reversed(shipments[-5:])), 'filters': filters, 'period_label': period_label, 'client_label': company_label, 'status_label': filters['status'] or 'All statuses', 'generated_at': datetime.now(IST).strftime('%d %b %Y, %I:%M %p IST'), 'definition': DEFINITION}
 
 
 def filter_options():

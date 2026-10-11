@@ -1,6 +1,7 @@
 """Combined shipment filters and the document library on both database models."""
 import io
 import json
+import re
 from zipfile import ZipFile
 
 import pytest
@@ -127,7 +128,47 @@ def saved_view_identifier_filter(client):
     assert 'FILTER-A1' in content and 'FILTER-A2' in content and 'FILTER-A-LRN' not in content and 'FILTER-B' not in content
 
 
-SCENARIOS = [combined_filters, filtered_exports, filtered_document_zip, library_and_linked_details, invalid_filters, saved_view_identifier_filter]
+def dashboard_missing_documents(client):
+    a, b = dataset(client)
+    assert upload(client, [('FILTER-A1_pod.png', image()), ('FILTER-A2_invoice.pdf', pdf()),
+                          ('FILTER-A-LRN_pod.png', image()), ('FILTER-A-LRN_invoice.pdf', pdf())], apply=True).status_code == 200
+    def dashboard(filters):
+        response = client.get('/admin/dashboard', query_string=filters)
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        match = re.search(r'<script type="application/json" id="missing-document-data">(.*?)</script>', html, re.S)
+        assert match and 'follows your dashboard filters' in html
+        assert 'data-missing-filter="pod"' in html and 'data-missing-filter="both"' in html
+        return json.loads(match.group(1)), html
+    rows, html = dashboard({'search': 'FILTER-'})
+    assert len(rows) == 5
+    assert 'FILTER-A-LRN' not in {row['identifier'] for row in rows}
+    assert sum(row['missing_pod'] for row in rows) == 4
+    assert sum(row['missing_invoice'] for row in rows) == 4
+    assert sum(row['missing_pod'] and row['missing_invoice'] for row in rows) == 3
+    assert {row['identifier_type'] for row in rows} == {'AWB', 'Order ID'}
+    # Existing delivered-without-POD metric is distinct from all-status follow-up.
+    assert all(row['status'] == 'In Transit' for row in rows)
+    rows, html = dashboard({'search': 'FILTER-', 'company': a['id'], 'identifier_type': 'AWB'})
+    assert {row['identifier'] for row in rows} == {'FILTER-A1', 'FILTER-A2'}
+    assert all(row['company_id'] == str(a['id']) and row['company'] == a['name'] for row in rows)
+    assert 'Open Documents' in html
+    rows, _ = dashboard({'search': 'FILTER-', 'company': 'unassigned'})
+    assert len(rows) == 1 and rows[0]['company_id'] == 'unassigned'
+    # Date and status scope is the same as dashboard charts, including invalid dates.
+    original = client.get('/admin/consignments/list', query_string={'search': 'FILTER-', 'per_page': 100}).json['rows']
+    for row in original:
+        row['pickup_date'] = '2026-10-01' if row['consignment_number'] == 'FILTER-A1' else '2026-09-01'
+        row['status'] = 'Delivered' if row['consignment_number'] == 'FILTER-A1' else 'In Transit'
+    assert client.post('/admin/consignments/save', json={'rows': original}).status_code == 200
+    rows, _ = dashboard({'search': 'FILTER-', 'period': 'custom', 'start': '2026-10-01', 'end': '2026-10-10', 'status': 'Delivered'})
+    assert len(rows) == 1 and rows[0]['identifier'] == 'FILTER-A1' and rows[0]['missing_invoice'] and not rows[0]['missing_pod']
+    assert upload(client, [('FILTER-A1_invoice.pdf', pdf())], apply=True).status_code == 200
+    rows, html = dashboard({'search': 'FILTER-A1'})
+    assert rows == [] and 'All PODs and invoices are uploaded in this view.' in html
+
+
+SCENARIOS = [combined_filters, filtered_exports, filtered_document_zip, library_and_linked_details, invalid_filters, saved_view_identifier_filter, dashboard_missing_documents]
 
 
 @pytest.mark.parametrize('scenario', SCENARIOS, ids=lambda fn: fn.__name__)

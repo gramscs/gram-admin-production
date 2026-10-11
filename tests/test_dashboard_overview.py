@@ -14,7 +14,8 @@ def test_dashboard_overview_counts_saved_shipments_and_shows_latest_five(app, ad
         assert f'data-metric="{name}">{count}</div>' in html
     assert '/admin/leads' not in html
     assert 'Customer leads' not in html
-    assert 'OVERVIEW0' not in html
+    recent = html.split('id="latest-shipments"', 1)[1]
+    assert 'OVERVIEW0' not in recent
     for index in range(1, 6):
         assert f'OVERVIEW{index}' in html
 

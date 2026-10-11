@@ -372,6 +372,18 @@ SYSTEM_TEST_PASSWORD=system-test-only \
 node tests/browser/shipment-documents.cjs
 ```
 
+## Dashboard document follow-up
+
+Expand **Missing PODs & invoices** on the dashboard to see the shipments still
+waiting for documents, with their identifier, identifier type, company and status.
+Choose **Either missing**, **POD missing**, **Invoice missing** or **Both missing**.
+Counts and the paginated list follow the dashboard's company, identifier, search,
+pickup-date and status filters. The list includes all shipment statuses by default;
+the existing **Delivered without POD** watchlist metric still counts delivered
+shipments only. **Open Documents** opens the original shipment's document records
+so you can upload the missing files. The list refreshes when you reload the dashboard.
+No database migration is required.
+
 ## Complete admin backup
 
 Choose **Complete backup** in the sidebar or **Download Backup ZIP** on the
