@@ -168,6 +168,15 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
     for shipment, assignment in zip(shipments, assignments, strict=True):
         pieces = shipment['pieces']
         for piece in range(1, pieces+1):
+            # An inset double frame keeps the border clear of all printed data.
+            pdf.saveState()
+            pdf.setStrokeColor(colors.HexColor('#365A3A'))
+            pdf.setLineWidth(.9)
+            pdf.roundRect(8, 6, 272, 420, 8, fill=0, stroke=1)
+            pdf.setStrokeColor(colors.HexColor('#BCCDB2'))
+            pdf.setLineWidth(.35)
+            pdf.roundRect(11, 9, 266, 414, 6, fill=0, stroke=1)
+            pdf.restoreState()
             pdf.setStrokeColor(colors.black)
             pdf.setFillColor(colors.black)
             # The reference's compact header uses our logo and real payment mode.

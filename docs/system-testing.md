@@ -409,3 +409,9 @@ inspected. This is a PDF layout change; no database migration or workflow change
 is required. The current sample is `docs/b2b-label-example.pdf`, with a rendered
 preview at `docs/screenshots/b2b-label.png`. Physical printer output remains
 unverified; print at actual size.
+
+The border follow-up adds a muted green double frame with rounded corners,
+drawn inside the 4×6 page without moving any content. The existing PDF checks
+were rerun for piece counts, embedded logo/fonts, barcode on/off, reviewed
+fields and unchanged database snapshots. The sample PDF and rendered preview
+were updated and visually checked for clearance around the frame.

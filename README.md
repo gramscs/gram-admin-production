@@ -291,6 +291,8 @@ then sender, recipient and a bold destination-PIN band. Chargeable totals, boxes
 pickup date and piece count share one row, followed by tracking/barcode and the
 invoice amount, order/invoice numbers, goods description and optional e-way bill.
 Order and invoice numbers appear side by side.
+An inset double border with rounded corners and muted green strokes frames the
+label, with clear space around its addresses, tracking barcode and footer.
 
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
