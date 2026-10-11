@@ -387,10 +387,13 @@ engines were not checked; print the generated PDFs at actual size (100%).
 
 ## Label design refinement
 
-The label header now uses the GRAM logo alone, with a separate piece badge.
-The identifier and centered barcode form one section; a softly accented
-destination panel emphasizes the address and PIN. Sender details, a three-cell
-invoice/boxes/measurement summary and commercial references follow in order.
+The label header uses the GRAM logo alone, with pickup date and piece count
+aligned opposite it. The tracking number and centered barcode form one section;
+internal identifier types (LRN/AWB/Order ID) are omitted from the printed label.
+Straight rules and consistent margins separate the destination, sender,
+invoice/boxes/measurement summary and commercial references. Order and invoice
+numbers are aligned side by side. Rounded cards and tinted address backgrounds
+have been replaced with a white layout and a thin green brand accent.
 All operational text remains black, fonts remain embedded, and PDF dimensions
 remain 4×6 inches. Barcode-free labels give the destination additional space.
 

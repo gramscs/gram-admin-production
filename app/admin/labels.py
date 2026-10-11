@@ -141,21 +141,21 @@ def labels_review():
         return jsonify(success=False, message=str(error)), 400
 
 
-def _fit_text(pdf, text, x, y, width, height, font='LabelSans', size=10, leading=None):
-    paragraph = Paragraph(text, ParagraphStyle('label', fontName=font, fontSize=size, leading=leading or size*1.2, textColor=colors.black))
+def _fit_text(pdf, text, x, y, width, height, font='LabelSans', size=10, leading=None, alignment=0):
+    paragraph = Paragraph(text, ParagraphStyle('label', fontName=font, fontSize=size, leading=leading or size*1.2, textColor=colors.black, alignment=alignment))
     box = KeepInFrame(width, height, [paragraph], mode='shrink')
     _, used_height = box.wrapOn(pdf, width, height)
     box.drawOn(pdf, x, y-used_height)
 
 
 def _address(pdf, title, name, address, pin, top, height, recipient=False):
-    left, width = (26, 236) if recipient else (22, 244)
+    left, width = 20, 248
     pdf.setFont('LabelSansBold', 6.5)
     pdf.drawString(left, top, title)
     pdf.setFont('LabelSansBold', 13 if recipient else 9)
     pdf.drawRightString(left + width, top, 'PIN: ' + (pin or '—'))
     text = '<b>' + escape(name or ('Recipient' if recipient else 'Sender')) + '</b><br/>' + escape(address or 'Address not provided').replace('\n', '<br/>')
-    _fit_text(pdf, text, left, top-14, width, height, size=11 if recipient else 8.5, leading=13.5 if recipient else 10.5)
+    _fit_text(pdf, text, left, top-14, width, height, size=12 if recipient else 8.5, leading=14 if recipient else 10.5)
 
 
 def generate_labels_pdf(shipments, assignments, include_barcode=True):
@@ -164,74 +164,70 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
     pdf.setTitle('Gram SCS B2B Shipping Labels')
     pdf.setAuthor('Gram SCS')
     logo = Path(current_app.static_folder, 'images', 'logo.png')
-    rule = colors.HexColor('#D2D9CD')
-    paper_green = colors.HexColor('#F4F8F0')
+    rule = colors.HexColor('#9FA99A')
     accent = colors.HexColor('#6DA936')
     for shipment, assignment in zip(shipments, assignments, strict=True):
         pieces = shipment['pieces']
         for piece in range(1, pieces+1):
+            pdf.setStrokeColor(accent)
+            pdf.setLineWidth(1.5)
+            pdf.line(18, 419, 270, 419)
             pdf.setStrokeColor(rule)
-            pdf.setLineWidth(.6)
-            pdf.roundRect(10, 10, 268, 412, 9)
+            pdf.setLineWidth(.5)
             pdf.setFillColor(colors.black)
-            # Brand mark alone, balanced by the piece badge at the opposite edge.
-            pdf.drawImage(str(logo), 22, 379, width=84, height=36, mask='auto')
+            # Fixed margins and rules keep every section on the same grid.
+            pdf.drawImage(str(logo), 20, 379, width=84, height=36, mask='auto')
+            pdf.setFont('LabelSansBold', 10)
+            pdf.drawRightString(268, 402, f'Piece {piece} of {pieces}')
             pdf.setFont('LabelSans', 6)
-            pdf.drawCentredString(228, 408, 'PACKAGE')
-            pdf.setFillColor(paper_green)
-            pdf.roundRect(190, 383, 76, 19, 5, fill=1, stroke=1)
-            pdf.setFillColor(colors.black)
-            pdf.setFont('LabelSansBold', 9)
-            pdf.drawCentredString(228, 389, f'Piece {piece} of {pieces}')
-            _fit_text(pdf, escape(shipment['company']), 22, 374, 244, 10, size=7)
-            _fit_text(pdf, '<b>PICKUP DATE</b>  ' + escape(shipment['pickup_date']), 22, 359, 244, 10, size=8)
-            pdf.line(22, 346, 266, 346)
+            pdf.drawRightString(268, 389, 'PICKUP DATE')
+            _fit_text(pdf, escape(shipment['pickup_date']), 156, 386, 112, 11, size=8, alignment=2)
+            _fit_text(pdf, escape(shipment['company']), 20, 373, 248, 10, size=7)
+            pdf.line(18, 358, 270, 358)
 
-            # The identifier and barcode stay together; addresses lead the page.
-            pdf.setFont('LabelSansBold', 6.5)
-            pdf.drawString(22, 334, 'SHIPMENT / ' + shipment['identifier_type'])
-            _fit_text(pdf, escape(shipment['consignment_number']), 22, 326, 244, 24, font='LabelSansBold', size=18, leading=19)
+            # The tracking reference stands alone; internal identifier types
+            # are useful in the admin panel, not on the printed label.
+            _fit_text(pdf, escape(shipment['consignment_number']), 20, 346, 248, 24, font='LabelSansBold', size=18, leading=20, alignment=1)
             if include_barcode:
-                barcode = code128.Code128(shipment['consignment_number'], barHeight=26, barWidth=.8, humanReadable=False)
+                barcode = code128.Code128(shipment['consignment_number'], barHeight=27, barWidth=.8, humanReadable=False)
                 pdf.saveState()
-                scale = min(1, 252 / barcode.width)
-                pdf.translate(18 + (252 - barcode.width * scale) / 2, 270)
+                scale = min(1.8, 252 / barcode.width)
+                pdf.translate(18 + (252 - barcode.width * scale) / 2, 292)
                 pdf.scale(scale, 1)
                 barcode.drawOn(pdf, 0, 0)
                 pdf.restoreState()
-            destination_top = 258 if include_barcode else 294
-            pdf.setFillColor(paper_green)
-            pdf.roundRect(18, 187, 252, destination_top - 187, 6, fill=1, stroke=1)
-            pdf.setStrokeColor(accent)
-            pdf.setLineWidth(2)
-            pdf.line(19, 198, 19, destination_top - 11)
-            pdf.setStrokeColor(rule)
-            pdf.setLineWidth(.6)
-            pdf.setFillColor(colors.black)
-            _address(pdf, 'DELIVER TO', shipment['drop_tag'], shipment['drop_address'], shipment['drop_pincode'], destination_top - 14, destination_top - 223, recipient=True)
-            _address(pdf, 'SHIP FROM', shipment['pickup_tag'], shipment['pickup_address'], shipment['pickup_pincode'], 173, 28)
+            destination_top = 282 if include_barcode else 322
+            pdf.line(18, destination_top, 270, destination_top)
+            _address(pdf, 'DELIVER TO', shipment['drop_tag'], shipment['drop_address'], shipment['drop_pincode'], destination_top - 12, destination_top - 239, recipient=True)
+            pdf.line(18, 205, 270, 205)
+            _address(pdf, 'SHIP FROM', shipment['pickup_tag'], shipment['pickup_address'], shipment['pickup_pincode'], 193, 31)
+            pdf.line(18, 143, 270, 143)
 
-            # A quiet summary strip separates operational data from references.
-            pdf.roundRect(18, 83, 252, 40, 6, fill=0, stroke=1)
-            pdf.line(120, 90, 120, 116)
-            pdf.line(170, 90, 170, 116)
+            # Equal baselines and paired references replace nested cards.
+            pdf.line(120, 111, 120, 135)
+            pdf.line(180, 111, 180, 135)
             pdf.setFont('LabelSans', 6)
-            pdf.drawString(26, 114, 'INVOICE AMOUNT')
-            pdf.drawString(127, 114, 'BOXES')
-            pdf.drawString(177, 114, 'CHARGEABLE TOTALS')
-            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 26, 109, 88, 17, font='LabelSansBold', size=11)
-            _fit_text(pdf, str(pieces), 127, 109, 36, 17, font='LabelSansBold', size=12)
+            pdf.drawString(20, 132, 'INVOICE AMOUNT')
+            pdf.drawString(129, 132, 'BOXES')
+            pdf.drawString(189, 132, 'CHARGEABLE TOTALS')
+            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 20, 128, 92, 17, font='LabelSansBold', size=11)
+            _fit_text(pdf, str(pieces), 129, 128, 43, 17, font='LabelSansBold', size=12)
             weight, volume = shipment['chargeable_weight'], shipment['chargeable_volume']
-            _fit_text(pdf, (weight or '—') + ' kg', 177, 109, 85, 12, font='LabelSansBold', size=9)
+            _fit_text(pdf, (weight or '—') + ' kg', 189, 128, 79, 12, font='LabelSansBold', size=9)
             if volume is not None:
-                _fit_text(pdf, volume + ' m3', 177, 97, 85, 9, size=7)
-            _fit_text(pdf, '<b>PAYMENT:</b> ' + PAYMENT_MODES[shipment['payment_mode']], 22, 77, 244, 10, size=8)
-            _fit_text(pdf, '<b>ORDER ID:</b> ' + assignment['order_id'], 22, 65, 244, 10, size=8)
-            _fit_text(pdf, '<b>INVOICE:</b> ' + assignment['invoice_number'], 22, 53, 244, 10, size=8)
-            _fit_text(pdf, '<b>GOODS:</b> ' + escape(shipment['goods_description']).replace('\n', '<br/>'), 22, 43, 244, 20, size=8)
+                _fit_text(pdf, volume + ' m3', 189, 116, 79, 9, size=7)
+            pdf.line(18, 105, 270, 105)
+            _fit_text(pdf, '<b>PAYMENT:</b> ' + PAYMENT_MODES[shipment['payment_mode']], 20, 101, 248, 11, size=8)
+            pdf.setFont('LabelSans', 6)
+            pdf.drawString(20, 86, 'ORDER NUMBER')
+            pdf.drawString(148, 86, 'INVOICE NUMBER')
+            _fit_text(pdf, assignment['order_id'], 20, 81, 120, 11, size=7.5)
+            _fit_text(pdf, assignment['invoice_number'], 148, 81, 120, 11, size=7.5)
+            pdf.drawString(20, 62, 'GOODS DESCRIPTION')
+            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 20, 58, 248, 24, size=8, leading=9.5)
             if shipment['eway_bill_exists']:
                 pdf.setFont('LabelSansBold', 7)
-                pdf.drawString(22, 17, 'E-WAY BILL: ' + shipment['eway_bill_number'])
+                pdf.drawString(20, 21, 'E-WAY BILL: ' + shipment['eway_bill_number'])
             pdf.showPage()
     pdf.save()
     buffer.seek(0)

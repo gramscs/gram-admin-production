@@ -285,6 +285,11 @@ per piece. All pieces of a shipment share the reviewed commercial details and
 assigned order/invoice numbers. Print at 100% scale; Code 128 barcodes remain
 optional. The Archive Delivered button and deletion endpoint have been removed.
 
+Printed labels show the tracking number without an LRN, AWB or Order ID type
+heading. Logo/date/piece count, tracking/barcode, destination, sender, shipment
+totals and commercial references follow a consistent grid with straight section
+rules. Order and invoice numbers appear side by side.
+
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
 year and a sequence across that year. Preview, download and reprint of the same
@@ -621,7 +626,7 @@ Uncheck **Include Code 128 barcode** to print address labels without it. The
 format does not claim GS1-128/SSCC compliance; carrier-specific GS1 requirements
 need a separate identifier/format. See the [GS1 barcode overview](https://www.gs1.org/standards/barcodes/1d-barcodes).
 
-Labels print on white paper with black text and subtle green destination accents,
+Labels print on white paper with black text and a thin green brand accent,
 irrespective of the admin theme. The destination address and PIN receive priority; shipment totals
 are clearly marked so they are not mistaken for per-piece weights/volumes.
 Fonts are embedded for consistent printing. [View a sample three-piece label PDF](docs/b2b-label-example.pdf).
