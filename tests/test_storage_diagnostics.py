@@ -11,19 +11,21 @@ from test_complete_backup import unpack
 
 
 @pytest.mark.parametrize('url,key', [('https://test.supabase.co', ''), ('', 'private-test-key')])
-def test_incomplete_settings_reject_upload_and_preserve_existing_file(app, admin_client, monkeypatch, url, key):
-    row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'old.png'))
-    old = Path(app.instance_path, 'uploads', row['pod_image'])
+@pytest.mark.parametrize('kind', ['pod', 'invoice'])
+def test_incomplete_settings_reject_upload_and_preserve_existing_file(app, admin_client, monkeypatch, url, key, kind):
+    field = 'pod_image' if kind == 'pod' else 'invoice_file'
+    row = create_shipment(admin_client, **attachment(kind, image_bytes(), 'old.png'))
+    old = Path(app.instance_path, 'uploads', row[field])
     before = old.read_bytes()
     monkeypatch.setenv('SUPABASE_URL', url)
     monkeypatch.setenv('SUPABASE_KEY', key)
     with pytest.raises(RuntimeError, match='Set both SUPABASE_URL and SUPABASE_KEY'):
         controller._get_supabase_client()
-    result = admin_client.post('/admin/consignments/' + str(row['id']) + '/pod',
+    result = admin_client.post('/admin/consignments/' + str(row['id']) + '/' + kind,
                                data={'file': (io.BytesIO(image_bytes()), 'new.png')})
     assert result.status_code == 500
     assert old.read_bytes() == before and list(old.parent.iterdir()) == [old]
-    assert admin_client.get('/admin/consignments/list').json['rows'][0]['pod_image'] == row['pod_image']
+    assert admin_client.get('/admin/consignments/list').json['rows'][0][field] == row[field]
     checked = app.test_cli_runner().invoke(args=['check-storage'])
     assert checked.exit_code != 0 and 'Set both' in checked.output and 'private-test-key' not in checked.output
 

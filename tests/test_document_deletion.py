@@ -136,7 +136,8 @@ def test_shipment_delete_purges_all_versions_after_validation(panel, storage):
 
 @pytest.mark.parametrize('failure', ['raise', 'noop', 'unconfigured'])
 @pytest.mark.parametrize('via', ['editor', 'save_all', 'shipment'])
-def test_failed_storage_delete_never_reports_success_or_drops_database_links(panel, storage, monkeypatch, failure, via):
+@pytest.mark.parametrize('kind', ['pod', 'invoice'])
+def test_failed_storage_delete_never_reports_success_or_drops_database_links(panel, storage, monkeypatch, failure, via, kind):
     app, client = panel
     row = add(client)
     before = dict(storage.objects)
@@ -144,12 +145,12 @@ def test_failed_storage_delete_never_reports_success_or_drops_database_links(pan
     if failure == 'unconfigured':
         monkeypatch.setattr(controller, '_get_supabase_client', lambda: None)
     if via == 'editor':
-        result = client.delete(f"/admin/consignments/{row['id']}/pod", json={})
+        result = client.delete(f"/admin/consignments/{row['id']}/{kind}", json={})
     elif via == 'shipment':
         result = client.post('/admin/consignments/save', json={'rows': [], 'deleted_ids': [row['id']]})
     else:
         result = client.post('/admin/consignments/save', json={'rows': [{
-            'id': row['id'], 'consignment_number': row['consignment_number'], 'pieces': 9, 'pod_remove': True}]})
+            'id': row['id'], 'consignment_number': row['consignment_number'], 'pieces': 9, kind + '_remove': True}]})
     assert result.status_code == 500 and result.json['success'] is False
     assert 'PRIVATE-PROVIDER-KEY' not in result.get_data(as_text=True)
     assert storage.objects == before
@@ -171,21 +172,45 @@ def test_second_file_delete_failure_restores_first_object_and_entire_sql_change(
 
 
 @pytest.mark.parametrize('remote', [True, False])
-def test_database_commit_failure_restores_deleted_bytes(panel, storage, monkeypatch, remote):
+@pytest.mark.parametrize('kind', ['pod', 'invoice'])
+def test_database_commit_failure_restores_deleted_bytes(panel, storage, monkeypatch, remote, kind):
     app, client = panel
     if not remote:
         monkeypatch.setattr(controller, '_get_supabase_client', lambda: None)
-    row = add(client, both=False)
-    before = client.get(f"/admin/consignments/{row['id']}/pod").data
+    row = add(client)
+    field = 'pod_image' if kind == 'pod' else 'invoice_file'
+    before = client.get(f"/admin/consignments/{row['id']}/{kind}").data
     def fail():
         raise RuntimeError('Simulated SQL failure')
     monkeypatch.setattr(db.session, 'commit', fail)
-    result = client.delete(f"/admin/consignments/{row['id']}/pod", json={})
+    result = client.delete(f"/admin/consignments/{row['id']}/{kind}", json={})
     assert result.status_code == 500
-    assert get_row(client)['pod_image'] == row['pod_image']
-    assert client.get(f"/admin/consignments/{row['id']}/pod").data == before
+    assert get_row(client)[field] == row[field]
+    assert client.get(f"/admin/consignments/{row['id']}/{kind}").data == before
     if not remote:
-        assert Path(app.instance_path, 'uploads', row['pod_image'].removeprefix('local:')).read_bytes() == before
+        assert Path(app.instance_path, 'uploads', row[field].removeprefix('local:')).read_bytes() == before
+
+
+@pytest.mark.parametrize('bucket', ['invoice-uploads', 'client-invoices'])
+def test_invoice_upload_download_replace_remove_uses_supabase_not_instance(panel, storage, monkeypatch, bucket):
+    app, client = panel
+    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', bucket)
+    local_before = {path for path in Path(app.instance_path, 'uploads').rglob('*') if path.is_file()}
+    original = add(client)
+    assert original['invoice_file'].startswith(f'supabase:{bucket}/consignments/invoice-')
+    assert original['pod_image'].startswith('supabase:pod-uploads/consignments/pod-')
+    assert client.get(f"/admin/consignments/{original['id']}/invoice").mimetype == 'application/pdf'
+    # A later setting change must not change the location of an existing file.
+    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'next-invoices')
+    assert client.get(f"/admin/consignments/{original['id']}/invoice").status_code == 200
+    current = replace(client, original, 'invoice')
+    assert current['invoice_file'].startswith('supabase:next-invoices/consignments/invoice-')
+    result = client.delete(f"/admin/consignments/{original['id']}/invoice", json={'expected_reference': current['invoice_file']})
+    assert result.status_code == 200, result.json
+    assert get_row(client)['invoice_file'] is None
+    assert {name for name, _ in storage.objects} == {'pod-uploads'}
+    assert_er_purged(app, 'DEMO0017', [original['invoice_file'], current['invoice_file']], 'invoice')
+    assert {path for path in Path(app.instance_path, 'uploads').rglob('*') if path.is_file()} == local_before
 
 
 def test_irrecoverable_restore_is_reported_truthfully(panel, storage, monkeypatch):

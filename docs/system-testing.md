@@ -302,3 +302,31 @@ AUTO_CREATE_TABLES=false python -m flask --app wsgi:app purge-removed-documents 
 No schema migration or new dependency is required. Pull the update and restart
 the running app. Actual Supabase deletion still requires that app's private
 Storage credentials and permissions; no live object cleanup was claimed here.
+
+## Invoice storage follow-up
+
+Invoice uploads already use the same private document service and synchronized
+deletion logic as PODs. No separate invoice implementation was introduced.
+The follow-up extends failure and rollback checks to invoices and verifies the
+default/configurable invoice bucket through upload, private download, replacement
+and removal, including a bucket-setting change after upload. With configured
+mock Supabase storage, no new invoice file appears in `instance/uploads`.
+Both remote invoice versions and their unshared metadata are removed, while the
+POD remains attached. Incomplete credentials reject invoice uploads and preserve
+previous attachments instead of creating new local files.
+
+The focused run passed **210 tests**, with no skips/failures and two dependency
+deprecation warnings. It includes document deletion, storage diagnostics, bulk
+routing and validation against disposable SQLite and PostgreSQL databases.
+All six document-editor browser workflows also passed, including invoice image
+upload, Remove/Undo, saved invoice removal and PDF re-upload.
+
+The actual `check-storage` CLI was run with a disposable database URI and table
+creation disabled. Both Supabase credentials were blank in this cloud runtime,
+so it correctly reported local storage without changing database records/files.
+The cloud environment draft now includes the confirmed project base URL, both
+bucket names, a direct `SUPABASE_KEY` requirement and the project's Storage
+hostname alongside the existing database hostname. Saving a draft does not apply
+credentials or publish it. The server key must be entered securely; actual live
+Supabase reads/uploads/deletes remain unverified until it is available. Codespaces
+uses its own `.env` and requires a restart after configuration changes.

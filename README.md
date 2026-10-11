@@ -462,6 +462,23 @@ the POD/default bucket. Existing references still download from their original
 bucket; this update does not move earlier files. Complete backups inventory
 both configured buckets, including unlinked files under `consignments/`.
 
+Invoice upload, download, replacement and removal use the same document service
+as PODs. With both Supabase credentials set, new invoices are stored under
+`invoice-uploads/consignments/`, not `instance/uploads/`. This applies to the
+shipment form, Documents editor and bulk uploader. Their database references
+include the bucket, so downloads/removals still find earlier files if you change
+the bucket setting. A failed remote operation reports an error instead of
+saving a new invoice locally. When both credentials are blank, both document
+types intentionally use local development storage.
+
+To activate remote invoices in the running Codespaces app, set both credentials
+securely in its `.env`, keep `SUPABASE_INVOICE_BUCKET=invoice-uploads`, restart,
+and run `AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-storage`.
+After uploading a new invoice, Documents should show **Supabase · invoice-uploads**.
+Existing local invoices keep their original references; turning on credentials
+does not transfer files already uploaded locally. Re-upload those files through
+the invoice editor to move their current attachment to Supabase.
+
 Choose **Bulk documents** on the consignment page:
 
 - Upload multiple files named `consignmentNum_pod.ext` or
