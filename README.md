@@ -278,7 +278,7 @@ payment mode and description across the batch, after which individual fields
 remain editable. Invoice amounts and e-way bills are entered per shipment.
 Use **Preview PDF** or **Download PDF** when all shipments are ready.
 
-The branded **GRAM SCS / GRAM B2B** 4×6-inch PDF uses the supplied GRAM logo,
+The 4×6-inch PDF uses the supplied GRAM logo alone in the header,
 saved pickup date, shipment identifier, boxes, chargeable weight/volume totals,
 pickup/sender and drop/recipient addresses and PIN codes. It produces one label
 per piece. All pieces of a shipment share the reviewed commercial details and
@@ -621,8 +621,8 @@ Uncheck **Include Code 128 barcode** to print address labels without it. The
 format does not claim GS1-128/SSCC compliance; carrier-specific GS1 requirements
 need a separate identifier/format. See the [GS1 barcode overview](https://www.gs1.org/standards/barcodes/1d-barcodes).
 
-Labels always print on a white background with black text, irrespective of the
-admin theme. The destination address and PIN receive priority; shipment totals
+Labels print on white paper with black text and subtle green destination accents,
+irrespective of the admin theme. The destination address and PIN receive priority; shipment totals
 are clearly marked so they are not mistaken for per-piece weights/volumes.
 Fonts are embedded for consistent printing. [View a sample three-piece label PDF](docs/b2b-label-example.pdf).
 

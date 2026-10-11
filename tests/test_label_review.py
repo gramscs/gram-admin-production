@@ -67,7 +67,8 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
     assert len(output) == 4
     for index, page in enumerate(output):
         extracted = page.extract_text()
-        assert 'GRAM SCS' in extracted and 'GRAM B2B' in extracted and '09/10/2026' in extracted
+        assert 'GRAM SCS' not in extracted and 'GRAM B2B' not in extracted
+        assert '09/10/2026' in extracted
         assert rows[index // 2]['consignment_number'] in extracted
         assert '100.000 kg' in extracted and '1.500 m3' in extracted
         assert f'Piece {index % 2 + 1} of 2' in extracted

@@ -384,3 +384,22 @@ No migration or new application dependency is required. Preserve
 must share that volume and support file locking. Preview reserves a sequence,
 so abandoned previews can leave gaps. Physical printer output and other browser
 engines were not checked; print the generated PDFs at actual size (100%).
+
+## Label design refinement
+
+The label header now uses the GRAM logo alone, with a separate piece badge.
+The identifier and centered barcode form one section; a softly accented
+destination panel emphasizes the address and PIN. Sender details, a three-cell
+invoice/boxes/measurement summary and commercial references follow in order.
+All operational text remains black, fonts remain embedded, and PDF dimensions
+remain 4×6 inches. Barcode-free labels give the destination additional space.
+
+The focused label/company tests passed **48 tests** without failures, covering
+legacy and ER SQLite backends. All **four browser workflow groups** passed again
+with 50 selected shipments and real preview/download/reprint PDFs. Representative
+short/long destination addresses, weight plus volume, optional e-way bills,
+longer goods descriptions and barcode-free pages were rendered and visually
+inspected. This is a PDF layout change; no database migration or workflow change
+is required. The current sample is `docs/b2b-label-example.pdf`, with a rendered
+preview at `docs/screenshots/b2b-label.png`. Physical printer output remains
+unverified; print at actual size.
