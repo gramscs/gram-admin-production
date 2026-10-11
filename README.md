@@ -265,13 +265,40 @@ python -m flask --app wsgi:app check-db
 The upgrade adds shipment/document columns, creates company/location master
 tables, retains legacy enquiry columns, and allows longer identifiers without deleting records. It does not require copying or replacing the database.
 
-Open **B2B Labels** in the sidebar, select saved shipments, and download a
-4×6-inch PDF. The PDF has one page per piece with the identifier, Code 128
-barcode (optional), client company, sender and recipient addresses/PIN codes,
-piece number, and shipment chargeable weight/volume totals. The label screen
-shows selected shipment and piece counts and offers PDF preview before download. Print at 100% scale. Each download is limited
-to 500 labels; selections apply to the current page. The Archive Delivered
-button and deletion endpoint have been removed.
+Open **B2B Labels**, select saved shipments, then click **Generate labels** to
+open **Review label details**. Selections and entered details survive page
+changes, searches and refreshes in the same browser tab. Each batch is limited
+to 500 piece labels.
+
+For each selected shipment, enter its invoice amount in rupees, choose
+**Pre-paid**, **To pay**, or **Cash on delivery**, and enter a goods description.
+Check **E-way bill exists** only when applicable and enter its 12-digit number;
+unchecked e-way bills are omitted entirely. **Apply common details** fills the
+payment mode and description across the batch, after which individual fields
+remain editable. Invoice amounts and e-way bills are entered per shipment.
+Use **Preview PDF** or **Download PDF** when all shipments are ready.
+
+The branded **GRAM SCS / GRAM B2B** 4×6-inch PDF uses the supplied GRAM logo,
+saved pickup date, shipment identifier, boxes, chargeable weight/volume totals,
+pickup/sender and drop/recipient addresses and PIN codes. It produces one label
+per piece. All pieces of a shipment share the reviewed commercial details and
+assigned order/invoice numbers. Print at 100% scale; Code 128 barcodes remain
+optional. The Archive Delivered button and deletion endpoint have been removed.
+
+Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
+sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
+year and a sequence across that year. Preview, download and reprint of the same
+unchanged batch reuse its numbers. Changing its selection/details creates a new
+batch. Preview reserves numbers, so abandoned previews can leave sequence gaps.
+
+**No database schema or records are changed by label generation.** Reviewed
+snapshots and locked numbering files are stored privately under
+`instance/uploads/.label-state/` and included in the complete backup. Preserve
+this folder on a persistent volume across app restarts and deployments. Multiple
+server instances must share the same volume with file-lock support to maintain
+one sequence; independent copies cannot coordinate numbering. Restore numbering
+along with the corresponding backup. These are label references; the app does
+not create accounting invoices from these inputs.
 
 ## Deploy as an individual app
 
@@ -557,7 +584,7 @@ and keep the storage key on the server; a public bucket has its own access rules
 The sidebar groups **Reporting**, **Shipment operations**, **Master data**, and
 **Data & account**. Labels use a compact print-settings panel with normal page
 scrolling; on tablets and phones, settings appear before the shipment list.
-[View the updated label settings](docs/screenshots/labels-settings.png).
+[View the batch label review](docs/screenshots/label-review.png).
 
 ### Check where uploaded documents are stored
 

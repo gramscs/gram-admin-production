@@ -330,3 +330,57 @@ hostname alongside the existing database hostname. Saving a draft does not apply
 credentials or publish it. The server key must be entered securely; actual live
 Supabase reads/uploads/deletes remain unverified until it is available. Codespaces
 uses its own `.env` and requires a restart after configuration changes.
+
+## Reviewed GRAM B2B labels
+
+The full suite passed **568 tests**, with **10 expected skips**, no failures and
+two dependency deprecation warnings against disposable SQLite/PostgreSQL
+databases. A subsequently added process-restart/corrupt-state test also passed
+separately. No live database or Supabase bucket was used for these checks.
+
+Label checks cover authoritative pickup dates, saved addresses/measurement
+totals, the embedded GRAM logo, required invoice amounts, all three payment
+modes, goods descriptions, conditional 12-digit e-way bills, and 4×6-inch PDF
+pages. Fifty shipments with two pieces each produce 100 readable pages, with
+one order/invoice assignment per shipment. Database table/row snapshots remain
+identical before and after review and generation on legacy and ER backends.
+
+Numbering checks include 20 concurrent requests, daily order rollover,
+April–March financial-year invoice rollover, changed-batch/owner rejection,
+render failure without reserved numbers, and preview/download retries without
+new assignments. Separate Python processes retain previous assignments and
+continue the sequence; corrupt state rejects generation instead of resetting.
+The complete backup includes the private numbering files and reviewed snapshots.
+
+All **four browser workflow groups** in `tests/browser/label-review.cjs` passed:
+
+- Fifty shipments selected across two pages retain their selection on refresh
+  and receive one review card each.
+- Common payment/description values and individual overrides work; missing
+  invoice amounts prevent generation and optional e-way bills are validated.
+- Actual PDF download, preview and refresh/reprint reuse references while
+  shipment data stays unchanged.
+- Light/dark layouts at desktop, tablet and phone sizes keep the modal footer
+  reachable, without horizontal overflow, JavaScript errors or server errors.
+
+The browser downloaded 51 piece labels for 50 shipments. Every page contains
+text and the embedded logo; reprint text matches the original page for page.
+Only the shipment with an enabled e-way bill prints that field. The first PDF
+page and desktop/mobile review screens were rendered and inspected visually.
+The updated sample PDF is `docs/b2b-label-example.pdf`, and the batch-review
+screenshot is `docs/screenshots/label-review.png`.
+
+```bash
+python -m pytest -q -ra
+python -m pytest -q tests/test_label_review.py -k process_restart
+SYSTEM_TEST_PORT=10003 python tests/browser/serve.py
+# In another terminal, with Playwright and Chromium installed:
+SYSTEM_TEST_URL=http://127.0.0.1:10003 SYSTEM_TEST_PASSWORD=system-test-only \
+  node tests/browser/label-review.cjs
+```
+
+No migration or new application dependency is required. Preserve
+`instance/uploads/.label-state/` on a persistent volume; multiple app servers
+must share that volume and support file locking. Preview reserves a sequence,
+so abandoned previews can leave gaps. Physical printer output and other browser
+engines were not checked; print the generated PDFs at actual size (100%).

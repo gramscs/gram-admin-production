@@ -66,12 +66,13 @@ def test_client_link_excel_roundtrip_and_legacy_update(admin_client):
 
 
 def test_updated_labels_have_optional_barcode_and_company_name(admin_client):
+    from label_helpers import label_form
     master = company(admin_client)
     admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'BARCODE001', 'company_id': master['id'], 'pieces': 2, 'pickup_address': 'Sender Road', 'drop_address': 'Receiver Road'}]})
     row = admin_client.get('/admin/consignments/list').get_json()['rows'][0]
     outputs = []
     for barcode in ['1', '0']:
-        response = admin_client.post('/admin/labels/generate', data={'consignment_ids': [row['id']], 'barcode': barcode, 'delivery': 'preview'})
+        response = admin_client.post('/admin/labels/generate', data=label_form([row['id']], barcode=barcode, delivery='preview'))
         assert response.status_code == 200 and response.headers['Content-Disposition'].startswith('inline')
         pdf = PdfReader(io.BytesIO(response.data))
         assert len(pdf.pages) == 2

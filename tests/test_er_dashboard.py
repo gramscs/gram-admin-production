@@ -95,7 +95,8 @@ def test_uuid_companies_and_label_printing(migrated_admin):
     update = client.put('/admin/companies/' + company['id'], json={**company, 'address': 'Updated registered office'})
     assert update.status_code == 200, update.get_json()
     shipment = client.get('/admin/consignments/list').get_json()['rows'][0]
-    printed = client.post('/admin/labels/generate', data={'consignment_ids': [shipment['id']]})
+    from label_helpers import label_form
+    printed = client.post('/admin/labels/generate', data=label_form([shipment['id']]))
     assert printed.status_code == 200 and printed.data.startswith(b'%PDF'), printed.get_json()
 
 

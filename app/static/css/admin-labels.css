@@ -1,0 +1,19 @@
+.label-common-panel, .label-review-card { padding: 1rem; background: var(--admin-soft); border: 1px solid var(--admin-border); border-radius: .75rem; }
+.label-common-fields { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(180px, 2fr) auto; gap: .75rem; align-items: end; }
+.label-review-card { margin-bottom: .8rem; background: var(--admin-surface); }
+.label-review-card h3 { font-size: 1rem; margin: 0; overflow-wrap: anywhere; }
+.label-review-card .label-snapshot { display: flex; gap: .75rem; flex-wrap: wrap; font-size: .75rem; color: var(--admin-muted); margin: .4rem 0 .8rem; }
+.label-review-fields { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(140px, 1fr) minmax(160px, 2fr); gap: .75rem; }
+.label-review-card .form-label { font-size: .8rem; }
+.label-eway { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; margin-top: .8rem; }
+.label-eway .form-control { width: 190px; max-width: 100%; }
+.label-review-footer { justify-content: space-between; gap: .75rem; background: var(--admin-surface); }
+#labelReviewModal .modal-content { max-height: calc(100dvh - 2rem); }
+#labelReviewModal .modal-header, #labelReviewModal .modal-footer { flex-shrink: 0; }
+#labelReviewModal .modal-body { overflow-y: auto; }
+@media (max-width: 767.98px) {
+  .label-common-fields, .label-review-fields { grid-template-columns: minmax(0, 1fr); }
+  .label-review-footer > div { width: 100%; }
+  .label-review-footer .btn { flex: 1; }
+  #labelReviewModal .modal-content { max-height: calc(100dvh - 1rem); }
+}

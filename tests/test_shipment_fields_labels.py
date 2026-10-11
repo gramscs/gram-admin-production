@@ -8,6 +8,7 @@ from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine
 
 from app import create_app
 from app.models import Consignment, db
+from label_helpers import label_form
 
 
 def saved(client, **values):
@@ -79,7 +80,7 @@ def test_new_fields_excel_roundtrip(admin_client):
 def test_labels_pdf_size_piece_count_and_contents(admin_client):
     row = saved(admin_client)
     assert b"B2B Shipping Labels" in admin_client.get("/admin/labels").data
-    response = admin_client.post("/admin/labels/generate", data={"consignment_ids": [row["id"]]})
+    response = admin_client.post("/admin/labels/generate", data=label_form([row['id']]))
     assert response.status_code == 200
     assert response.mimetype == "application/pdf"
     pdf = PdfReader(io.BytesIO(response.data))
@@ -100,7 +101,7 @@ def test_label_errors_and_duplicate_selection(admin_client):
     row = saved(admin_client, pieces=501)
     assert admin_client.post("/admin/labels/generate", data={"consignment_ids": [row["id"]]}).status_code == 400
     row = saved(admin_client, id=row["id"], pieces=1)
-    result = admin_client.post("/admin/labels/generate", data={"consignment_ids": [row["id"], row["id"]]})
+    result = admin_client.post("/admin/labels/generate", data=label_form([row['id'], row['id']]))
     assert len(PdfReader(io.BytesIO(result.data)).pages) == 1
 
 
