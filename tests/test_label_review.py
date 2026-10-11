@@ -72,16 +72,16 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
         assert '09/10/2026' in extracted
         assert rows[index // 2]['consignment_number'] in extracted
         assert '100.000 kg' in extracted and '1.500 m3' in extracted
-        assert f'Piece {index % 2 + 1} of 2' in extracted
+        assert 'PIECE' in extracted and f'{index % 2 + 1} of 2' in extracted
         assert f'B2B-20261011-{index // 2 + 1:04d}' in extracted
         assert f'B2B-2026-27-{index // 2 + 1:04d}' in extracted
         assert '429 Jagraj Gram' in extracted and 'Ms Ashiya' in extracted
         assert list(page.images), 'GRAM logo must be embedded'
         assert (float(page.mediabox.width), float(page.mediabox.height)) == (288, 432)
         if index < 2:
-            assert 'Rs 6,000.50' in extracted and 'To pay' in extracted and 'E-WAY BILL: 123456789012' in extracted
+            assert 'Rs 6,000.50' in extracted and 'TO PAY' in extracted and 'E-WAY BILL: 123456789012' in extracted
         else:
-            assert 'Cash on delivery' in extracted and 'Tyres & wheels <boxed>' in extracted
+            assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
             assert 'E-WAY BILL' not in extracted and 'ignore unchecked' not in extracted
     assert snapshot(app) == before
     archive, _, report = unpack(client.get('/admin/generate-backup'))

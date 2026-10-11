@@ -88,7 +88,7 @@ def test_labels_pdf_size_piece_count_and_contents(admin_client):
     for index, page in enumerate(pdf.pages, 1):
         assert float(page.mediabox.width) == 288 and float(page.mediabox.height) == 432
         text = page.extract_text()
-        assert f"Piece {index} of 3" in text
+        assert 'PIECE' in text and f"{index} of 3" in text
         assert row["consignment_number"] in text
         assert "12 Sender Road" in text and "34 Receiver Road" in text
         assert "12.345 kg" in text and "0.125 m3" in text

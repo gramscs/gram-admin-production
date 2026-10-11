@@ -83,7 +83,7 @@ def test_updated_labels_have_optional_barcode_and_company_name(admin_client):
         embedded_fonts = [font.get_object().get('/FontDescriptor') for font in page['/Resources']['/Font'].values()]
         assert sum(bool(descriptor and descriptor.get_object().get('/FontFile2')) for descriptor in embedded_fonts) == 2
         outputs.append(page.get_contents().get_data().count(b' re'))
-    assert outputs[0] > 20 and outputs[1] == 0
+    assert outputs[0] - outputs[1] > 20, 'The barcode must add its bars independently of the layout bands'
 
 
 def test_legacy_company_and_crm_upgrade_preserves_data_and_is_repeatable(tmp_path, monkeypatch):

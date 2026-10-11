@@ -387,15 +387,18 @@ engines were not checked; print the generated PDFs at actual size (100%).
 
 ## Label design refinement
 
-The label header uses the GRAM logo alone, with pickup date and piece count
-aligned opposite it. The tracking number and centered barcode form one section;
-internal identifier types (LRN/AWB/Order ID) are omitted from the printed label.
-Straight rules and consistent margins separate the destination, sender,
-invoice/boxes/measurement summary and commercial references. Order and invoice
-numbers are aligned side by side. Rounded cards and tinted address backgrounds
-have been replaced with a white layout and a thin green brand accent.
-All operational text remains black, fonts remain embedded, and PDF dimensions
-remain 4×6 inches. Barcode-free labels give the destination additional space.
+The current label follows the user's supplied reference: a compact logo/payment
+header, sender block, larger recipient block, bold destination-PIN band, one row
+for chargeable measurements/boxes/pickup date/piece count, tracking/barcode,
+then commercial details. Order and invoice numbers remain paired in the footer.
+The payment badge uses the selected Pre-paid/To pay/Cash on delivery value;
+the routing band uses the actual drop PIN. No priority, carrier routing codes,
+telephone numbers, country or package dimensions are invented. All existing
+label parameters remain, and internal identifier types (LRN/AWB/Order ID) remain
+omitted. Black bands use white text; other text is black on white paper, with
+the original green logo. Fonts remain embedded and PDF dimensions remain
+4×6 inches. Barcode-free labels retain an enlarged tracking number in the same
+tracking section.
 
 The focused label/company tests passed **48 tests** without failures, covering
 legacy and ER SQLite backends. All **four browser workflow groups** passed again
