@@ -1,6 +1,6 @@
 # System testing — 11 October 2026
 
-The latest automated run passed **385 tests**, with **10 backend-specific skips**
+The latest full-suite run passed **392 tests**, with **10 backend-specific skips**
 and **no failures**. Browser workflows also passed after correcting one saving
 bug found during this review. These results validate the tested application;
 live Supabase storage and the team's running Codespaces app still need an
@@ -233,4 +233,31 @@ Using the same isolated browser server and Playwright configuration above:
 SYSTEM_TEST_URL=http://127.0.0.1:10003 \
 SYSTEM_TEST_PASSWORD=system-test-only \
 node tests/browser/document-editor.cjs
+```
+
+
+## Storage destination diagnostics
+
+The full-suite run passed **392 tests** with **10 backend-specific skips**, no
+failures and two dependency deprecation warnings. After adding backup failure
+handling, all **21 storage/backup tests** passed, including the additional
+regression preserving local backup files when remote initialization fails.
+The seven existing shipment/document browser workflows also passed.
+
+Eight focused tests cover incomplete credentials, a missing SDK, a failed client
+initialization, intentional local development, and read-only checks of both
+configured Supabase buckets. Configured-but-broken remote storage now rejects
+uploads and preserves existing files instead of silently saving on local disk.
+The check-storage command lists at most one entry per consignments folder, never
+uploads or removes objects, and suppresses exception details that could contain
+secrets. A passing read check does not establish write permissions.
+
+The real CLI was run with explicit blank Storage settings and an isolated SQLite
+configuration, reporting local storage without changing files or database data.
+The document-library browser regression also checks the Saved locally labels.
+Remote bucket permissions and uploads remain dependent on credentials in the
+user's running app; no live Supabase Storage check was claimed from mock tests.
+
+```bash
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-storage
 ```

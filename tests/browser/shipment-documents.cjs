@@ -90,6 +90,7 @@ function proofPDF() {
             await page.waitForFunction(() => document.querySelectorAll('.document-name').length === 2);
             await page.locator('#bulkDocumentsModal .modal-footer button').click();
             assert.equal(await page.getByText('Not uploaded', {exact: true}).count(), 0); await download(page.getByRole('link', {name: 'Download POD for ' + first.consignment_number}), 'pod.pdf');
+            assert.deepEqual(await page.locator('.document-storage').allTextContents(), ['Saved locally', 'Saved locally']);
             await download(page.getByRole('link', {name: 'Download INVOICE for ' + first.consignment_number}), 'invoice.png');
             await page.locator('[data-theme-toggle]').click();
             await page.locator('html[data-bs-theme="dark"]').waitFor();

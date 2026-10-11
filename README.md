@@ -452,9 +452,12 @@ SUPABASE_INVOICE_BUCKET=invoice-uploads
 ```
 
 Set `SUPABASE_URL` and `SUPABASE_KEY` securely in the running app's `.env` too.
-The database connection alone does not enable Storage. The buckets must already
+The database connection alone does not enable Storage. Use the project's HTTPS
+API URL for `SUPABASE_URL` (not the PostgreSQL connection string), and a server-side
+legacy **service_role** key for `SUPABASE_KEY` (under Supabase API Keys → Legacy). Keep that key out of the browser and
+Git. Restart the app after editing `.env`. The buckets must already
 exist, and the server key must allow uploads/downloads in both. PODs go to
-`pod-uploads`; invoices go to `invoice-uploads`. Saved MIS files continue using
+`pod-uploads/consignments`; invoices go to `invoice-uploads/consignments`. Saved MIS files continue using
 the POD/default bucket. Existing references still download from their original
 bucket; this update does not move earlier files. Complete backups inventory
 both configured buckets, including unlinked files under `consignments/`.
@@ -507,6 +510,33 @@ The sidebar groups **Reporting**, **Shipment operations**, **Master data**, and
 **Data & account**. Labels use a compact print-settings panel with normal page
 scrolling; on tablets and phones, settings appear before the shipment list.
 [View the updated label settings](docs/screenshots/labels-settings.png).
+
+### Check where uploaded documents are stored
+
+Run this read-only command in the running app's terminal:
+
+```bash
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-storage
+```
+
+It reports **local** when both Storage credentials are blank, or checks that both
+Supabase buckets can be inspected and their `consignments` folder listed. A passing
+read check does not prove upload permissions. No files or database records are
+changed. API keys and underlying remote exception details are not printed.
+
+Documents shows **Saved locally** or **Supabase · bucket-name** beside each
+attached file. When remote Storage settings are incomplete, or the Supabase client
+cannot initialize, uploads now fail rather than silently storing on local disk.
+Both settings blank still support intentional local development.
+
+The pinned Supabase SDK accepts legacy JWT API keys; use the legacy service_role
+key rather than an sb_secret_ key. Existing local files do not move when you add
+Supabase credentials. After configuring
+Storage and restarting, download a local file from Documents, then use its pencil
+editor to replace it with that downloaded file and save. The new attachment will
+use Supabase. For several files, bulk-download the POD/invoice ZIP, extract it,
+and bulk-upload its correctly named files in batches of up to 50. Keep your backup
+until the new files can be downloaded successfully.
 
 ## Label barcode choice
 

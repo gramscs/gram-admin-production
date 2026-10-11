@@ -25,18 +25,18 @@ logger = logging.getLogger(__name__)
 def _get_supabase_client():
     url = os.getenv("SUPABASE_URL", "").strip()
     key = os.getenv("SUPABASE_KEY", "").strip()
-    if not url or not key:
+    if not url and not key:
         return None
+    if not url or not key:
+        raise RuntimeError('Set both SUPABASE_URL and SUPABASE_KEY to use Supabase Storage.')
     try:
         from supabase import create_client
     except Exception:
-        logger.warning("Supabase package not available; falling back to local uploads")
-        return None
+        raise RuntimeError('Supabase Storage requires the Supabase package. Install the app requirements.') from None
     try:
         return create_client(url, key)
     except Exception:
-        logger.exception("Failed to create Supabase client")
-        return None
+        raise RuntimeError('Supabase Storage could not initialize. Check SUPABASE_URL and use the legacy service_role key for SUPABASE_KEY.') from None
 
 
 def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None):

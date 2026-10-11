@@ -177,6 +177,40 @@ def create_app(test_config=None):
             raise click.ClickException("Missing required database structure: " + ", ".join(missing))
         click.echo("All required admin tables and columns are present. No data was changed.")
 
+    @app.cli.command("check-storage")
+    def check_storage():
+        """Check document storage configuration and bucket reads without uploading."""
+        from app.admin.consignment_controller import _get_supabase_client
+        try:
+            client = _get_supabase_client()
+        except RuntimeError as error:
+            raise click.ClickException(str(error)) from None
+        if client is None:
+            click.echo('Storage: local. SUPABASE_URL and SUPABASE_KEY are both blank.')
+            click.echo(f'Uploads are saved in {Path(app.instance_path, "uploads")}.')
+            click.echo('DATABASE_URL connects shipment data only; it does not enable Supabase Storage.')
+            click.echo('No files or database records were changed.')
+            return
+        click.echo('Storage: Supabase.')
+        buckets = {
+            'POD': os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
+            'Invoice': os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
+        }
+        failed = []
+        for kind, bucket in buckets.items():
+            try:
+                client.storage.get_bucket(bucket)
+                client.storage.from_(bucket).list('consignments', {'limit': 1})
+            except Exception:
+                click.echo(f'{kind}: cannot read {bucket}/consignments. Check the project, bucket, key and Storage permissions.')
+                failed.append(bucket)
+            else:
+                click.echo(f'{kind}: readable at {bucket}/consignments.')
+        click.echo('No files or database records were changed. Upload permissions were not tested.')
+        if failed:
+            raise click.ClickException('Storage checks failed. Existing uploaded files were left untouched.')
+        click.echo('Read-only storage check passed.')
+
     @app.cli.command("repair-consignment-schema")
     def repair_schema():
         """Add missing shipment columns to an existing PostgreSQL database."""

@@ -121,7 +121,10 @@ def _inventory(referenced, report):
         buckets.add(os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads')
     if not buckets:
         return
-    client = _get_supabase_client()
+    try:
+        client = _get_supabase_client()
+    except RuntimeError:
+        client = None
     for bucket in sorted(buckets):
         try:
             if client is None:

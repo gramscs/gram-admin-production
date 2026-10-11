@@ -37,6 +37,8 @@
         const url = '/admin/consignments/' + encodeURIComponent(row.id) + '/' + kind;
         const details = node('div', 'document-details');
         details.append(node('span', 'document-name', row[kind + '_original_name'] || 'Attached ' + kind.toUpperCase()));
+        const storage = reference.startsWith('supabase:') ? 'Supabase · ' + reference.slice(9).split('/')[0] : 'Saved locally';
+        details.append(node('span', 'document-storage', storage));
         if (/\.(png|jpe?g|webp)$/i.test(reference)) {
             const image = node('img', 'document-thumb');
             image.alt = kind.toUpperCase() + ' preview for ' + row.consignment_number;
