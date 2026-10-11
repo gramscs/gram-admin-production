@@ -93,7 +93,7 @@
         busy = true; event.target.disabled = true;
         show('Preparing your document ZIP…');
         try {
-            const response = await fetch(event.target.dataset.url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: scope === 'selected' ? [...selected] : [], search: document.getElementById('search-input').value.trim(), kind: document.getElementById('bulk-download-kind').value})});
+            const response = await fetch(event.target.dataset.url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...window.shipmentFilters.read(), ids: scope === 'selected' ? [...selected] : [], kind: document.getElementById('bulk-download-kind').value})});
             if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/zip')) {
                 const data = await response.json().catch(() => ({}));
                 throw new Error(data.message || 'ZIP could not be downloaded. Check your session.');
@@ -109,5 +109,5 @@
         } catch (error) { show(error.message, true); }
         finally { busy = false; event.target.disabled = false; }
     });
-    window.shipmentBulkDocuments = {restore, clearSelection, forget(id) { selected.delete(String(id)); updateSelection(); }};
+    window.shipmentBulkDocuments = {restore, clearSelection, refreshSelection: updateSelection, forget(id) { selected.delete(String(id)); updateSelection(); }};
 })();

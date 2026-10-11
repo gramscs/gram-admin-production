@@ -33,5 +33,6 @@ def test_dashboard_keeps_navigation_available_if_database_overview_fails(app, ad
     html = response.get_data(as_text=True)
     assert 'The database overview is unavailable right now.' in html
     assert 'data-metric="total">—</div>' in html
-    assert '/admin/consignments' in html
+    assert '/admin/shipments' in html
+    assert '/admin/documents' in html
     assert '/admin/labels' in html

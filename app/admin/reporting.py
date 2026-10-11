@@ -10,6 +10,7 @@ from app import orm as models
 IST = ZoneInfo('Asia/Kolkata')
 STATUSES = ('Pickup Scheduled', 'In Transit', 'Out for Delivery', 'Delivered')
 PERIODS = {'all': 'All time', '7d': 'Last 7 days', '30d': 'Last 30 days', 'month': 'This month', 'quarter': 'This quarter', 'custom': 'Custom dates'}
+IDENTIFIER_TYPES = ('LRN', 'Order ID', 'AWB')
 COLUMNS = {
     'consignment_number': 'Shipment identifier', 'identifier_type': 'Identifier type', 'client': 'Client',
     'status': 'Current status', 'pickup_date': 'Pickup date', 'drop_date': 'Expected drop date',
@@ -44,6 +45,40 @@ def parse_date(value):
     return None
 
 
+def normalize_shipment_filters(values):
+    """Shared filters for the tracker, documents, exports and reports."""
+    company = values.get('company', '')
+    if not isinstance(company, (str, int)) or isinstance(company, bool):
+        raise ValueError('Choose a valid company.')
+    company = str(company).strip()
+    if company not in ('', 'unassigned'):
+        try:
+            client_id = models.record_id(company)
+        except (ValueError, TypeError):
+            raise ValueError('This company no longer exists. Choose another company.') from None
+        if not models.Company.query.filter_by(id=client_id).first():
+            raise ValueError('This company no longer exists. Choose another company.')
+    identifier_type = values.get('identifier_type', '')
+    if not isinstance(identifier_type, str) or identifier_type not in ('', *IDENTIFIER_TYPES):
+        raise ValueError('Choose LRN, Order ID or AWB for identifier type.')
+    search = values.get('search', '')
+    if not isinstance(search, str) or len(search.strip()) > 200:
+        raise ValueError('Search must contain at most 200 characters.')
+    return {'search': search.strip(), 'company': company, 'identifier_type': identifier_type}
+
+
+def filter_shipments(query, filters):
+    query = search_shipments(query, filters.get('search', ''))
+    company = filters.get('company', '')
+    if company == 'unassigned':
+        query = query.filter(models.Consignment.company_id.is_(None))
+    elif company:
+        query = query.filter_by(company_id=models.record_id(company))
+    if filters.get('identifier_type'):
+        query = query.filter_by(identifier_type=filters['identifier_type'])
+    return query
+
+
 def normalize_filters(values, today=None):
     if not isinstance(values, dict):
         raise ValueError('Report filters must be an object.')
@@ -64,24 +99,11 @@ def normalize_filters(values, today=None):
             raise ValueError('Choose a start and end date in YYYY-MM-DD format.')
         if start > end:
             raise ValueError('Start date must be before or equal to end date.')
-    company = values.get('company', '')
-    if not isinstance(company, (str, int)) or isinstance(company, bool):
-        raise ValueError('Choose a valid client.')
-    company = str(company)
-    if company not in ('', 'unassigned'):
-        try:
-            client_id = models.record_id(company)
-        except ValueError:
-            raise ValueError('This client no longer exists. Choose another client.') from None
-        if not models.Company.query.filter_by(id=client_id).first():
-            raise ValueError('This client no longer exists. Choose another client.')
+    shipment_filters = normalize_shipment_filters(values)
     status = values.get('status', '')
     if not isinstance(status, str) or status not in ('', *STATUSES, 'No status', 'Other'):
         raise ValueError('Choose a valid shipment status.')
-    search = values.get('search', '')
-    if not isinstance(search, str) or len(search.strip()) > 200:
-        raise ValueError('Search must contain at most 200 characters.')
-    return {'search': search.strip(), 'period': period, 'start': start.isoformat() if start else '', 'end': end.isoformat() if end else '', 'company': company, 'status': status}
+    return {**shipment_filters, 'period': period, 'start': start.isoformat() if start else '', 'end': end.isoformat() if end else '', 'status': status}
 
 
 def validate_columns(value):
@@ -117,11 +139,7 @@ def search_shipments(query, search):
 
 def analyze(filters, today=None):
     today = today or datetime.now(IST).date()
-    query = search_shipments(models.shipment_query(), filters.get('search', ''))
-    if filters['company'] == 'unassigned':
-        query = query.filter(models.Consignment.company_id.is_(None))
-    elif filters['company']:
-        query = query.filter_by(company_id=models.record_id(filters['company']))
+    query = filter_shipments(models.shipment_query(), filters)
     shipments, excluded = [], 0
     for row in query.order_by(models.Consignment.id).all():
         if filters['status'] and status_group(row.status) != filters['status']:

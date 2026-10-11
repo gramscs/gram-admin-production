@@ -241,13 +241,16 @@ def _serialize_consignment(consignment):
 
 
 @admin_bp.route("/admin/consignments", methods=["GET"], endpoint="consignments_panel")
+@admin_bp.route("/admin/shipments", methods=["GET"], endpoint="consignments_panel")
 @require_admin
 def consignments_panel():
     try:
-        total = models.shipment_query().count()
-        consignments = [] if total > 500 else models.shipment_query().order_by(models.Consignment.id.asc()).limit(200).all()
-        rows = [_serialize_consignment(row) for row in consignments]
-        return render_template("admin/consignments.html", consignments=rows)
+        from app.admin.reporting import normalize_shipment_filters
+        filters = normalize_shipment_filters(request.args)
+        companies = models.Company.query.order_by(models.Company.name).all()
+        return render_template("admin/consignments.html", consignments=[], companies=companies, filters=filters)
+    except ValueError as error:
+        return render_template('admin/consignments.html', consignments=[], companies=[], filters={}, error=str(error)), 400
     except (OperationalError, DatabaseError, ProgrammingError):
         logger.exception("Database error loading admin consignments panel")
         return render_template(
@@ -270,7 +273,6 @@ def consignments_list_api():
     try:
         page = max(1, request.args.get("page", 1, type=int))
         per_page = max(1, min(100, request.args.get("per_page", 10, type=int)))
-        search = request.args.get("search", "", type=str).strip()
         sort_by = request.args.get("sort_by", "id", type=str)
         sort_order = request.args.get("sort_order", "asc", type=str)
 
@@ -282,8 +284,8 @@ def consignments_list_api():
             sort_by = "id"
         sort_order = "asc" if sort_order.lower() == "asc" else "desc"
 
-        from app.admin.reporting import search_shipments
-        query = search_shipments(models.shipment_query(), search)
+        from app.admin.reporting import filter_shipments, normalize_shipment_filters
+        query = filter_shipments(models.shipment_query(), normalize_shipment_filters(request.args))
 
         total = query.count()
         sort_column = getattr(models.Consignment, sort_by)
@@ -301,6 +303,8 @@ def consignments_list_api():
             "has_prev": page > 1,
             "has_next": page < pages,
         })
+    except ValueError as exc:
+        return jsonify(success=False, rows=[], error=str(exc)), 400
     except Exception as exc:
         logger.exception("Consignment list API failed: %s", exc)
         return jsonify({
@@ -417,6 +421,11 @@ def consignments_import_excel():
 @admin_bp.route("/admin/consignments/export.xlsx", methods=["GET"], endpoint="consignments_export_excel")
 @require_admin
 def consignments_export_excel():
+    from app.admin.reporting import filter_shipments, normalize_shipment_filters
+    try:
+        filters = normalize_shipment_filters(request.args)
+    except ValueError as error:
+        return jsonify(success=False, message=str(error)), 400
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Consignments"
@@ -433,7 +442,7 @@ def consignments_export_excel():
     ]
     sheet.append(headers)
 
-    rows = models.shipment_query().order_by(models.Consignment.id.asc()).all()
+    rows = filter_shipments(models.shipment_query(), filters).order_by(models.Consignment.id.asc()).all()
     for consignment in rows:
         sheet.append([
             getattr(consignment, "consignment_number", None),

@@ -1,0 +1,11 @@
+.document-library-table th { color: var(--admin-muted); font-size: .75rem; white-space: nowrap; }
+.document-library-table td { padding: 1rem .75rem; font-size: .85rem; }
+.document-library-table .shipment-identity { min-width: 150px; overflow-wrap: anywhere; max-width: 220px; }
+.document-library-table .document-company { min-width: 130px; max-width: 220px; overflow-wrap: anywhere; }
+.document-card { display: flex; align-items: flex-start; gap: .65rem; min-width: 200px; max-width: 300px; }
+.document-thumb { width: 48px; height: 60px; object-fit: contain; border: 1px solid var(--admin-border); border-radius: .35rem; background: var(--admin-soft); flex-shrink: 0; }
+.document-file-icon { display: grid; place-items: center; width: 48px; height: 60px; color: var(--admin-accent); background: var(--admin-soft); border: 1px solid var(--admin-border); border-radius: .35rem; flex-shrink: 0; font-size: 1.2rem; }
+.document-details { min-width: 0; }
+.document-name { display: block; font-size: .75rem; overflow-wrap: anywhere; margin-bottom: .35rem; }
+.document-preview-error { display: block; color: var(--admin-muted); font-size: .7rem; margin-top: .35rem; }
+.document-missing { display: inline-flex; align-items: center; gap: .4rem; color: var(--admin-muted); font-size: .75rem; background: var(--admin-soft); border-radius: .4rem; padding: .45rem .65rem; }

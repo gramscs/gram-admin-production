@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 {% set active_page = 'consignments' %}
 {% block title %}Shipment Tracker – Gram SCS{% endblock %}
-{% block topbar_title %}Consignments{% endblock %}
+{% block topbar_title %}Shipments{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css') }}" />
 {% endblock %}
@@ -13,7 +13,7 @@
 {%- endmacro %}
 
 {% block content %}
-<section class="consignment-page" aria-label="Consignment sheet">
+<section class="consignment-page" aria-label="Shipment sheet">
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
     <div>
       <span class="page-eyebrow">SHIPMENT MANAGEMENT</span>
@@ -27,8 +27,8 @@
           <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#importConsignmentsModal">Import Excel</button></li>
           <li><a class="dropdown-item" href="{{ url_for('admin.consignments_import_template_excel') }}">Download Import Template</a></li>
           <li><hr class="dropdown-divider" /></li>
-          <li><a class="dropdown-item" href="{{ url_for('admin.consignments_export_excel') }}">Export Excel</a></li>
-          <li><a id="shipment-pdf-export" data-report-download title="Exports saved shipments matching your search" class="dropdown-item" href="{{ url_for('admin.consignments_export_pdf') }}">Export PDF</a></li>
+          <li><a id="shipment-excel-export" class="dropdown-item" href="{{ url_for('admin.consignments_export_excel') }}">Export Excel</a></li>
+          <li><a id="shipment-pdf-export" data-report-download title="Exports saved shipments matching your filters" class="dropdown-item" href="{{ url_for('admin.consignments_export_pdf') }}">Export PDF</a></li>
         </ul>
       </div>
       <button id="add-row-btn" type="button" class="btn btn-outline-primary btn-sm">Add Row</button>
@@ -44,14 +44,10 @@
   <div id="status-msg" class="alert d-none" role="alert"></div>
 
   <div class="surface-panel overflow-hidden">
-    <div class="d-flex flex-wrap align-items-center gap-2 p-3 border-bottom">
-      <label for="search-input" class="visually-hidden">Search consignments</label>
-      <input type="search" id="search-input" class="form-control form-control-sm sheet-search" placeholder="Search identifier, status, tag, address or pincode…" />
-      <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm">Clear Filters</button>
-    </div>
+    {% include 'admin/_shipment_filters.html' %}
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0" id="sheet-table">
-        <caption class="visually-hidden">Editable consignments. Related fields are grouped together; use Edit for full shipment details.</caption>
+        <caption class="visually-hidden">Editable shipments. Related fields are grouped together; use Edit for full shipment details.</caption>
         <thead class="table-light">
           <tr>
             <th scope="col"><input type="checkbox" id="select-visible-shipments" class="form-check-input" aria-label="Select shipments on this page" /></th>
@@ -78,7 +74,7 @@
           {% for count in [10, 25, 50, 100] %}<option value="{{ count }}">{{ count }}</option>{% endfor %}
         </select>
       </div>
-      <nav class="pagination-buttons" aria-label="Consignment pages">
+      <nav class="pagination-buttons" aria-label="Shipment pages">
         <button id="prev-page-btn" type="button" class="btn btn-outline-secondary btn-sm">Prev</button>
         <div id="page-numbers-container" class="d-flex gap-1"></div>
         <button id="next-page-btn" type="button" class="btn btn-outline-secondary btn-sm">Next</button>
@@ -93,7 +89,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
-{% for script in ['admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'consignments.js'] %}
+{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'consignments.js'] %}
 <script src="{{ url_for('static', filename='js/' ~ script) }}"></script>
 {% endfor %}
 {% endblock %}

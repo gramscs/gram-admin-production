@@ -22,20 +22,22 @@ document.addEventListener("DOMContentLoaded", function () {
     var searchTimeout;
     var currentPage = 1;
     var currentPerPage = perPageSelect ? (parseInt(perPageSelect.value, 10) || 10) : 10;
-    var currentSearch = "";
+    var currentSearch = searchInput.value.trim();
     var currentSortBy = "id";
     var currentSortOrder = "asc";
     var totalRows = 0;
     var totalPages = 1;
     var statusTimeoutId = null;
-    var pdfExportLink = document.getElementById('shipment-pdf-export');
-    var pdfExportBase = pdfExportLink ? pdfExportLink.href : '';
+    var listRequest = 0;
 
     function updatePdfExport() {
-        if (!pdfExportLink) return;
-        var url = new URL(pdfExportBase);
-        if (currentSearch) url.searchParams.set('search', currentSearch);
-        pdfExportLink.href = url.href;
+        var filters = window.shipmentFilters.read();
+        ['shipment-pdf-export', 'shipment-excel-export'].forEach(function (id) {
+            var link = document.getElementById(id);
+            if (!link) return;
+            link.dataset.baseHref = link.dataset.baseHref || link.href;
+            link.href = window.shipmentFilters.url(link.dataset.baseHref, filters);
+        });
     }
 
     function buildStatusSelect(value) {
@@ -293,7 +295,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (editButton) {
             editButton.addEventListener("click", function () {
                 isCreatingRow = false;
-                document.getElementById('editConsignmentLabel').textContent = 'Edit Consignment';
+                document.getElementById('editConsignmentLabel').textContent = 'Edit Shipment';
                 currentEditingRow = tr;
                 populateModal(getRowDataFromTr(tr));
                 editModal.show();
@@ -500,7 +502,8 @@ document.addEventListener("DOMContentLoaded", function () {
                         ? data.total
                         : (totalRows + (adminState.locallyAddedRows ? adminState.locallyAddedRows.length : 0) - (data.deleted_count || 0));
                     // The save total covers all rows, while a search may have only one page.
-                    var lastPage = currentSearch ? 1 : Math.max(1, Math.ceil(totalAfter / currentPerPage));
+                    var filtered = Object.values(window.shipmentFilters.read()).some(Boolean);
+                    var lastPage = filtered ? 1 : Math.max(1, Math.ceil(totalAfter / currentPerPage));
                     loadPage(lastPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
                 } catch (e) {
                     loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
@@ -520,14 +523,17 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
+        var requestNumber = ++listRequest;
+        var filters = Object.assign({}, window.shipmentFilters.read(), {search: search});
+        updatePdfExport();
+        window.shipmentFilters.remember(filters);
         try {
-            var params = {
+            var params = Object.assign({}, filters, {
                 page: page,
                 per_page: perPage,
-                search: search,
                 sort_by: sortBy,
                 sort_order: sortOrder
-            };
+            });
 
             showLoadingSpinner(true);
 
@@ -539,6 +545,7 @@ document.addEventListener("DOMContentLoaded", function () {
             } catch (e) {}
 
             var data = await adminAPI.fetchList(listUrl, params);
+            if (requestNumber !== listRequest) return;
             if (!data || !data.success) {
                 throw new Error((data && data.error) || "Failed to load data.");
             }
@@ -577,13 +584,15 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }
 
+            window.shipmentBulkDocuments.refreshSelection();
             updatePaginationUI();
             updateSortHeaders();
 
         } catch (error) {
+            if (requestNumber !== listRequest) return;
             showStatus("<strong>Failed to load data.</strong> " + escapeHtml(error.message || "Please try again."), "danger");
         } finally {
-            showLoadingSpinner(false);
+            if (requestNumber === listRequest) showLoadingSpinner(false);
         }
     }
 
@@ -748,7 +757,7 @@ document.addEventListener("DOMContentLoaded", function () {
         currentEditingRow = null;
         isCreatingRow = true;
         clearModal();
-        document.getElementById('editConsignmentLabel').textContent = 'Add Consignment';
+        document.getElementById('editConsignmentLabel').textContent = 'Add Shipment';
         editModal.show();
     });
 
@@ -767,9 +776,17 @@ document.addEventListener("DOMContentLoaded", function () {
     // Search with debouncing
     searchInput.addEventListener("input", function () {
         clearTimeout(searchTimeout);
+        updatePdfExport();
         searchTimeout = setTimeout(function () {
             loadPage(1, searchInput.value.trim(), currentPerPage, currentSortBy, currentSortOrder);
         }, 500);
+    });
+
+    ['company-filter', 'identifier-type-filter'].forEach(function (id) {
+        document.getElementById(id).addEventListener('change', function () {
+            clearTimeout(searchTimeout);
+            loadPage(1, searchInput.value.trim(), currentPerPage, currentSortBy, currentSortOrder);
+        });
     });
 
     // Per-page selector
@@ -780,7 +797,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Clear filters
     clearFiltersBtn.addEventListener("click", function () {
-        searchInput.value = "";
+        clearTimeout(searchTimeout);
+        window.shipmentFilters.clear();
         perPageSelect.value = "10";
         currentPerPage = 10;
         currentSearch = "";
@@ -840,7 +858,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         // Fallback to paginated API load
-        loadPage(1, "", currentPerPage, currentSortBy, currentSortOrder);
+        loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
     })();
 
     // Auto-hide any server-rendered alerts on page load after 10s, unless they set data-autodismiss="false"

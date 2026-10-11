@@ -308,9 +308,10 @@ failed-save recovery, Excel import/export, labels, backups, startup, and persist
 
 ## Behavior retained from the original
 
-- Shipment Tracker **Export PDF** uses the MIS generator and includes the full
-  saved shipment register matching the current search, together with management
-  charts and summaries. Unsaved form edits require **Save All** first.
+- Shipments **Export PDF** downloads a readable shipment register matching the
+  current search, company and identifier-type filters. Management charts and
+  summaries are available separately in Dashboard and MIS Reports. Unsaved form
+  edits require **Save All** first.
 - Complete backups include database records and uploaded files; the optional
   data-only JSON export contains records and file references. No backup-restore
   interface is included.
@@ -327,7 +328,7 @@ information, and any number of regular pickup/drop locations (up to 50 per
 company). Choose one default for each group. If no default is marked, the
 first location in that group becomes the default.
 
-In **Consignments → Add Row**, select your client company. Its default pickup
+In **Shipments → Add Row**, select your client company. Its default pickup
 and drop locations fill automatically. Choose another saved location or edit
 the address, pincode, or tag manually. **Save**, then **Save All**, as before.
 Shipment addresses are copies: editing a master later does not change existing
@@ -338,6 +339,38 @@ preventing new selections. Use **Include archived → Restore** to reactivate a
 client. Editing an archived company also lets you mark it active again. Excel
 exports include `company_id` and `client_company`; the import template accepts
 an optional `company_id` from a master in this database.
+
+## Shipment filters and Documents
+
+**Shipments** has Company and Identifier type dropdowns alongside search.
+Choose LRN, Order ID or AWB; combine the filters to narrow the table. Company
+options include archived clients and an **Unassigned company** option. Pagination,
+Excel/PDF exports and **Bulk documents → All matching the current filters** use
+the same filters. **Clear Filters** resets all three fields. Filters stay in the
+page URL so a refresh or a shared link restores the view. Staged shipment edits
+remain available when a filter hides the edited row.
+
+**Documents** shows current PODs and invoices beside the original shipment
+identifier, identifier type and company. It includes image thumbnails, PDF/image
+downloads, missing-document indicators and a link back to the shipment. The same
+company/type/search filters and the same **Bulk documents** review/upload/ZIP
+flow are available here. Selections remain available across document pages.
+Uploading from either tab updates the same shipment document; identifier changes
+in Shipments appear in Documents automatically. Files remain private and retain
+their existing validation and storage rules.
+
+The shipment page is now `/admin/shipments`; existing `/admin/consignments` links
+continue to work. API paths, saved records and database tables keep their existing
+names. This update requires no database migration.
+
+Additional browser coverage, using the isolated helper documented in
+[system-testing.md](docs/system-testing.md):
+
+```bash
+SYSTEM_TEST_URL=http://127.0.0.1:10003 \
+SYSTEM_TEST_PASSWORD=system-test-only \
+node tests/browser/shipment-documents.cjs
+```
 
 ## Complete admin backup
 

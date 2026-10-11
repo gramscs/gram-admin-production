@@ -11,7 +11,7 @@
     const notice=sessionStorage.getItem('mis-notice');
     if(notice){sessionStorage.removeItem('mis-notice');show(notice);}
     function value(name){return form.elements.namedItem(name).value;}
-    function content(){return {view_id:loaded,name:value('name'),notes:value('notes'),format:value('format'),filters:{period:value('period'),start:value('start'),end:value('end'),company:value('company'),status:value('status'),search:value('search')},columns:Array.from(form.querySelectorAll('[name="columns"]:checked')).map(input=>input.value)};}
+    function content(){return {view_id:loaded,name:value('name'),notes:value('notes'),format:value('format'),filters:{period:value('period'),start:value('start'),end:value('end'),company:value('company'),identifier_type:value('identifier_type'),status:value('status'),search:value('search')},columns:Array.from(form.querySelectorAll('[name="columns"]:checked')).map(input=>input.value)};}
     async function action(work){
         if(busy)return;
         busy=true;form.querySelectorAll('button').forEach(button=>button.disabled=true);
@@ -42,6 +42,7 @@
     document.querySelectorAll('[data-load-view]').forEach(button=>button.addEventListener('click',()=>{
         const view=config.views.find(row=>String(row.id)===button.dataset.loadView);loaded=view.id;
         form.elements.namedItem('search').value=view.filters.search||'';
+        form.elements.namedItem('identifier_type').value=view.filters.identifier_type||'';
         Object.entries(view.filters).forEach(([key,val])=>{form.elements.namedItem(key).value=val;});
         for(const key of ['name','notes','format'])form.elements.namedItem(key).value=view[key];
         form.querySelectorAll('[name="columns"]').forEach(input=>input.checked=view.columns.includes(input.value));

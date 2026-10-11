@@ -13,7 +13,7 @@ from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.admin.documents import (DOCUMENTS, MAX_DOCUMENT_BYTES, validate_document,
     store_document_changes, cleanup_documents, open_stored_document)
-from app.admin.reporting import search_shipments
+from app.admin.reporting import filter_shipments, normalize_shipment_filters
 from app.models import db
 
 MAX_UPLOAD_FILES = 50
@@ -129,10 +129,10 @@ def bulk_document_download():
             return jsonify(success=False, message='A selected shipment ID is invalid.'), 400
         query = query.filter(models.Consignment.id.in_(ids))
     else:
-        search = data.get('search', '')
-        if not isinstance(search, str) or len(search) > 500:
-            return jsonify(success=False, message='Use a valid shipment search.'), 400
-        query = search_shipments(query, search)
+        try:
+            query = filter_shipments(query, normalize_shipment_filters(data))
+        except ValueError as error:
+            return jsonify(success=False, message=str(error)), 400
     rows = query.order_by(models.Consignment.id).limit(MAX_DOWNLOAD_SHIPMENTS + 1).all()
     if len(rows) > MAX_DOWNLOAD_SHIPMENTS:
         return jsonify(success=False, message='More than 200 shipments match. Select shipments or narrow your search.'), 400
@@ -147,6 +147,7 @@ def bulk_document_download():
                 for document_kind in kinds:
                     value = getattr(row, DOCUMENTS[document_kind][0])
                     entry = {'consignment_id': str(row.id), 'consignment_number': row.consignment_number,
+                             'identifier_type': row.identifier_type, 'company': row.company.name if row.company else None,
                              'kind': document_kind, 'filename': None, 'status': 'not_uploaded'}
                     if value:
                         try:
