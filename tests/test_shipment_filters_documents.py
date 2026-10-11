@@ -168,7 +168,49 @@ def dashboard_missing_documents(client):
     assert rows == [] and 'All PODs and invoices are uploaded in this view.' in html
 
 
-SCENARIOS = [combined_filters, filtered_exports, filtered_document_zip, library_and_linked_details, invalid_filters, saved_view_identifier_filter, dashboard_missing_documents]
+def individual_document_management(client):
+    a, b = dataset(client)
+    row = client.get('/admin/consignments/list', query_string={'search': 'FILTER-A1'}).json['rows'][0]
+    assert client.post('/admin/consignments/save', json={'rows': [{
+        'consignment_number': 'FILTER-A10', 'identifier_type': 'AWB', 'company_id': a['id'], 'pieces': 3}]}).status_code == 200
+    assert client.get('/admin/consignments/list', query_string={'search': 'FILTER-A1'}).json['total'] == 2
+    exact = client.get('/admin/consignments/list', query_string={'search': 'FILTER-A1', 'shipment_id': row['id']})
+    assert exact.status_code == 200 and exact.json['total'] == 1 and exact.json['rows'][0]['id'] == row['id']
+    assert client.get('/admin/consignments/list', query_string={'shipment_id': 'invalid'}).status_code == 400
+    html = client.get('/admin/documents').get_data(as_text=True)
+    assert 'documentEditorModal' in html and 'document-editor-file' in html and 'document-editor-save' in html
+    def current():
+        return client.get('/admin/consignments/list', query_string={'shipment_id': row['id']}).json['rows'][0]
+    ignored = {'pod_image', 'pod_original_name', 'invoice_file', 'invoice_original_name'}
+    original = {key: value for key, value in row.items() if key not in ignored}
+    for kind, field in [('pod', 'pod_image'), ('invoice', 'invoice_file')]:
+        path = '/admin/consignments/' + str(row['id']) + '/' + kind
+        first = client.post(path, data={'expected_reference': '', 'file': (io.BytesIO(pdf()), 'first.pdf')})
+        assert first.status_code == 200 and first.json[field]
+        old = first.json[field]
+        assert client.get(path).mimetype == 'application/pdf'
+        bad = client.post(path, data={'expected_reference': old, 'file': (io.BytesIO(b'<svg>unsafe</svg>'), 'bad.png')})
+        assert bad.status_code == 400 and current()[field] == old
+        replaced = client.post(path, data={'expected_reference': old, 'file': (io.BytesIO(image()), 'replacement.png')})
+        assert replaced.status_code == 200 and replaced.json[field] != old
+        reference = replaced.json[field]
+        preview = client.get(path + '?preview=1')
+        assert preview.mimetype == 'image/png' and preview.headers['Content-Disposition'].startswith('inline')
+        assert preview.headers['Cache-Control'] == 'private, no-store'
+        for method in ['POST', 'DELETE']:
+            data = {'expected_reference': old}
+            stale = client.post(path, data={**data, 'file': (io.BytesIO(pdf()), 'stale.pdf')}) if method == 'POST' else client.delete(path, json=data)
+            assert stale.status_code == 409 and current()[field] == reference
+        assert client.delete(path, json={'expected_reference': reference}).status_code == 200
+        assert current()[field] is None and client.get(path).status_code == 404
+        assert {key: value for key, value in current().items() if key not in ignored} == original
+    # The focused row scope works for exports, not just the visible table.
+    excel = client.get('/admin/consignments/export.xlsx', query_string={'shipment_id': row['id']})
+    assert list(load_workbook(io.BytesIO(excel.data)).active.values)[1][0] == 'FILTER-A1'
+    assert load_workbook(io.BytesIO(excel.data)).active.max_row == 2
+
+
+SCENARIOS = [combined_filters, filtered_exports, filtered_document_zip, library_and_linked_details, invalid_filters, saved_view_identifier_filter, dashboard_missing_documents, individual_document_management]
 
 
 @pytest.mark.parametrize('scenario', SCENARIOS, ids=lambda fn: fn.__name__)

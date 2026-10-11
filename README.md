@@ -352,7 +352,18 @@ remain available when a filter hides the edited row.
 
 **Documents** shows current PODs and invoices beside the original shipment
 identifier, identifier type and company. It includes image thumbnails, PDF/image
-downloads, missing-document indicators and a link back to the shipment. The same
+downloads and missing-document indicators. **Upload** adds a missing document;
+the **pencil** opens a small editor for replacing or removing an attached file.
+Preview or download the current document, choose a replacement, or stage a removal.
+**Undo changes** resets the editor; **Cancel** preserves the saved file. **Save
+changes** commits that one document immediately and refreshes the list. If another
+user replaced the document while the editor was open, the app asks you to reload
+rather than overwrite the newer attachment. Shipment fields and the other document
+are left intact.
+
+The compact **eye** opens the exact shipment, including when identifiers overlap.
+Refreshing keeps this specific-shipment view. Changing a search/company/type
+filter or choosing **Clear Filters** returns to normal filtering. The same
 company/type/search filters and the same **Bulk documents** review/upload/ZIP
 flow are available here. Selections remain available across document pages.
 Uploading from either tab updates the same shipment document; identifier changes

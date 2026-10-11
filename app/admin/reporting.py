@@ -64,7 +64,13 @@ def normalize_shipment_filters(values):
     search = values.get('search', '')
     if not isinstance(search, str) or len(search.strip()) > 200:
         raise ValueError('Search must contain at most 200 characters.')
-    return {'search': search.strip(), 'company': company, 'identifier_type': identifier_type}
+    filters = {'search': search.strip(), 'company': company, 'identifier_type': identifier_type}
+    if values.get('shipment_id'):
+        try:
+            filters['shipment_id'] = str(models.record_id(values['shipment_id']))
+        except (ValueError, TypeError):
+            raise ValueError('Choose a valid shipment.') from None
+    return filters
 
 
 def filter_shipments(query, filters):
@@ -76,6 +82,8 @@ def filter_shipments(query, filters):
         query = query.filter_by(company_id=models.record_id(company))
     if filters.get('identifier_type'):
         query = query.filter_by(identifier_type=filters['identifier_type'])
+    if filters.get('shipment_id'):
+        query = query.filter_by(id=models.record_id(filters['shipment_id']))
     return query
 
 

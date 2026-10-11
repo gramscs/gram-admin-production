@@ -26,9 +26,10 @@
     <nav class="pagination-buttons" aria-label="Document pages"><button type="button" class="btn btn-outline-secondary btn-sm" id="prev-page-btn" disabled>Previous</button><span class="small text-muted align-self-center" id="document-page"></span><button type="button" class="btn btn-outline-secondary btn-sm" id="next-page-btn" disabled>Next</button></nav>
   </div>
 </div>
-<p class="small text-muted mt-3">Upload PDF, JPG, PNG or WebP using Bulk documents. Each document is attached to its original shipment record. Shipments without a document are marked “Not uploaded”.</p>
+<p class="small text-muted mt-3">Use the pencil to manage an attached document, or Upload to add a missing one. PDF, JPG, PNG and WebP are accepted. The eye opens the specific shipment. Bulk documents handles multiple files together.</p>
+{% include 'admin/consignments/document_editor.html' %}
 {% include 'admin/consignments/bulk_documents.html' %}
 {% endblock %}
 {% block scripts %}
-{% for script in ['shipment-filters.js', 'api.js', 'bulk-documents.js', 'document-library.js'] %}<script src="{{ url_for('static', filename='js/admin/' ~ script) }}"></script>{% endfor %}
+{% for script in ['shipment-filters.js', 'api.js', 'bulk-documents.js', 'document-editor.js', 'document-library.js'] %}<script src="{{ url_for('static', filename='js/admin/' ~ script) }}"></script>{% endfor %}
 {% endblock %}

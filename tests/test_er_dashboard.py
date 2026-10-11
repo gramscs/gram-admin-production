@@ -210,6 +210,11 @@ def test_er_authorization_checks_active_identity_and_viewer_writes(migrated_admi
         connection.execute(update(users).where(users.c.username == 'admin').values(role='viewer'))
     assert client.get('/admin/consignments/list').status_code == 200
     assert client.post('/admin/consignments/save', json={'rows': []}).status_code == 403
+    row = client.get('/admin/consignments/list').json['rows'][0]
+    for kind in ('pod', 'invoice'):
+        path = '/admin/consignments/' + row['id'] + '/' + kind
+        assert client.post(path, headers={'Accept': 'application/json'}).status_code == 403
+        assert client.delete(path, json={'expected_reference': None}).status_code == 403
     with destination.begin() as connection:
         connection.execute(update(users).where(users.c.username == 'admin').values(active=False))
     assert client.get('/admin/consignments/list').status_code == 401

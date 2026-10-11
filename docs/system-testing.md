@@ -1,6 +1,6 @@
 # System testing — 11 October 2026
 
-The latest automated run passed **382 tests**, with **10 backend-specific skips**
+The latest automated run passed **385 tests**, with **10 backend-specific skips**
 and **no failures**. Browser workflows also passed after correcting one saving
 bug found during this review. These results validate the tested application;
 live Supabase storage and the team's running Codespaces app still need an
@@ -193,4 +193,44 @@ Using the same isolated browser server and Playwright configuration above:
 SYSTEM_TEST_URL=http://127.0.0.1:10003 \
 SYSTEM_TEST_PASSWORD=system-test-only \
 node tests/browser/dashboard-documents.cjs
+```
+
+
+## Individual document management and shipment eye
+
+The final full suite passed **385 tests**, with **10 backend-specific skips**,
+no failures and one existing ReportLab deprecation warning. The seven existing
+shipment/document browser workflows and both refresh-while-editing regressions
+also passed. Downloaded shipment PDFs/Excel, document ZIPs and the editor's current
+PDF were checked for their expected contents.
+
+New scenarios exercise the individual POD/invoice endpoint on legacy SQLite,
+migrated ER SQLite and migrated ER PostgreSQL. Upload, replacement, invalid
+content rejection, protected image preview, stale-reference conflicts and removal
+are covered. Shipment fields remain unchanged. Exact shipment filtering prevents
+similarly prefixed identifiers from appearing alongside the selected shipment,
+and applies to its Excel export. Viewer accounts cannot upload or remove files.
+
+Six new Chromium workflow groups passed on the disposable migrated ER app:
+
+1. Upload a PDF POD and image invoice through the Documents editor.
+2. Reject invalid file types; Cancel preserves existing files; replacement changes
+   only the selected document and refreshes its displayed filename.
+3. Stage removal, undo it, save removal, and upload the missing invoice again.
+4. Reject an editor's stale removal after another request replaced the document.
+5. Download the current PDF and use light/dark modal controls at widths 390,
+   768 and 1440 pixels, with reachable Save buttons and no page overflow.
+6. Use the icon-only eye to open exactly one shipment despite overlapping numbers;
+   refresh retains that scope and changed/cleared filters release it.
+
+No browser JavaScript errors or unexpected server 5xx responses occurred.
+The generated documents, screenshots and test data stayed outside the repository.
+No database migration or new dependency is required.
+
+Using the same isolated browser server and Playwright configuration above:
+
+```bash
+SYSTEM_TEST_URL=http://127.0.0.1:10003 \
+SYSTEM_TEST_PASSWORD=system-test-only \
+node tests/browser/document-editor.cjs
 ```

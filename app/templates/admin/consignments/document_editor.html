@@ -1,0 +1,15 @@
+<div class="modal fade" id="documentEditorModal" tabindex="-1" aria-labelledby="document-editor-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><div><span class="page-eyebrow mb-1">SHIPMENT DOCUMENT</span><h2 class="modal-title fs-5" id="document-editor-title">Manage document</h2><p class="small text-muted mb-0" id="document-editor-shipment"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <div id="document-editor-error" class="alert alert-danger d-none" role="alert"></div>
+      <div class="document-editor-preview"><img id="document-editor-image" class="d-none" alt="Document preview" /><i id="document-editor-icon" class="fa fa-file-o" aria-hidden="true"></i></div>
+      <p id="document-editor-status" class="small mt-3" role="status" aria-live="polite"></p>
+      <label class="form-label" id="document-editor-file-label" for="document-editor-file">Choose a document</label>
+      <input class="form-control" type="file" id="document-editor-file" accept=".pdf,.jpg,.jpeg,.png,.webp" />
+      <p class="small text-muted mt-2">PDF, JPG, PNG or WebP · up to 5 MB. Changes take effect when you save.</p>
+      <div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="document-editor-download">Download current</button><button type="button" class="btn btn-outline-danger btn-sm" id="document-editor-remove">Remove document</button><button type="button" class="btn btn-outline-secondary btn-sm d-none" id="document-editor-undo">Undo changes</button></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="document-editor-save" disabled>Save changes</button></div>
+  </div></div>
+</div>

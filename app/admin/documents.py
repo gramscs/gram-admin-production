@@ -202,7 +202,7 @@ def consignment_document(consignment_id, kind):
         consignment_id = models.record_id(consignment_id)
     except ValueError:
         return _response_error('Consignment not found.', 404)
-    row = db.session.get(models.Consignment, consignment_id)
+    row = db.session.get(models.Consignment, consignment_id, with_for_update=request.method != 'GET')
     if not row:
         return _response_error('Consignment not found.', 404)
     field, name_field = DOCUMENTS[kind]
@@ -210,6 +210,16 @@ def consignment_document(consignment_id, kind):
         origin = request.headers.get('Origin')
         if origin and urlsplit(origin).netloc != request.host:
             return _response_error('Document changes must come from this admin app.', 403)
+        values = request.form if request.method == 'POST' else request.get_json(silent=True)
+        if isinstance(values, dict) or request.method == 'POST':
+            if 'expected_reference' in values:
+                expected = values.get('expected_reference')
+                if expected is not None and not isinstance(expected, str):
+                    db.session.rollback()
+                    return _response_error('Invalid document reference.')
+                if (expected or None) != (getattr(row, field) or None):
+                    db.session.rollback()
+                    return _response_error('This document changed since you opened it. Close this editor and reload Documents before trying again.', 409)
         created, obsolete = [], []
         try:
             document = None
