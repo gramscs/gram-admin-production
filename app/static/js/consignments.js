@@ -414,7 +414,11 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        var rawRows = collectRows();
+        // A list refresh can replace a row while its edit modal is open.
+        // Pending edits remain authoritative even if the visible row is older.
+        var rawRows = collectRows().map(function (row) {
+            return adminState.pendingRows.get(String(row.id)) || row;
+        });
         adminState.pendingRows.forEach(function (row, id) {
             if (!adminState.deletedIds.has(id) && !rawRows.some(item => String(item.id) === String(id))) rawRows.push(row);
         });
