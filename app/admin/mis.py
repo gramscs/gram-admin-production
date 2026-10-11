@@ -69,7 +69,11 @@ def report_response(content, filename, fmt):
 def mis_panel():
     filters = normalize_filters(request.args.to_dict())
     page = max(1, request.args.get('page', 1, type=int))
-    reports = models.MisReport.query.order_by(models.MisReport.generated_at.desc(), models.MisReport.id.desc()).paginate(page=page, per_page=15, error_out=False)
+    report_query = models.MisReport.query
+    if models.using_er():
+        from sqlalchemy.orm import selectinload
+        report_query = report_query.options(selectinload(models.MisReport.extra_record))
+    reports = report_query.order_by(models.MisReport.generated_at.desc(), models.MisReport.id.desc()).paginate(page=page, per_page=15, error_out=False)
     report_rows = [{'id': row.id, 'name': row.name, 'notes': row.notes, 'format': row.output_format, 'row_count': row.row_count, 'generated_at': row.generated_at.replace(tzinfo=UTC).astimezone(IST).strftime('%d %b %Y, %I:%M %p IST'), 'filters': json.loads(row.filters_json), 'summary': json.loads(row.summary_json)} for row in reports.items]
     return render_template('admin/mis.html', filters=filters, options=filter_options(), columns=COLUMNS, default_columns=DEFAULT_COLUMNS, views=[view_data(row) for row in models.MisView.query.order_by(models.MisView.name).all()], reports=report_rows, pagination=reports)
 

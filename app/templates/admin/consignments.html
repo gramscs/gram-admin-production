@@ -32,6 +32,7 @@
         </ul>
       </div>
       <button id="add-row-btn" type="button" class="btn btn-outline-primary btn-sm">Add Row</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#bulkDocumentsModal">Bulk documents <span id="bulk-selected-count" class="badge text-bg-secondary">0</span></button>
       <button id="save-btn" type="button" class="btn btn-success btn-sm">Save All</button>
     </div>
   </div>
@@ -53,6 +54,7 @@
         <caption class="visually-hidden">Editable consignments. Related fields are grouped together; use Edit for full shipment details.</caption>
         <thead class="table-light">
           <tr>
+            <th scope="col"><input type="checkbox" id="select-visible-shipments" class="form-check-input" aria-label="Select shipments on this page" /></th>
             <th scope="col" class="shipment-column">{{ sort_button('consignment_number', 'Identifier #') }}<span class="column-hint">Type / number</span></th>
             <th scope="col" class="pieces-column">Pieces</th>
             <th scope="col" class="chargeable-column">Chargeable<span class="column-hint">Weight / volume</span></th>
@@ -86,11 +88,12 @@
   </div>
 </section>
 {% include "admin/consignments/modals.html" %}
+{% include "admin/consignments/bulk_documents.html" %}
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
-{% for script in ['admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'consignments.js'] %}
+{% for script in ['admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'consignments.js'] %}
 <script src="{{ url_for('static', filename='js/' ~ script) }}"></script>
 {% endfor %}
 {% endblock %}

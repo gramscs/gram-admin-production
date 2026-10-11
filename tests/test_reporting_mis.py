@@ -201,19 +201,19 @@ def test_existing_database_adds_mis_tables_without_changing_shipments(app, shipm
         assert MisReport.query.count()==0 and MisView.query.count()==0
 
 
-def pdf_text(content):
+def pdf_text(content, heading='Management MIS'):
     reader = PdfReader(io.BytesIO(content))
     assert reader.pages
     pages = [page.extract_text() or '' for page in reader.pages]
     assert all('GRAM SCS' in page for page in pages)
-    assert 'Management MIS' in pages[0]
+    assert heading in pages[0]
     return '\n'.join(pages)
 
 
 def test_tracker_pdf_replaces_title_only_export_with_all_saved_shipments(admin_client, shipments):
     response = admin_client.get('/admin/consignments/export.pdf')
     assert response.status_code == 200
-    text = pdf_text(response.data)
+    text = pdf_text(response.data, 'Consignment register')
     assert 'Shipment register' in text
     for identifier in ('=SUM(1,2)', 'OPEN-1', 'UNDATED', 'OLDER'):
         assert identifier in text
@@ -225,8 +225,10 @@ def test_all_pdf_entry_points_include_healthy_shipments_not_only_attention_recor
         db.session.add(Consignment(consignment_number='HEALTHY-PDF-001', status='Delivered', pieces=7, chargeable_weight=22.5, chargeable_volume=.75, pickup_date='2026-10-10', pickup_tag='Delhi', drop_tag='Mumbai', pod_image='pod.pdf', invoice_file='invoice.pdf'))
         db.session.commit()
     for url in ('/admin/mis/export?format=pdf', '/admin/consignments/export.pdf'):
-        text = pdf_text(admin_client.get(url).data)
-        assert 'HEALTHY-PDF-001' in text and 'No attention flags' in text
+        text = pdf_text(admin_client.get(url).data, 'Consignment register' if '/consignments/' in url else 'Management MIS')
+        assert 'HEALTHY-PDF-001' in text
+        if '/mis/' in url:
+            assert 'No attention flags' in text
         assert '22.500' in text and '0.750' in text
     generated = admin_client.post('/admin/mis/reports', json={'name':'Saved PDF', 'format':'pdf'})
     assert generated.status_code == 200
@@ -247,7 +249,7 @@ def test_pdf_search_matches_tracker_and_preserves_selected_columns(app, admin_cl
     query = '?search=OPEN-1'
     table = admin_client.get('/admin/consignments/list'+query).json
     assert table['total'] == 1
-    text = pdf_text(admin_client.get('/admin/consignments/export.pdf'+query).data)
+    text = pdf_text(admin_client.get('/admin/consignments/export.pdf'+query).data, 'Consignment register')
     assert 'OPEN-1' in text and 'UNDATED' not in text and 'OLDER' not in text
     generated = admin_client.post('/admin/mis/reports', json={'name':'Custom columns','format':'pdf','filters':{'search':'OPEN-1'},'columns':['consignment_number','pickup_address','invoice']})
     assert generated.status_code == 200
@@ -295,3 +297,28 @@ def test_pdf_download_controls_are_available_everywhere(admin_client):
     dashboard = admin_client.get('/admin/dashboard').get_data(as_text=True)
     assert 'data-report-download href="/admin/mis/export?' in dashboard
     assert 'report-downloads.js' in dashboard
+
+
+def test_consignment_pdf_first_page_contains_data_and_keeps_last_row(app, admin_client):
+    with app.app_context():
+        db.session.add_all([Consignment(consignment_number=f'REGISTER-{index:03d}', status='In Transit',
+            measurement_mode='volume', chargeable_volume='1.250', pickup_address='Warehouse & loading bay <A>',
+            drop_address='Receiving dock B', pieces=2) for index in range(75)])
+        db.session.commit()
+    result = admin_client.get('/admin/consignments/export.pdf')
+    assert result.status_code == 200 and result.mimetype == 'application/pdf'
+    assert 'consignments_' in result.headers['Content-Disposition']
+    reader = PdfReader(io.BytesIO(result.data))
+    first = reader.pages[0].extract_text()
+    assert 'Consignment register' in first and 'REGISTER-000' in first
+    assert 'Management MIS' not in first
+    text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+    for index in range(75): assert f'REGISTER-{index:03d}' in text
+    assert 'Volume (m³)' in text and '1.250' in text
+    assert all('GRAM SCS' in (page.extract_text() or '') for page in reader.pages)
+
+
+def test_consignment_pdf_empty_search_has_visible_explanation(admin_client, shipments):
+    result = admin_client.get('/admin/consignments/export.pdf?search=NONEXISTENT')
+    text = pdf_text(result.data, 'Consignment register')
+    assert 'No matching saved consignments' in text and '4 saved shipments' in text

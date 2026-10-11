@@ -3,6 +3,7 @@
 import base64
 import binascii
 import io
+import os
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -163,7 +164,8 @@ def store_document_changes(consignment, changes, created, obsolete):
         if document:
             content, ext, mime, original = document
             filename = f'{kind}-{uuid4().hex}{ext}'
-            value = _store_pod_bytes(filename, content, mime)
+            bucket = (os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads') if kind == 'invoice' else None
+            value = _store_pod_bytes(filename, content, mime, bucket_name=bucket)
             created.append(value)
             setattr(consignment, field, value)
             setattr(consignment, name_field, original)

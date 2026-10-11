@@ -23,10 +23,11 @@ class StoredFile:
 
 
 class Storage:
-    def __init__(self, uploads_dir, supabase_client=None, bucket="pod-uploads"):
+    def __init__(self, uploads_dir, supabase_client=None, bucket="pod-uploads", additional_buckets=()):
         self.root = Path(uploads_dir).resolve()
         self.client = supabase_client
         self.bucket = bucket
+        self.additional_buckets = tuple(additional_buckets)
 
     def location(self, reference):
         if not isinstance(reference, str) or not reference or "\x00" in reference:
@@ -100,6 +101,7 @@ class Storage:
             buckets = {self.location(value)[0] for value in references if value.startswith("supabase:")}
             if self.client is not None:
                 buckets.add(self.bucket)
+                buckets.update(self.additional_buckets)
             for bucket in sorted(buckets):
                 if self.client is None:
                     raise MigrationError("Supabase uploads require SUPABASE_URL and SUPABASE_KEY.")

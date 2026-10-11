@@ -388,6 +388,56 @@ Choose, replace, remove or undo a document change in the form, then click
 are retained until the database save succeeds. Staged changes survive shipment
 filtering/pagination. Download buttons work for saved and selected documents.
 
+Supabase uploads use two private buckets, with the same server credentials:
+
+```env
+SUPABASE_BUCKET=pod-uploads
+SUPABASE_INVOICE_BUCKET=invoice-uploads
+```
+
+Set `SUPABASE_URL` and `SUPABASE_KEY` securely in the running app's `.env` too.
+The database connection alone does not enable Storage. The buckets must already
+exist, and the server key must allow uploads/downloads in both. PODs go to
+`pod-uploads`; invoices go to `invoice-uploads`. Saved MIS files continue using
+the POD/default bucket. Existing references still download from their original
+bucket; this update does not move earlier files. Complete backups inventory
+both configured buckets, including unlinked files under `consignments/`.
+
+Choose **Bulk documents** on the consignment page:
+
+- Upload multiple files named `consignmentNum_pod.ext` or
+  `consignmentNum_invoice.ext`, for example `LRN123_pod.pdf` and
+  `LRN123_invoice.jpg`. Choose **Check files**, review matches and replacements,
+  then **Upload checked files**. All files are validated first; any mismatch,
+  duplicate or unsafe content stops the batch before changing documents.
+- Select saved shipments with the table checkboxes, across pages if needed,
+  or download all shipments matching the current search. Choose PODs, invoices
+  or both. The ZIP uses the requested consignment filenames and includes
+  `document-manifest.json` to identify documents that were not uploaded, are
+  missing, or could not be retrieved.
+
+Uploads support 50 files per batch, 5 MB each and 50 MB combined; document ZIPs
+support 200 shipments and 250 MB per download. Special characters in download
+filenames are sanitized. Ambiguous upload names are rejected rather than linked
+to the wrong shipment. Rare duplicate ZIP names use a shipment-ID subfolder.
+Bulk uploads save immediately; the form's individual uploads still use Save All.
+ER databases retain previous document versions; legacy local databases retain
+previous documents until the replacement save succeeds.
+
+**Measure shipment by** selects **Weight (kg)** or **Volume (m³ / CBM)** in both
+the form and table. Only the selected input appears. Changing the basis preserves
+any measurement already recorded in the other field. Volume is stored in cubic
+metres; no carrier-specific volumetric-weight conversion is assumed. Excel and
+MIS exports include the measurement basis. ER databases store the choice in
+`admin_record_extras`, preserving the ten-table business model. Run `upgrade-db`
+after pulling the update to add the field to older legacy databases.
+
+**Export PDF** now downloads a consignment register with actual rows on the first
+page, black text, embedded fonts and repeated table headings. The current search
+is applied; an empty result shows an explanation. Wide registers are divided
+into column groups with repeated identifiers. Management MIS exports remain
+available from the reporting pages.
+
 The server detects the file contents independently of the browser MIME type.
 Images are decoded/re-encoded without metadata, limited to one image and
 16 megapixels. PDFs must be readable, unencrypted and 1–200 pages; files with

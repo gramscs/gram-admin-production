@@ -1,0 +1,26 @@
+<div class="modal fade" id="bulkDocumentsModal" tabindex="-1" aria-labelledby="bulk-documents-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><div><h2 class="modal-title fs-5" id="bulk-documents-title">Bulk shipment documents</h2><p class="small text-muted mb-0">Upload by consignment number, or download documents together.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <div id="bulk-documents-feedback" class="alert d-none" role="status" aria-live="polite"></div>
+      <section aria-labelledby="bulk-upload-heading" class="mb-4">
+        <h3 class="fs-6 fw-bold" id="bulk-upload-heading">Upload PODs and invoices</h3>
+        <p class="small text-muted">Save consignments first. Name files <strong>consignmentNum_pod.pdf</strong> or <strong>consignmentNum_invoice.jpg</strong>. PDF, JPG, PNG and WebP are accepted. Maximum 50 files, 5 MB each and 50 MB combined.</p>
+        <label class="form-label" for="bulk-document-files">Choose documents</label>
+        <input type="file" id="bulk-document-files" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple data-url="{{ url_for('admin.bulk_document_upload') }}" />
+        <div class="d-flex flex-wrap gap-2 mt-3"><button type="button" id="bulk-review-btn" class="btn btn-outline-primary">Check files</button><button type="button" id="bulk-upload-btn" class="btn btn-primary" disabled>Upload checked files</button></div>
+        <div id="bulk-document-review" class="mt-3" aria-live="polite"></div>
+        <p class="small text-muted mt-2 mb-0">Uploads are saved immediately. A matching document is replaced; previous versions are retained in the migrated database.</p>
+      </section>
+      <section aria-labelledby="bulk-download-heading" class="border-top pt-3">
+        <h3 class="fs-6 fw-bold" id="bulk-download-heading">Download a document ZIP</h3>
+        <div class="row g-3"><div class="col-sm-6"><label class="form-label" for="bulk-download-scope">Shipments</label><select id="bulk-download-scope" class="form-select"><option value="selected">Selected shipments</option><option value="filtered">All matching the current search</option></select></div>
+        <div class="col-sm-6"><label class="form-label" for="bulk-download-kind">Documents</label><select id="bulk-download-kind" class="form-select"><option value="both">PODs and invoices</option><option value="pod">PODs only</option><option value="invoice">Invoices only</option></select></div></div>
+        <p class="small text-muted mt-3">Select shipments using the table checkboxes, across pages if needed. ZIP filenames follow <strong>consignmentNum_pod.ext</strong> and <strong>consignmentNum_invoice.ext</strong>. A manifest lists missing documents. Up to 200 shipments and 250 MB per ZIP.</p>
+        <button type="button" class="btn btn-outline-primary" id="bulk-download-btn" data-url="{{ url_for('admin.bulk_document_download') }}">Download ZIP</button>
+        <button type="button" class="btn btn-link" id="bulk-clear-selection">Clear selection</button>
+      </section>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
+  </div></div>
+</div>

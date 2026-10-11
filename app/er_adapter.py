@@ -36,7 +36,8 @@ def _attach_extras(model):
     model.extra_record = relationship(RecordExtras,
         primaryjoin=and_(foreign(RecordExtras.entity_id) == model.id,
                          RecordExtras.entity_type == model.__tablename__),
-        uselist=False, lazy='selectin', cascade='all, delete-orphan', single_parent=True, overlaps='extra_record')
+        uselist=False, lazy='select', cascade='all, delete-orphan', passive_deletes=True,
+        single_parent=True, overlaps='extra_record')
 
 
 def _get_extra(row, key):
@@ -81,7 +82,7 @@ def _status_set(row, value):
 
 
 Consignment.status = hybrid_property(_status_get, _status_set).expression(lambda cls: cls.current_status)
-for _key in ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'eta', 'eta_debug_json'):
+for _key in ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'eta', 'eta_debug_json', 'measurement_mode'):
     _extra_field(Consignment, _key)
 
 
@@ -199,7 +200,7 @@ MisReport.file_name = property(lambda row: row.file.original_filename if row.fil
     lambda row, value: setattr(row.file, 'original_filename', value))
 
 
-EXTRA_FIELDS = {'consignments': ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'pickup_date', 'drop_date', 'eta', 'eta_debug_json'),
+EXTRA_FIELDS = {'consignments': ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'pickup_date', 'drop_date', 'eta', 'eta_debug_json', 'measurement_mode'),
                 'mis_reports': ('notes',), 'mis_views': ('updated_at',)}
 
 
@@ -254,6 +255,13 @@ def install_tracking():
     def track_changes(database_session, flush_context, instances):
         if not has_app_context() or not using_er():
             return
+        # Generic extras have no business-table FK. Remove them explicitly only
+        # in the prepared dashboard, leaving standalone ten-table ORM sessions
+        # independent of this optional support table.
+        with database_session.no_autoflush:
+            for row in list(database_session.deleted):
+                if isinstance(row, (Consignment, MisView, MisReport)) and row.extra_record is not None:
+                    database_session.delete(row.extra_record)
         candidates = list(database_session.new | database_session.dirty | database_session.deleted)
         candidates = [row for row in candidates if isinstance(row, (Company, CompanyLocation,
             Consignment, File, ShipmentDocument, MisView, MisReport, RecordExtras))]

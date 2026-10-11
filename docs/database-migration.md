@@ -156,6 +156,10 @@ is `instance/uploads`. Supabase storage uses `SUPABASE_URL`, `SUPABASE_KEY` and
 `SUPABASE_BUCKET`, pointed to the **original** storage project. The key must
 allow listing/downloading private objects.
 
+The CLI inventories both `SUPABASE_BUCKET` (default `pod-uploads`) and
+`SUPABASE_INVOICE_BUCKET` (default `invoice-uploads`) when Storage is configured.
+Both buckets must exist and be readable by the server key.
+
 The inventory covers all regular local uploads, referenced remote files and
 the configured/referenced Supabase buckets' `consignments/` namespace, including
 unlinked uploads. Unrelated remote folders are not enumerated unless referenced.

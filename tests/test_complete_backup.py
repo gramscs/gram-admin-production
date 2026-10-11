@@ -266,3 +266,26 @@ def test_unreadable_local_upload_directory_is_not_silently_marked_complete(admin
     assert report['summary']['document_counts']['included'] == 1
     assert report['inventory_errors'][0]['source'] == 'local_uploads'
     assert archive.read(report['documents'][0]['archive_path']) == image_bytes()
+
+
+def test_backup_inventories_unlinked_files_in_both_configured_buckets(admin_client, monkeypatch):
+    from app.admin import consignment_controller
+    buckets = []
+    class Bucket:
+        def list(self, folder, options): return [{'name': 'unlinked.png', 'id': '1'}]
+        def download(self, path): return image_bytes()
+    class Storage:
+        def from_(self, name):
+            buckets.append(name)
+            return Bucket()
+    class Client:
+        storage = Storage()
+    monkeypatch.setenv('SUPABASE_URL', 'https://storage.example.test')
+    monkeypatch.setenv('SUPABASE_KEY', 'test-key')
+    monkeypatch.setenv('SUPABASE_BUCKET', 'pod-uploads')
+    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'invoice-uploads')
+    monkeypatch.setattr(consignment_controller, '_get_supabase_client', lambda: Client())
+    archive, _, report = unpack(admin_client.get('/admin/generate-backup'))
+    assert set(buckets) == {'pod-uploads', 'invoice-uploads'}
+    assert report['summary']['status'] == 'complete'
+    assert len([entry for entry in report['documents'] if entry['kind'] == 'unlinked_upload']) == 2

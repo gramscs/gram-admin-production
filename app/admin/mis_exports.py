@@ -267,3 +267,42 @@ def export_bytes(report, columns, output_format):
     if output_format not in MIMES:
         raise ValueError('Choose Excel, PDF or CSV.')
     return {'xlsx': excel, 'pdf': pdf, 'csv': csv_export}[output_format](report, columns)
+
+
+def consignment_pdf(report, columns):
+    """Start the tracker download with actual rows, without a MIS cover page."""
+    from app.admin import labels  # registers the embedded fonts
+    buffer = io.BytesIO()
+    styles = getSampleStyleSheet()
+    for style in styles.byName.values():
+        style.fontName = 'LabelSans'
+        style.textColor = colors.black
+    styles.add(ParagraphStyle('MISSmall', fontName='LabelSans', fontSize=9, leading=13, textColor=colors.black))
+    styles.add(ParagraphStyle('MISRegister', fontName='LabelSans', fontSize=8, leading=11, textColor=colors.black, wordWrap='LTR'))
+    def p(value, style='MISSmall'):
+        return Paragraph(escape(str(value)), styles[style])
+    m = report['metrics']
+    story = [p('Consignment register', 'Heading1'),
+             p('Generated ' + report['generated_at']),
+             p(f'{m["total"]:,} shipments · {m["pieces"]:,} pieces · Chargeable weight total {m["weight"]:,.3f} kg · Volume total {m["volume"]:,.3f} m³'), Spacer(1, 8)]
+    if report['filters'].get('search'):
+        story.append(p('Search: ' + report['filters']['search']))
+    if not report['details']:
+        story.append(p(f'No matching saved consignments. The database contains {report["saved_total"]} saved shipments. Clear the search/filters, or add shipments and click Save All.'))
+    _pdf_register(story, report, columns, p)
+    def footer(canvas, document):
+        canvas.saveState()
+        canvas.setFont('LabelSans', 8)
+        canvas.setFillColor(colors.black)
+        canvas.drawString(42, 22, 'GRAM SCS · Consignment register')
+        canvas.drawRightString(800, 22, f'Page {document.page}')
+        canvas.restoreState()
+    SimpleDocTemplate(buffer, pagesize=landscape(A4), leftMargin=42, rightMargin=42,
+        topMargin=30, bottomMargin=40, title='GRAM SCS Consignment Register', author='GRAM SCS').build(
+            story, onFirstPage=footer, onLaterPages=footer)
+    content = buffer.getvalue()
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or '' for page in reader.pages]
+    if not content.startswith(b'%PDF-') or not pages or 'Consignment register' not in pages[0] or not all('GRAM SCS' in page for page in pages):
+        raise RuntimeError('Generated consignment PDF is incomplete.')
+    return content

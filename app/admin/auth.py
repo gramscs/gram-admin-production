@@ -87,8 +87,11 @@ def is_admin_authenticated() -> bool:
     return bool(session.get(ADMIN_SESSION_KEY))
 
 
-def require_admin(f):
+def require_admin(f=None, *, read_only=False):
     """View decorator that enforces admin session authentication."""
+
+    if f is None:
+        return lambda view: require_admin(view, read_only=read_only)
 
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -101,7 +104,7 @@ def require_admin(f):
                 if user is None:
                     logout_admin()
                     return jsonify(error='Authentication required'), 401
-                if user.role == 'viewer' and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+                if user.role == 'viewer' and not read_only and request.method not in ('GET', 'HEAD', 'OPTIONS'):
                     return jsonify(success=False, message='This account has read-only access.'), 403
             return f(*args, **kwargs)
 

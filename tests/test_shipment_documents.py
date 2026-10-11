@@ -188,6 +188,7 @@ def test_private_supabase_document_roundtrip(admin_client, monkeypatch):
     class Client:
         storage = Storage()
     monkeypatch.setenv('SUPABASE_BUCKET', 'private-documents')
+    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'private-documents')
     monkeypatch.setattr(consignment_controller, '_get_supabase_client', lambda: Client())
     row = create_shipment(admin_client, **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
     assert row['invoice_file'].startswith('supabase:private-documents/consignments/invoice-')

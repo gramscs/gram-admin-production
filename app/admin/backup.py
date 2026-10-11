@@ -118,6 +118,7 @@ def _inventory(referenced, report):
     configured = bool(os.getenv('SUPABASE_URL', '').strip() and os.getenv('SUPABASE_KEY', '').strip())
     if configured:
         buckets.add(os.getenv('SUPABASE_BUCKET', 'pod-uploads'))
+        buckets.add(os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads')
     if not buckets:
         return
     client = _get_supabase_client()

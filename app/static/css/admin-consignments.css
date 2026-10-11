@@ -10,6 +10,7 @@
 #sheet-table .actions-column { min-width: 85px; }
 .cell-stack { display: flex; flex-direction: column; gap: .4rem; }
 .unit-field { display: flex; align-items: center; gap: .35rem; margin: 0; }
+.unit-field[hidden] { display: none; }
 .unit-field input { min-width: 0; }
 .unit-field span { width: 1.8rem; flex-shrink: 0; color: var(--admin-muted); font-size: .75rem; }
 .column-hint { display: block; font-weight: normal; color: var(--admin-muted); font-size: .75rem; margin-top: .2rem; }

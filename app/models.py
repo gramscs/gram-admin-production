@@ -31,6 +31,7 @@ class Consignment(db.Model):
     pieces = db.Column(db.Integer, nullable=False, default=1, server_default="1")
     chargeable_weight = db.Column(db.Numeric(12, 3))
     chargeable_volume = db.Column(db.Numeric(12, 3))
+    measurement_mode = db.Column(db.String(12))
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), index=True)
     company = db.relationship("Company", lazy="joined")
     status = db.Column(db.String(200))

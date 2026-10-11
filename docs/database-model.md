@@ -126,7 +126,9 @@ implement login. No password is stored in this model.
 The dashboard supports both legacy local tables and the migrated UUID model.
 See [dashboard cutover](database-migration.md#dashboard-cutover) for the one-time
 `upgrade-db` preparation after importing. Its adapter preserves existing screen
-fields in `admin_record_extras` and leaves the original-row archive unchanged.
+fields, including the weight/volume measurement choice, in `admin_record_extras`
+and leaves the original-row archive unchanged. Volumes remain m³; this choice
+does not calculate carrier-specific volumetric weight.
 
 Flask writes shipment status changes, their events and audit entries in one
 transaction. These hooks apply to dashboard ORM writes; raw SQL and other apps

@@ -79,6 +79,24 @@ document.addEventListener("DOMContentLoaded", function () {
         return '<input type="number" aria-label="' + name.replaceAll('_', ' ') + '" class="form-control form-control-sm ' + name + '" min="' + min + '" step="' + step + '" value="' + escapeHtml(String(value)) + '" />';
     }
 
+    function measurementMode(row) {
+        return row.measurement_mode || (row.chargeable_volume != null && row.chargeable_volume !== '' && (row.chargeable_weight == null || row.chargeable_weight === '') ? 'volume' : 'weight');
+    }
+    function updateMeasurementControls(root, mode) {
+        root.querySelectorAll('[data-measurement]').forEach(function (group) {
+            group.hidden = group.dataset.measurement !== mode;
+            group.querySelector('input').disabled = group.hidden;
+        });
+    }
+    function updateModalMeasurement() {
+        var mode = document.getElementById('modal-measurement-mode').value;
+        ['weight', 'volume'].forEach(function (kind) {
+            document.getElementById('modal-' + kind + '-group').hidden = kind !== mode;
+            document.getElementById('modal-chargeable-' + kind).disabled = kind !== mode;
+        });
+    }
+    document.getElementById('modal-measurement-mode').addEventListener('change', updateModalMeasurement);
+
     function syncRowDataset(tr) {
         if (!tr) {
             return null;
@@ -98,6 +116,7 @@ document.addEventListener("DOMContentLoaded", function () {
             pieces: tr.querySelector('.pieces') ? tr.querySelector('.pieces').value : (baseRow.pieces || 1),
             chargeable_weight: tr.querySelector('.chargeable_weight') ? tr.querySelector('.chargeable_weight').value : (baseRow.chargeable_weight ?? ''),
             chargeable_volume: tr.querySelector('.chargeable_volume') ? tr.querySelector('.chargeable_volume').value : (baseRow.chargeable_volume ?? ''),
+            measurement_mode: tr.querySelector('.measurement_mode') ? tr.querySelector('.measurement_mode').value : measurementMode(baseRow),
             status: tr.querySelector('.status') ? tr.querySelector('.status').value.trim() : (baseRow.status || ''),
             pickup_address: tr.querySelector('.pickup_address') ? tr.querySelector('.pickup_address').value.trim() : (baseRow.pickup_address || ''),
             pickup_pincode: tr.querySelector('.pickup_pincode') ? tr.querySelector('.pickup_pincode').value.trim() : (baseRow.pickup_pincode || ''),
@@ -151,6 +170,8 @@ document.addEventListener("DOMContentLoaded", function () {
         ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
             document.getElementById('modal-' + name.replaceAll('_', '-')).value = row[name] ?? (name === 'identifier_type' ? 'LRN' : name === 'pieces' ? 1 : '');
         });
+        document.getElementById('modal-measurement-mode').value = measurementMode(row);
+        updateModalMeasurement();
         // Ensure the input is editable (some scripts may toggle readOnly)
         try {
             consInput.readOnly = false;
@@ -200,6 +221,7 @@ document.addEventListener("DOMContentLoaded", function () {
             consignment_number: data.consignment_number || "",
             identifier_type: data.identifier_type || "LRN", pieces: data.pieces ?? 1,
             chargeable_weight: data.chargeable_weight ?? "", chargeable_volume: data.chargeable_volume ?? "",
+            measurement_mode: measurementMode(data),
             status: data.status || "",
             pickup_address: data.pickup_address || "",
             pickup_pincode: data.pickup_pincode || "",
@@ -247,12 +269,14 @@ document.addEventListener("DOMContentLoaded", function () {
         var rowClass = isLocal ? 'table-info' : '';
 
         tr.innerHTML =
+            '<td><input type="checkbox" class="form-check-input select-shipment" aria-label="Select ' + escapeHtml(source.consignment_number || 'shipment') + '"' + (!source.id || source.id.startsWith('-') ? ' disabled' : '') + ' /></td>' +
             '<td><div class="cell-stack">' + buildIdentifierSelect(source.identifier_type) +
                 buildTextInput("consignment_number", source.consignment_number || "", "Identifier", 64) +
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
-            '<td><div class="cell-stack"><label class="unit-field">' + buildNumberInput('chargeable_weight', source.chargeable_weight ?? '', 0, '0.001') + '<span>kg</span></label>' +
-                '<label class="unit-field">' + buildNumberInput('chargeable_volume', source.chargeable_volume ?? '', 0, '0.001') + '<span>m³</span></label></div></td>' +
+            '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBM)</option></select>' +
+                '<label class="unit-field" data-measurement="weight">' + buildNumberInput('chargeable_weight', source.chargeable_weight ?? '', 0, '0.001') + '<span>kg</span></label>' +
+                '<label class="unit-field" data-measurement="volume">' + buildNumberInput('chargeable_volume', source.chargeable_volume ?? '', 0, '0.001') + '<span>m³</span></label></div></td>' +
             "<td>" + buildStatusSelect(source.status || "") + "</td>" +
             '<td><div class="cell-stack">' + buildTextInput("pickup_tag", source.pickup_tag || "", "Pickup tag") +
                 buildTextInput("pickup_date", source.pickup_date || "", "Pickup date") + '</div></td>' +
@@ -285,16 +309,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
                 // Remove from local tracking
                 adminState.removeLocalRowById(existingId);
+                window.shipmentBulkDocuments.forget(existingId);
                 tr.remove();
             });
         }
 
-        Array.prototype.forEach.call(tr.querySelectorAll('input, select'), function (field) {
+        Array.prototype.forEach.call(tr.querySelectorAll('input:not(.select-shipment), select'), function (field) {
+            if (field.classList.contains('measurement_mode')) field.addEventListener('change', function () { updateMeasurementControls(tr, field.value); });
             field.addEventListener('input', function () { adminState.rememberRow(syncRowDataset(tr)); });
             field.addEventListener('change', function () { adminState.rememberRow(syncRowDataset(tr)); });
         });
 
         tableBody.appendChild(tr);
+        window.shipmentBulkDocuments.restore(tr);
+        updateMeasurementControls(tr, source.measurement_mode);
         syncRowDataset(tr);
 
     }
@@ -321,6 +349,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         source.consignment_number = consignmentNumber;
         source.company_id = document.getElementById('modal-company-id').value || null;
+        source.measurement_mode = document.getElementById('modal-measurement-mode').value;
         source.company_name = window.companyPresets.companyName(source.company_id);
         ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
             source[name] = document.getElementById('modal-' + name.replaceAll('_', '-')).value;
@@ -337,6 +366,8 @@ document.addEventListener("DOMContentLoaded", function () {
         window.shipmentDocuments.apply(source);
 
         if (tr) {
+            tr.querySelector('.measurement_mode').value = source.measurement_mode;
+            updateMeasurementControls(tr, source.measurement_mode);
             ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
                 var input = tr.querySelector('.' + name);
                 if (input) input.value = source[name];
@@ -649,6 +680,18 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Event Listeners
+    document.addEventListener('shipment-documents-updated', function (event) {
+        event.detail.forEach(function (update) {
+            var field = update.kind === 'pod' ? 'pod_image' : 'invoice_file';
+            function merge(row) { row[field] = update.reference; row[update.kind + '_original_name'] = update.original_name; }
+            document.querySelectorAll('#sheet-body tr').forEach(function (tr) {
+                if (tr.dataset.id !== String(update.id)) return;
+                var row = JSON.parse(tr.dataset.row || '{}'); merge(row); tr.dataset.row = JSON.stringify(row);
+            });
+            var pending = adminState.pendingRows.get(String(update.id));
+            if (pending) merge(pending);
+        });
+    });
     modalSaveBtn.addEventListener("click", async function () {
         try {
             await window.shipmentDocuments.ready();

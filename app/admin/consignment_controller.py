@@ -42,7 +42,7 @@ def _get_supabase_client():
 def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None):
     supa = _get_supabase_client()
     if supa:
-        bucket = bucket_name or os.getenv("SUPABASE_BUCKET", "pod-uploads")
+        bucket = bucket_name or os.getenv("SUPABASE_BUCKET", '').strip() or 'pod-uploads'
         object_path = f"consignments/{filename}"
         payload = file_bytes
         if hasattr(payload, "read"):
@@ -217,6 +217,7 @@ def _serialize_consignment(consignment):
         "pieces": consignment.pieces or 1,
         "chargeable_weight": str(consignment.chargeable_weight) if consignment.chargeable_weight is not None else None,
         "chargeable_volume": str(consignment.chargeable_volume) if consignment.chargeable_volume is not None else None,
+        "measurement_mode": consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
         "company_id": consignment.company_id,
         "company_name": consignment.company.name if consignment.company else None,
         "status": getattr(consignment, "status", None),
@@ -332,7 +333,7 @@ def consignments_import_template_excel():
         "drop_pincode",
         "drop_tag",
         "drop_date",
-        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id",
+        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "measurement_mode",
     ])
 
     buffer = io.BytesIO()
@@ -428,7 +429,7 @@ def consignments_export_excel():
         "drop_date",
         "pickup_address",
         "drop_address",
-        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "client_company",
+        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "client_company", "measurement_mode",
     ]
     sheet.append(headers)
 
@@ -446,6 +447,7 @@ def consignments_export_excel():
             consignment.identifier_type, consignment.pieces,
             consignment.chargeable_weight, consignment.chargeable_volume,
             models.export_id(consignment.company_id), consignment.company.name if consignment.company else None,
+            consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
         ])
 
     buffer = io.BytesIO()
@@ -463,8 +465,20 @@ def consignments_export_excel():
 @limiter.limit("6 per minute")
 @require_admin
 def consignments_export_pdf():
-    from app.admin.mis import export_response
-    return export_response('pdf')
+    from datetime import datetime
+    from app.admin.mis import protect_errors, report_response
+    from app.admin.reporting import normalize_filters, validate_columns, analyze, DEFAULT_COLUMNS, IST
+    from app.admin.mis_exports import consignment_pdf
+
+    @protect_errors
+    def download_register():
+        filters = normalize_filters(request.args.to_dict())
+        columns = validate_columns(request.args.getlist('columns') or DEFAULT_COLUMNS)
+        report = analyze(filters)
+        content = consignment_pdf(report, columns)
+        return report_response(content, f'consignments_{datetime.now(IST):%Y%m%d_%H%M%S_IST}.pdf', 'pdf')
+
+    return download_register()
 
 
 CONSIGNMENT_SAVE_FIELDS = (
@@ -501,6 +515,10 @@ def _normalize_shipment_fields(row, existing=None):
     except (InvalidOperation, ValueError):
         raise ValueError("Pieces must be a whole number from 1 to 10000.") from None
     fields = {"identifier_type": identifier_type, "pieces": int(pieces)}
+    mode = value('measurement_mode', None) or ('volume' if value('chargeable_volume', None) not in (None, '') and value('chargeable_weight', None) in (None, '') else 'weight')
+    if mode not in ('weight', 'volume'):
+        raise ValueError('Choose Weight (kg) or Volume (m³).')
+    fields['measurement_mode'] = mode
     company_id = value("company_id", None)
     if company_id in (None, ""):
         fields["company_id"] = None

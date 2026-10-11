@@ -78,7 +78,8 @@ def main(argv=None):
         if supabase_url and supabase_key:
             from supabase import create_client
             supabase = create_client(supabase_url, supabase_key)
-        storage = Storage(args.uploads_dir, supabase, os.getenv("SUPABASE_BUCKET", "pod-uploads"))
+        storage = Storage(args.uploads_dir, supabase, os.getenv("SUPABASE_BUCKET", "pod-uploads"),
+                          additional_buckets=(os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',))
         started = monotonic()
 
         def report_progress(message):
