@@ -294,15 +294,20 @@ heading. The reference-inspired layout places the logo and payment badge first,
 then sender and recipient addresses with postal codes in the address block.
 Measurement totals, boxes, pickup date and piece count share one row, followed by tracking/barcode and the
 invoice amount, order/invoice numbers, goods description and optional e-way bill.
-The footer uses aligned caption/value columns for invoice amount, order ID,
-invoice number, goods description and optional **EWBN**.
+The footer uses a two-column reference grid for invoice amount/EWBN and
+order ID/invoice number, followed by a full-width goods description.
 An inset double border with rounded corners and muted green strokes frames the
 label, with clear space around its addresses, tracking barcode and footer.
 Only the shipment's selected measurement is printed: **Weight** uses kg and
 **Volume** uses m³. Any saved value in the inactive measurement field stays in
 the database but is omitted from the label, selection list and review summary.
-The embedded Liberation Sans fonts use Arial-compatible metrics for a compact
-courier-style typeface.
+Addresses and references use embedded **Liberation Mono** (Courier-compatible)
+for a mechanical, fixed-width style; small headings use Liberation Sans.
+Address blocks follow their text height instead of reserving empty rows. Blank
+lines and repeated spaces are removed from printed addresses, while meaningful
+line breaks remain. Long addresses fit a shared height budget, and the barcode
+uses the available space underneath. The supplied fonts and their license are
+bundled in the app so printing does not depend on fonts installed on the server.
 
 Public metrics use **Weight** and **Volume**, including dashboard, forms, MIS,
 PDFs and Excel downloads. Shipment import/export and backup workbooks use
@@ -670,8 +675,9 @@ Uncheck **Include Code 128 barcode** to print address labels without it. The
 format does not claim GS1-128/SSCC compliance; carrier-specific GS1 requirements
 need a separate identifier/format. See the [GS1 barcode overview](https://www.gs1.org/standards/barcodes/1d-barcodes).
 
-Labels print on white paper with black text and high-contrast black payment/PIN
-bands with white text, irrespective of the admin theme. The supplied green logo
+Labels print on white paper with black text and a high-contrast black payment
+badge with white text, irrespective of the admin theme. PIN codes stay in the
+address block, without a separate banner. The supplied green logo
 remains unchanged. The destination address and PIN receive priority; shipment totals
 are clearly marked so they are not mistaken for per-piece weights/volumes.
 Fonts are embedded for consistent printing. [View a sample three-piece label PDF](docs/b2b-label-example.pdf).

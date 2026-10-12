@@ -527,3 +527,34 @@ Current samples are `docs/b2b-label-example.pdf`, `docs/management-mis-example.p
 and the updated dashboard/MIS/review/label screenshots. All data used for these
 checks was disposable sample data. No live database or Supabase object was changed.
 No database migration or new dependency is required; pull and restart the app.
+
+## Compact industrial label layout (12 October 2026)
+
+Printed address blocks now follow their actual text height. Blank lines,
+indentation and repeated whitespace are removed, with meaningful address line
+breaks preserved. Small, consistent gaps separate headings, names, addresses
+and rules. Sender/receiver text shares a bounded height budget so longer
+addresses cannot push the metrics, tracking block or footer off a 4×6-inch page.
+The barcode uses the space available below the metrics, maintaining its existing
+Code 128 content, width scaling and quiet zones. The footer uses two columns for
+invoice amount/EWBN and order/invoice references, plus a full-width goods section.
+
+Addresses, metrics and references use embedded Liberation Mono regular/bold for
+a mechanical Courier-compatible style. Small headings retain Liberation Sans.
+Both families are shipped with the app and covered by the included OFL license.
+No host font installation or database change is required.
+
+The focused label/field/review suite passed **70 tests**, with no failures or
+skips. The new nine PDF geometry tests use optional Poppler `pdftotext` bounding
+boxes to check compact spacing, equivalent layouts for padded/clean addresses,
+text within the print frame, separate document/tracking blocks, short/long
+addresses, with/without barcode and EWBN, plus embedded fonts and retained text.
+Existing tests verify optional names, measurement selection, input validation,
+legacy/ER backends and unchanged database records during generation.
+
+The four 50-shipment browser workflow groups and three record-ID regression
+groups passed. Actual batch download and reprint PDFs each contain 51 pages,
+matching numbers/details and embedded mechanical fonts. Weight, volume, long
+address and no-barcode samples were rendered and inspected. The sample PDF and
+two label screenshots now show the new layout. All checks used disposable sample
+data; no live database or Supabase object was changed.

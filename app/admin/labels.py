@@ -117,12 +117,14 @@ def _review_details(values, rows):
     return [{**label_shipment(row), **details[str(row.id)]} for row in rows]
 
 
-# Bundled Arial-metric sans fonts keep PDF printing independent of host fonts.
+# Bundled fonts keep label printing independent of host fonts.
 _font_dir = Path(__file__).resolve().parents[1] / 'static' / 'fonts' / 'labels'
-for _name, _filename in (('LabelSans', 'LiberationSans-Regular.ttf'), ('LabelSansBold', 'LiberationSans-Bold.ttf')):
+for _name, _filename in (('LabelSans', 'LiberationSans-Regular.ttf'), ('LabelSansBold', 'LiberationSans-Bold.ttf'),
+                         ('LabelMono', 'LiberationMono-Regular.ttf'), ('LabelMonoBold', 'LiberationMono-Bold.ttf')):
     if _name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(_name, str(_font_dir / _filename)))
 pdfmetrics.registerFontFamily('LabelSans', normal='LabelSans', bold='LabelSansBold', italic='LabelSans', boldItalic='LabelSansBold')
+pdfmetrics.registerFontFamily('LabelMono', normal='LabelMono', bold='LabelMonoBold', italic='LabelMono', boldItalic='LabelMonoBold')
 
 
 def _label_rows():
@@ -163,21 +165,26 @@ def _fit_text(pdf, text, x, y, width, height, font='LabelSans', size=10, leading
     box = KeepInFrame(width, height, [paragraph], mode='shrink')
     _, used_height = box.wrapOn(pdf, width, height)
     box.drawOn(pdf, x, y-used_height)
+    return used_height
+
+
+def _address_text(name, address, pin):
+    # Preserve meaningful address lines, but discard blank lines and indenting.
+    address_lines = [' '.join(line.split()) for line in (address or '').splitlines() if line.strip()]
+    lines = ['<b>' + escape(' '.join(name.split())) + '</b>'] if name else []
+    lines += [escape(line) for line in address_lines] or ['Address not provided']
+    if pin and not re.search(r'(?<!\d)' + re.escape(pin) + r'(?!\d)', ' '.join(address_lines)):
+        lines.append(escape(pin))
+    return '<br/>'.join(lines)
 
 
 def _address(pdf, title, name, address, pin, top, height, recipient=False):
     left, width = 18, 252
     pdf.setFont('LabelSansBold', 6.5)
     pdf.drawString(left, top, title)
-    lines = []
-    if name:
-        lines.append('<b>' + escape(name) + '</b>')
-    lines.append(escape(address or 'Address not provided').replace('\n', '<br/>'))
-    # A supplied PIN belongs to the address, never a separate routing banner.
-    if pin and not re.search(r'(?<!\d)' + re.escape(pin) + r'(?!\d)', address or ''):
-        lines.append(escape(pin))
-    text = '<br/>'.join(lines)
-    _fit_text(pdf, text, left, top-7, width, height, size=11 if recipient else 8.5, leading=13 if recipient else 10.5)
+    used_height = _fit_text(pdf, _address_text(name, address, pin), left, top-3, width, height,
+                            font='LabelMono', size=9 if recipient else 8, leading=10.5 if recipient else 9.5)
+    return top-3-used_height
 
 
 def generate_labels_pdf(shipments, assignments, include_barcode=True):
@@ -210,59 +217,71 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             pdf.line(18, 376, 270, 376)
             pdf.setLineWidth(.5)
 
-            # Optional names precede addresses; postal codes stay in the address.
-            _address(pdf, 'SHIP FROM', shipment.get('sender_name', ''), shipment['pickup_address'], shipment['pickup_pincode'], 366, 32)
-            pdf.line(18, 318, 270, 318)
-            _address(pdf, 'DELIVER TO', shipment.get('receiver_name', ''), shipment['drop_address'], shipment['drop_pincode'], 307, 88, recipient=True)
-            pdf.line(18, 208, 270, 208)
+            # Content determines address height, leaving only a small inset.
+            # The shared budget reserves room for the barcode and footer even
+            # with long names/addresses; short senders give the receiver room.
+            sender_top = 365
+            sender_bottom = _address(pdf, 'SHIP FROM', shipment.get('sender_name', ''), shipment['pickup_address'], shipment['pickup_pincode'], sender_top, 36)
+            sender_height = sender_top-3-sender_bottom
+            sender_rule = sender_bottom-5
+            pdf.line(18, sender_rule, 270, sender_rule)
+            recipient_bottom = _address(pdf, 'DELIVER TO', shipment.get('receiver_name', ''), shipment['drop_address'], shipment['drop_pincode'], sender_rule-10, 94-sender_height, recipient=True)
+            address_rule = recipient_bottom-7
+            pdf.line(18, address_rule, 270, address_rule)
 
             # Measurements, boxes, pickup date and piece count share one row.
             pdf.setFont('LabelSans', 6)
             volume_mode = shipment.get('measurement_mode') == 'volume'
-            pdf.drawString(18, 198, 'VOLUME' if volume_mode else 'WEIGHT')
-            pdf.drawString(101, 198, 'BOXES')
-            pdf.drawString(149, 198, 'PICKUP DATE')
-            pdf.drawString(237, 198, 'PIECE')
+            metric_heading, metric_value = address_rule-10, address_rule-17
+            pdf.drawString(18, metric_heading, 'VOLUME' if volume_mode else 'WEIGHT')
+            pdf.drawString(105, metric_heading, 'BOXES')
+            pdf.drawString(145, metric_heading, 'PICKUP DATE')
+            pdf.drawString(237, metric_heading, 'PIECE')
             value = shipment['chargeable_volume'] if volume_mode else shipment['chargeable_weight']
             unit = 'm³' if volume_mode else 'kg'
-            _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, 194, 75, 12, font='LabelSansBold', size=9)
-            _fit_text(pdf, str(pieces), 101, 194, 40, 12, font='LabelSansBold', size=9)
-            _fit_text(pdf, escape(shipment['pickup_date']), 149, 194, 80, 12, font='LabelSansBold', size=8)
-            _fit_text(pdf, f'{piece} of {pieces}', 237, 194, 33, 12, font='LabelSansBold', size=8)
+            _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, metric_value, 79, 12, font='LabelMonoBold', size=9)
+            _fit_text(pdf, str(pieces), 105, metric_value, 32, 12, font='LabelMonoBold', size=9)
+            _fit_text(pdf, escape(shipment['pickup_date']), 145, metric_value, 84, 12, font='LabelMonoBold', size=8)
+            _fit_text(pdf, f'{piece} of {pieces}', 237, metric_value, 33, 12, font='LabelMonoBold', size=7)
+            tracking_top = address_rule-37
             pdf.setLineWidth(1)
-            pdf.line(18, 166, 270, 166)
+            pdf.line(18, tracking_top, 270, tracking_top)
             pdf.setLineWidth(.5)
 
             # Human-readable tracking remains when the optional barcode is off.
             pdf.setFont('LabelSans', 6)
-            pdf.drawCentredString(144, 155, 'TRACKING NUMBER')
+            pdf.drawCentredString(144, tracking_top-12, 'TRACKING NUMBER')
             if include_barcode:
-                barcode = code128.Code128(shipment['consignment_number'], barHeight=30, barWidth=.8, humanReadable=False)
+                barcode = code128.Code128(shipment['consignment_number'], barHeight=tracking_top-174, barWidth=.8, humanReadable=False)
                 pdf.saveState()
                 scale = min(1.8, 252 / barcode.width)
-                pdf.translate(18 + (252 - barcode.width * scale) / 2, 115)
+                pdf.translate(18 + (252 - barcode.width * scale) / 2, 151)
                 pdf.scale(scale, 1)
                 barcode.drawOn(pdf, 0, 0)
                 pdf.restoreState()
-            _fit_text(pdf, escape(shipment['consignment_number']), 18, 109 if include_barcode else 135,
-                      252, 19 if include_barcode else 32, font='LabelSansBold',
+            _fit_text(pdf, escape(shipment['consignment_number']), 18, 151 if include_barcode else tracking_top-28,
+                      252, 16 if include_barcode else tracking_top-158, font='LabelMonoBold',
                       size=14 if include_barcode else 18, leading=16 if include_barcode else 20, alignment=1)
-            pdf.line(18, 86, 270, 86)
+            pdf.line(18, 128, 270, 128)
 
-            # One caption column and one value column keep references readable.
-            pdf.setFont('LabelSans', 6.5)
-            for caption, baseline in [('INVOICE AMOUNT', 78), ('ORDER ID', 65), ('INVOICE NO.', 54), ('GOODS', 42)]:
+            # Compact two-column reference grid, followed by full-width goods.
+            pdf.setFont('LabelSansBold', 6)
+            for caption, baseline in [('INVOICE AMOUNT', 116), ('ORDER ID', 82), ('GOODS', 49)]:
                 pdf.drawString(18, baseline, caption)
-            pdf.setFont('LabelSansBold', 9)
-            pdf.drawString(82, 78, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}")
-            _fit_text(pdf, assignment['order_id'], 82, 72, 188, 10, size=8)
-            _fit_text(pdf, assignment['invoice_number'], 82, 61, 188, 10, size=8)
-            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 82, 49, 188, 27, size=8, leading=9)
+            pdf.drawString(152, 82, 'INVOICE NO.')
+            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, 109, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
+            _fit_text(pdf, assignment['order_id'], 18, 75, 118, 12, font='LabelMono', size=7.5)
+            _fit_text(pdf, assignment['invoice_number'], 152, 75, 118, 12, font='LabelMono', size=7.5)
+            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, 42, 252, 26, font='LabelMono', size=7.5, leading=8.5)
+            pdf.setLineWidth(.4)
+            pdf.line(18, 92, 270, 92)
+            pdf.line(18, 59, 270, 59)
+            pdf.line(144, 92, 144, 59)
             if shipment['eway_bill_exists']:
-                pdf.setFont('LabelSans', 6.5)
-                pdf.drawString(18, 12, 'EWBN:')
-                pdf.setFont('LabelSansBold', 8)
-                pdf.drawString(82, 12, shipment['eway_bill_number'])
+                pdf.setFont('LabelSansBold', 6)
+                pdf.drawString(152, 116, 'EWBN:')
+                _fit_text(pdf, shipment['eway_bill_number'], 152, 109, 118, 13, font='LabelMonoBold', size=9)
+                pdf.line(144, 128, 144, 92)
             pdf.showPage()
     pdf.save()
     buffer.seek(0)
