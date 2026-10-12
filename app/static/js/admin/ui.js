@@ -9,6 +9,7 @@ window.adminUI = {
         const element = document.getElementById(id);
         element.textContent = message;
         element.classList.toggle('d-none', !message);
+        if (message && element.closest('.modal.show')) element.scrollIntoView({block: 'nearest'});
     },
     downloadForm(url, fields) {
         const form = document.createElement('form');

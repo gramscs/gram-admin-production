@@ -2,7 +2,9 @@ document.addEventListener("DOMContentLoaded", function () {
     var tableBody = document.getElementById("sheet-body");
     var saveButton = document.getElementById("save-btn");
     var addRowButton = document.getElementById("add-row-btn");
-    var editModal = new bootstrap.Modal(document.getElementById("editConsignmentModal"));
+    var editModalEl = document.getElementById("editConsignmentModal");
+    var editModal = new bootstrap.Modal(editModalEl);
+    var modalError = document.getElementById("shipment-form-error");
     var modalSaveBtn = document.getElementById("modal-save-btn");
     var searchInput = document.getElementById("search-input");
     var perPageSelect = document.getElementById("per-page-select");
@@ -136,7 +138,43 @@ document.addEventListener("DOMContentLoaded", function () {
         return row;
     }
 
+    function clearModalValidation() {
+        modalError.textContent = '';
+        modalError.classList.add('d-none');
+        editModalEl.querySelectorAll('[aria-invalid="true"]').forEach(function (input) {
+            input.classList.remove('is-invalid');
+            input.removeAttribute('aria-invalid');
+            var descriptions = (input.getAttribute('aria-describedby') || '').split(' ').filter(function (id) { return id && id !== modalError.id; });
+            if (descriptions.length) input.setAttribute('aria-describedby', descriptions.join(' '));
+            else input.removeAttribute('aria-describedby');
+        });
+    }
+
+    function showModalError(message, input) {
+        modalError.textContent = message;
+        modalError.classList.remove('d-none');
+        if (input) {
+            input.classList.add('is-invalid');
+            input.setAttribute('aria-invalid', 'true');
+            var descriptions = (input.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
+            if (!descriptions.includes(modalError.id)) descriptions.push(modalError.id);
+            input.setAttribute('aria-describedby', descriptions.join(' '));
+            input.focus({preventScroll: true});
+            input.scrollIntoView({block: 'center'});
+        } else {
+            modalError.focus({preventScroll: true});
+        }
+    }
+
     function showStatus(message, type) {
+        var modalOpen = type === 'danger' && editModalEl.classList.contains('show');
+        if (modalOpen) {
+            // Existing page-status messages contain trusted markup and escaped
+            // values. Read the text from an inert template for the modal alert.
+            var template = document.createElement('template');
+            template.innerHTML = message;
+            showModalError(template.content.textContent);
+        }
         var el = document.getElementById("status-msg");
         if (!el) {
             return;
@@ -144,7 +182,7 @@ document.addEventListener("DOMContentLoaded", function () {
         el.innerHTML = message;
         el.className = "alert alert-" + type + " shadow-sm border-0";
         el.classList.remove("d-none");
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (!modalOpen) el.scrollIntoView({ behavior: "smooth", block: "center" });
         // Auto-dismiss status messages after 10 seconds
         try {
             if (statusTimeoutId) {
@@ -168,6 +206,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function populateModal(row) {
+        clearModalValidation();
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
         ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
@@ -337,16 +376,40 @@ document.addEventListener("DOMContentLoaded", function () {
         var dropPincode = document.getElementById("modal-drop-pincode").value.trim();
 
         if (!consignmentNumber) {
-            showStatus("Consignment number cannot be empty.", "danger");
+            showModalError("Consignment number cannot be empty.", document.getElementById('modal-consignment-number'));
+            return false;
+        }
+        if (!/^[\x20-\x7E]{1,64}$/.test(consignmentNumber)) {
+            showModalError("Identifier must contain 1–64 printable ASCII characters.", document.getElementById('modal-consignment-number'));
             return false;
         }
 
         if (!adminValidation.validatePincode(pickupPincode)) {
-            showStatus("Pickup Pincode must be a valid 6-digit number or empty.", "danger");
+            showModalError("Pickup Pincode must be a valid 6-digit number or empty.", document.getElementById('modal-pickup-pincode'));
             return false;
         }
         if (!adminValidation.validatePincode(dropPincode)) {
-            showStatus("Drop Pincode must be a valid 6-digit number or empty.", "danger");
+            showModalError("Drop Pincode must be a valid 6-digit number or empty.", document.getElementById('modal-drop-pincode'));
+            return false;
+        }
+        var invalidInput = Array.from(editModalEl.querySelectorAll('input[type="number"]')).find(function (input) {
+            // Both measurements are retained and validated by the backend.
+            // Check an inactive value too, without changing the chosen basis.
+            var disabled = input.disabled;
+            input.disabled = false;
+            var invalid = !input.checkValidity();
+            input.disabled = disabled;
+            return invalid;
+        });
+        if (invalidInput) {
+            var title = editModalEl.querySelector('label[for="' + invalidInput.id + '"]').textContent;
+            var message = invalidInput.id === 'modal-pieces' ? 'Pieces must be a whole number from 1 to 10000.' : title + ' must be non-negative, no greater than 999999999.999, with up to 3 decimal places.';
+            var target = invalidInput;
+            if (invalidInput.disabled) {
+                message += ' Switch the measurement selector to ' + (invalidInput.id.endsWith('weight') ? 'Weight' : 'Volume') + ' to correct or clear that retained value.';
+                target = document.getElementById('modal-measurement-mode');
+            }
+            showModalError(message, target);
             return false;
         }
 
@@ -453,15 +516,18 @@ document.addEventListener("DOMContentLoaded", function () {
             });
 
             // Handle structured per-row validation errors from the server
-            if (data && Array.isArray(data.errors) && data.errors.length) {
+            var validationErrors = data && (data.errors || (data.body && data.body.errors));
+            if (Array.isArray(validationErrors) && validationErrors.length) {
                 // Clear any previous row error markers
                 document.querySelectorAll('#sheet-body tr .row-error').forEach(function (el) { el.remove(); });
+                document.querySelectorAll('#sheet-body .row-error-row').forEach(function (el) { el.remove(); });
                 var trs = Array.from(document.querySelectorAll('#sheet-body tr'));
                 var firstTr = null;
-                data.errors.forEach(function (err) {
+                validationErrors.forEach(function (err) {
                     var idx = err.index || 0;
                     var msg = err.message || 'Invalid value';
-                    var tr = trs[idx];
+                    var row = rawRows[idx];
+                    var tr = row && trs.find(function (item) { return item.dataset.id === String(row.id); });
                     if (!tr) return;
                     firstTr = firstTr || tr;
                     tr.classList.add('table-danger');
@@ -481,11 +547,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 });
 
-                if (firstTr) {
+                if (firstTr && !editModalEl.classList.contains('show')) {
                     firstTr.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
 
-                throw new Error('Validation errors. Please fix highlighted rows.');
+                throw new Error('Validation errors. ' + validationErrors.map(function (error) { return error.message || 'Invalid value'; }).join(' '));
             }
 
             if (!data || !data.success) {
@@ -707,10 +773,11 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
     modalSaveBtn.addEventListener("click", async function () {
+        clearModalValidation();
         try {
             await window.shipmentDocuments.ready();
         } catch (error) {
-            showStatus("<strong>Check the selected documents.</strong> " + escapeHtml(error.message || "Please select the file again."), "danger");
+            showModalError('Check the selected documents. ' + (error.message || 'Please select the file again.'));
             return;
         }
 
@@ -868,7 +935,7 @@ document.addEventListener("DOMContentLoaded", function () {
             var alerts = document.querySelectorAll('.alert');
             alerts.forEach(function (a) {
                 try {
-                    if (a.dataset && a.dataset.autodismiss === 'false') return;
+                    if (a.closest('.modal') || (a.dataset && a.dataset.autodismiss === 'false')) return;
                     a.classList.add('d-none');
                 } catch (e) {}
             });

@@ -241,6 +241,13 @@ and click **Save** to stage the completed row in the table. Click **Save All**
 to write staged changes to the database. Cancelling the modal adds no row.
 The row's Edit button opens the same form for existing shipment details.
 
+Validation errors appear in the open shipment modal, with the affected field
+highlighted and focused. The error summary stays visible as the form scrolls;
+it does not disappear after ten seconds. Correct the fields and click **Save**
+again. Entered values and document selections remain available. **Save All**
+continues to write staged changes to the database. Company, bulk-upload and
+document-editor errors also come into view within their own dialogs.
+
 The sheet groups identifier type/number, weight/volume, pickup
 tag/date, and drop pincode/date together. Every displayed field can still be
 edited directly, and each sortable field has its own header button. Use

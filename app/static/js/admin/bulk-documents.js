@@ -9,6 +9,8 @@
     function show(message, error = false) {
         feedback.textContent = message;
         feedback.className = 'alert ' + (error ? 'alert-danger' : 'alert-success');
+        feedback.setAttribute('role', error ? 'alert' : 'status');
+        if (error) feedback.scrollIntoView({block: 'nearest'});
     }
     function updateSelection() {
         document.getElementById('bulk-selected-count').textContent = selected.size;

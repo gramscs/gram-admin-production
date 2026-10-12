@@ -80,8 +80,11 @@ def test_updated_labels_have_optional_barcode_and_company_name(admin_client):
         assert float(page.mediabox.width) == 288 and float(page.mediabox.height) == 432
         label = page.extract_text()
         assert 'Acme Logistics' in label and 'DELIVER TO' in label and 'Receiver Road' in label and 'Sender Road' in label
-        embedded_fonts = [font.get_object().get('/FontDescriptor') for font in page['/Resources']['/Font'].values()]
-        assert sum(bool(descriptor and descriptor.get_object().get('/FontFile2')) for descriptor in embedded_fonts) == 2
+        fonts = [font.get_object() for font in page['/Resources']['/Font'].values()]
+        embedded_fonts = [font for font in fonts if font.get('/FontDescriptor') and font['/FontDescriptor'].get_object().get('/FontFile2')]
+        assert len(embedded_fonts) == 4
+        assert sum('LiberationMono' in font['/BaseFont'] for font in embedded_fonts) == 2
+        assert sum('LiberationSans' in font['/BaseFont'] for font in embedded_fonts) == 2
         outputs.append(page.get_contents().get_data().count(b' re'))
     assert outputs[0] - outputs[1] > 20, 'The barcode must add its bars independently of the layout bands'
 

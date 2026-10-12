@@ -31,5 +31,5 @@
 {% include 'admin/consignments/bulk_documents.html' %}
 {% endblock %}
 {% block scripts %}
-{% for script in ['shipment-filters.js', 'api.js', 'bulk-documents.js', 'document-editor.js', 'document-library.js'] %}<script src="{{ url_for('static', filename='js/admin/' ~ script) }}"></script>{% endfor %}
+{% for script in ['shipment-filters.js', 'api.js', 'bulk-documents.js', 'document-editor.js', 'document-library.js'] %}<script src="{{ url_for('static', filename='js/admin/' ~ script, v='modal-validation-1') }}"></script>{% endfor %}
 {% endblock %}

@@ -558,3 +558,42 @@ matching numbers/details and embedded mechanical fonts. Weight, volume, long
 address and no-barcode samples were rendered and inspected. The sample PDF and
 two label screenshots now show the new layout. All checks used disposable sample
 data; no live database or Supabase object was changed.
+
+## Validation inside open forms (12 October 2026)
+
+Shipment add/edit errors now use a persistent summary below the modal header,
+outside the scrolling body. Invalid fields receive a visible marker, an
+accessible error description and focus. Draft field values and selected
+documents are retained; no invalid row is staged. Existing identifier/PIN and
+numeric rules are checked before staging. Retained inactive measurements are
+also checked, with instructions to correct them without changing the selected
+measurement basis or discarding their value.
+
+Delayed Save All failures route into an open shipment modal. Structured HTTP
+validation errors are read from the API wrapper's response body, display their
+actual messages, and mark the matching table record by ID. The underlying table
+is not scrolled while that modal is open. Page feedback remains current when
+the dialog closes. The Save/Save All staging workflow is retained. New/reopened forms clear old markers
+and summaries. The page's auto-dismiss timer leaves modal alerts visible.
+Company/MIS, bulk-upload and document-editor errors scroll into view within their
+own dialogs. Updated scripts/styles have versioned URLs.
+
+Validation completed with disposable local data:
+
+- **101 focused tests passed**, no failures or skips. One upstream ReportLab
+  deprecation warning. An older label-font check was updated to verify all four
+  embedded fonts (Liberation Sans and Mono), matching the existing label design.
+- Five browser validation groups passed: required identifier, PINs, pieces,
+  active/retained measurements and document selection; delayed structured server
+  rejection with an open editor; company server validation; bulk upload; and
+  document editor on a short mobile viewport. Errors persist beyond ten seconds,
+  input values survive errors, and invalid entries cannot be staged/saved.
+- Existing consignment staging and document-editor browser regressions passed,
+  covering delayed table refresh, both document uploads/removals, replacement,
+  Cancel/Undo, stale-editor protection and reachable controls across screen sizes.
+- Desktop/mobile screenshots were inspected. Current examples are
+  `docs/screenshots/shipment-validation-desktop.png` and
+  `docs/screenshots/shipment-validation-mobile.png`.
+
+No live database or Supabase data was changed. Pull and restart the app; no
+migration or new dependency is needed.

@@ -29,4 +29,5 @@
 .page-number { min-width: 2rem; text-align: center; }
 .rows-per-page { width: auto; }
 #editConsignmentModal .form-label { font-size: .85rem; margin-bottom: .35rem; }
+#shipment-form-error { flex-shrink: 0; max-height: 22vh; overflow-y: auto; font-size: .85rem; }
 @media (max-width: 767.98px) { .pagination-buttons { flex-wrap: wrap; } .consignment-page h4 { font-size: 1.2rem; } }

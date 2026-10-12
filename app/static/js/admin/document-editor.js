@@ -25,6 +25,7 @@
         modal.querySelectorAll('[data-bs-dismiss], #document-editor-remove, #document-editor-undo').forEach(button => {button.disabled = editor.busy;});
         save.disabled = editor.busy || editor.pending || !editor.changed || !!editor.error;
         save.textContent = editor.busy ? 'Saving…' : 'Save changes';
+        if (editor.error && modal.classList.contains('show')) part('error').scrollIntoView({block: 'nearest'});
     }
     function reset() {
         editor.sequence++; editor.file = null; editor.remove = false; editor.changed = false;
