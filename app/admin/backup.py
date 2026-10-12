@@ -180,7 +180,8 @@ def _add_document(archive, report, value, path, **details):
 
 def _sheet(workbook, title, columns, rows):
     sheet = workbook.create_sheet(title[:31])
-    sheet.append(columns)
+    measurement_headers = {"chargeable_weight": "weight", "chargeable_volume": "volume"}
+    sheet.append([measurement_headers.get(name, name) for name in columns])
     for row in rows:
         cells = []
         for name in columns:

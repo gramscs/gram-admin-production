@@ -2,7 +2,7 @@
 {% set active_page = 'labels' %}
 {% block title %}B2B Labels – Gram SCS{% endblock %}
 {% block topbar_title %}B2B Labels{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css') }}" />{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css', v='optional-names-3') }}" />{% endblock %}
 {% block content %}
 <div class="page-heading"><span class="page-eyebrow">PRINT & DISPATCH</span><h1>B2B Shipping Labels</h1><p>Select your saved shipments, check the piece count, then preview or download labels ready for the packing desk.</p></div>
 {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
@@ -16,7 +16,7 @@
 <form method="post" action="{{ url_for('admin.labels_generate') }}" id="labels-form" data-review-url="{{ url_for('admin.labels_review') }}" data-scope="{{ session.get('admin_username', 'admin') }}" data-id-format="{{ label_id_format }}">
 <div class="label-layout">
   <div class="label-shipments">
-    <div class="surface-panel table-responsive"><table class="table mb-0"><thead><tr><th scope="col"><input id="select-all-labels" type="checkbox" aria-label="Select all shipments on this page" /></th><th scope="col">Shipment</th><th scope="col">Route</th><th scope="col">Pieces</th><th scope="col">Chargeable</th></tr></thead><tbody>
+    <div class="surface-panel table-responsive"><table class="table mb-0"><thead><tr><th scope="col"><input id="select-all-labels" type="checkbox" aria-label="Select all shipments on this page" /></th><th scope="col">Shipment</th><th scope="col">Route</th><th scope="col">Pieces</th><th scope="col">Weight / volume</th></tr></thead><tbody>
     {% for row in rows %}<tr><td><input type="checkbox" name="consignment_ids" value="{{ row.id }}" data-pieces="{{ row.pieces or 1 }}" aria-label="Select {{ row.consignment_number }}" /></td><td><strong>{{ row.consignment_number }}</strong><span class="d-block small text-muted">{{ row.identifier_type or 'LRN' }}{% if row.company %} · {{ row.company.name }}{% endif %}</span></td><td><span class="small d-block">{{ row.pickup_tag or row.pickup_pincode or 'Pickup not set' }} <i class="fa fa-long-arrow-right mx-1 text-muted" aria-hidden="true"></i> {{ row.drop_tag or row.drop_pincode or 'Drop not set' }}</span><span class="small text-muted d-block">{{ row.drop_address or 'No destination address' }}</span></td><td>{{ row.pieces or 1 }}</td><td class="text-nowrap small">{% if row.measurement_mode == 'volume' %}{{ row.chargeable_volume if row.chargeable_volume is not none else '—' }} m³{% else %}{{ row.chargeable_weight if row.chargeable_weight is not none else '—' }} kg{% endif %}</td></tr>
     {% else %}<tr><td colspan="5" class="empty-panel"><i class="fa fa-barcode" aria-hidden="true"></i><strong>No matching saved shipments</strong><span>Add and save shipments in Shipments first.</span></td></tr>{% endfor %}
     </tbody></table></div>
@@ -46,7 +46,7 @@
       <div class="label-common-panel">
         <h3 class="fs-6">Apply common details</h3>
         <div class="label-common-fields"><div><label for="label-common-payment" class="form-label">Payment mode</label><select id="label-common-payment" class="form-select"><option value="pre-paid">Pre-paid</option><option value="to-pay">To pay</option><option value="cash-on-delivery">Cash on delivery</option></select></div><div><label for="label-common-description" class="form-label">Goods description</label><input id="label-common-description" class="form-control" maxlength="160" placeholder="e.g. Automotive spare parts" /></div><button type="button" class="btn btn-outline-primary" id="apply-label-common">Apply to all shipments</button></div>
-        <p class="small text-muted mb-0 mt-2">Invoice amounts and e-way bills are entered separately for each shipment. You can edit any common value afterward.</p>
+        <p class="small text-muted mb-0 mt-2">Enter invoice amounts, optional names and EWBN separately for each shipment. Blank names print the address directly. You can edit any common value afterward.</p>
       </div>
       <div class="d-flex flex-wrap align-items-center gap-2 my-3"><label class="visually-hidden" for="label-review-search">Find a selected shipment</label><input id="label-review-search" class="form-control sheet-search" placeholder="Find a selected shipment" /><span id="label-review-ready" class="small text-muted" aria-live="polite"></span></div>
       <div id="label-review-error" class="alert alert-danger d-none" role="alert"></div>
@@ -56,4 +56,4 @@
   </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='record-ids-2') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='optional-names-3') }}"></script>{% endblock %}

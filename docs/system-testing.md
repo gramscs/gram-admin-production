@@ -491,3 +491,39 @@ and goods description. No live database or Storage object was changed.
 The existing four 50-shipment browser workflow groups also passed again,
 including cross-page selection, actual download/preview/reprint, refresh and
 responsive light/dark controls.
+
+## Optional label names and measurement wording (12 October 2026)
+
+Labels now put postal codes in the address block, with no large destination-PIN
+banner. A PIN already present in the saved address is printed once. Each review
+card has optional sender and receiver names: entered names precede the address,
+and blank names print the address directly without a placeholder or location tag.
+Names are escaped, limited to 120 characters, and stored in the reviewed label
+run rather than the shipment/company database. Blank names preserve compatibility
+with previously saved runs. The optional e-way bill is captioned **EWBN**.
+
+Public metrics use **Weight** or **Volume**, with the selected shipment measurement
+on printed labels. Dashboard, shipment forms, accessible field labels, MIS
+columns/summaries and generated PDFs use the same wording. Shipment Excel
+exports/templates and backup workbooks use `weight`/`volume` headers; both new
+and legacy import headers are accepted. Database/API keys and authoritative
+backup JSON retain their original names for restoration compatibility.
+
+Validation completed:
+
+- Full pytest suite: **607 passed, 10 skipped**, no failures, with disposable
+  SQLite and PostgreSQL fixtures. Two upstream dependency deprecation warnings.
+- Four 50-shipment browser groups passed, including optional names in the
+  submitted request and after refresh, real preview/download/reprint, unchanged
+  shipment records, and accessible controls on desktop/mobile/tablet in both themes.
+- All three record-ID browser regression groups passed with the expanded form.
+- Both downloaded batch PDFs contained 51 pages, matching references and manual
+  names on reprint; other shipments omitted names. Conditional EWBN and the absence
+  of the PIN banner/old metric caption were verified from extracted text.
+- Named weight and address-only volume label PDFs were rendered and inspected.
+  The updated management sample has 13 nonblank pages and current metric wording.
+
+Current samples are `docs/b2b-label-example.pdf`, `docs/management-mis-example.pdf`
+and the updated dashboard/MIS/review/label screenshots. All data used for these
+checks was disposable sample data. No live database or Supabase object was changed.
+No database migration or new dependency is required; pull and restart the app.

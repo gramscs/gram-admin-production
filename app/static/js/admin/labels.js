@@ -90,8 +90,8 @@ document.addEventListener('DOMContentLoaded', function () {
             card.append(node('h3', '', row.identifier_type + ' · ' + row.consignment_number));
             const snapshot = node('div', 'label-snapshot');
             const volumeMode = row.measurement_mode === 'volume';
-            const chargeable = (volumeMode ? row.chargeable_volume : row.chargeable_weight) ?? '—';
-            [row.pieces + ' boxes', 'Pickup: ' + row.pickup_date, chargeable + (volumeMode ? ' m³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
+            const measurement = (volumeMode ? row.chargeable_volume : row.chargeable_weight) ?? '—';
+            [row.pieces + ' boxes', 'Pickup: ' + row.pickup_date, measurement + (volumeMode ? ' m³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
             card.append(snapshot);
             const fields = node('div', 'label-review-fields');
             const amount = node('input', 'form-control'); amount.id = 'label-amount-' + index; amount.type = 'number'; amount.min = '0'; amount.max = '999999999.99'; amount.step = '0.01'; amount.required = true; amount.value = data.invoice_amount; amount.dataset.field = 'invoice_amount';
@@ -100,15 +100,23 @@ document.addEventListener('DOMContentLoaded', function () {
             field(fields, 'Payment mode *', paymentInput);
             const description = node('input', 'form-control'); description.id = 'label-goods-' + index; description.maxLength = 160; description.required = true; description.value = data.goods_description; description.dataset.field = 'goods_description';
             field(fields, 'Goods description *', description); card.append(fields);
+            const names = node('div', 'label-review-names'), nameInputs = {};
+            [['sender_name', 'Sender name (optional)'], ['receiver_name', 'Receiver name (optional)']].forEach(([key, title]) => {
+                const input = node('input', 'form-control'); input.type = 'text'; input.id = 'label-' + key + '-' + index;
+                input.maxLength = 120; input.value = data[key] || ''; input.dataset.field = key;
+                input.placeholder = 'Leave blank to print the address only';
+                field(names, title, input); nameInputs[key] = input;
+            });
+            card.append(names);
             const eway = node('div', 'label-eway'), label = node('label', 'd-flex align-items-center gap-2 small');
             const exists = node('input'); exists.type = 'checkbox'; exists.checked = data.eway_bill_exists; exists.dataset.field = 'eway_bill_exists';
-            label.append(exists, document.createTextNode('E-way bill exists'));
-            const number = node('input', 'form-control'); number.id = 'label-eway-' + index; number.type = 'text'; number.inputMode = 'numeric'; number.pattern = '[0-9]{12}'; number.maxLength = 12; number.value = data.eway_bill_number; number.dataset.field = 'eway_bill_number'; number.setAttribute('aria-label', 'E-way bill number for ' + row.consignment_number); number.placeholder = '12-digit e-way bill';
+            label.append(exists, document.createTextNode('EWBN exists'));
+            const number = node('input', 'form-control'); number.id = 'label-eway-' + index; number.type = 'text'; number.inputMode = 'numeric'; number.pattern = '[0-9]{12}'; number.maxLength = 12; number.value = data.eway_bill_number; number.dataset.field = 'eway_bill_number'; number.setAttribute('aria-label', 'EWBN for ' + row.consignment_number); number.placeholder = '12-digit EWBN';
             function toggleEway() {number.disabled = !exists.checked; number.required = exists.checked; number.classList.toggle('d-none', !exists.checked);}
             toggleEway(); exists.addEventListener('change', toggleEway);
             eway.append(label, number); card.append(eway); root.append(card);
             reviewFields.set(card, {id: row.id, inputs: {invoice_amount: amount, payment_mode: paymentInput,
-                goods_description: description, eway_bill_exists: exists, eway_bill_number: number}});
+                goods_description: description, eway_bill_exists: exists, eway_bill_number: number, ...nameInputs}});
             card.addEventListener('input', () => changed(card)); card.addEventListener('change', () => changed(card));
         });
         const pieces = review.reduce((sum, row) => sum + row.pieces, 0);

@@ -241,7 +241,7 @@ and click **Save** to stage the completed row in the table. Click **Save All**
 to write staged changes to the database. Cancelling the modal adds no row.
 The row's Edit button opens the same form for existing shipment details.
 
-The sheet groups identifier type/number, chargeable weight/volume, pickup
+The sheet groups identifier type/number, weight/volume, pickup
 tag/date, and drop pincode/date together. Every displayed field can still be
 edited directly, and each sortable field has its own header button. Use
 **Import / Export** for the Excel import dialog, import template, and Excel/PDF
@@ -249,9 +249,8 @@ exports. The add/edit form groups shipment, pickup, drop, and document details;
 its footer stays visible while you scroll.
 
 Each shipment has an identifier type (LRN, Order ID, or AWB), an identifier of
-up to 64 characters, a number of pieces, chargeable weight in kg, and chargeable
-volume in m³. Weight/volume accept non-negative values with up to three decimal
-places. Pieces must be a whole number from 1 to 10000. Identifiers remain unique
+up to 64 characters, a number of pieces, weight in kg, and volume in m³.
+Weight/volume accept non-negative values with up to three decimal places. Pieces must be a whole number from 1 to 10000. Identifiers remain unique
 across all types. Existing records default to LRN and one piece.
 
 Local SQLite development upgrades existing shipment tables automatically on
@@ -272,14 +271,19 @@ to 500 piece labels.
 
 For each selected shipment, enter its invoice amount in rupees, choose
 **Pre-paid**, **To pay**, or **Cash on delivery**, and enter a goods description.
-Check **E-way bill exists** only when applicable and enter its 12-digit number;
+Check **EWBN exists** only when applicable and enter its 12-digit number;
 unchecked e-way bills are omitted entirely. **Apply common details** fills the
 payment mode and description across the batch, after which individual fields
 remain editable. Invoice amounts and e-way bills are entered per shipment.
+Optionally enter **Sender name** and **Receiver name** for each shipment. Names
+are printed above the address; a blank name prints the address directly without
+a placeholder or preset location tag. PIN codes already in an address are not
+repeated. These reviewed names stay with the label run, without changing the
+company or shipment database.
 Use **Preview PDF** or **Download PDF** when all shipments are ready.
 
 The 4×6-inch PDF uses the supplied GRAM logo alone in the header,
-saved pickup date, shipment identifier, boxes, chargeable weight/volume totals,
+saved pickup date, shipment identifier, boxes, weight/volume totals,
 pickup/sender and drop/recipient addresses and PIN codes. It produces one label
 per piece. All pieces of a shipment share the reviewed commercial details and
 assigned order/invoice numbers. Print at 100% scale; Code 128 barcodes remain
@@ -287,11 +291,11 @@ optional. The Archive Delivered button and deletion endpoint have been removed.
 
 Printed labels show the tracking number without an LRN, AWB or Order ID type
 heading. The reference-inspired layout places the logo and payment badge first,
-then sender, recipient and a bold destination-PIN band. Chargeable totals, boxes,
-pickup date and piece count share one row, followed by tracking/barcode and the
+then sender and recipient addresses with postal codes in the address block.
+Measurement totals, boxes, pickup date and piece count share one row, followed by tracking/barcode and the
 invoice amount, order/invoice numbers, goods description and optional e-way bill.
 The footer uses aligned caption/value columns for invoice amount, order ID,
-invoice number, goods description and the optional e-way bill.
+invoice number, goods description and optional **EWBN**.
 An inset double border with rounded corners and muted green strokes frames the
 label, with clear space around its addresses, tracking barcode and footer.
 Only the shipment's selected measurement is printed: **Weight** uses kg and
@@ -299,6 +303,13 @@ Only the shipment's selected measurement is printed: **Weight** uses kg and
 the database but is omitted from the label, selection list and review summary.
 The embedded Liberation Sans fonts use Arial-compatible metrics for a compact
 courier-style typeface.
+
+Public metrics use **Weight** and **Volume**, including dashboard, forms, MIS,
+PDFs and Excel downloads. Shipment import/export and backup workbooks use
+`weight` and `volume` headers; older imports using `chargeable_weight` and
+`chargeable_volume` are still accepted. Existing database/API field names and
+machine-readable backup JSON remain unchanged for compatibility. No migration
+is required.
 
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
@@ -700,7 +711,7 @@ Reporting definitions:
 - Missing POD counts delivered shipments without a POD reference; missing
   invoices counts all selected shipments without an invoice reference. These
   indicators do not verify that an attached file can still be retrieved.
-- Chargeable totals include recorded, valid, non-negative measurements only.
+- Measurement totals include recorded, valid, non-negative measurements only.
   Weight/volume coverage shows how many shipments have a value. Invalid legacy
   measurements are flagged and excluded; blank measurements are not estimates.
 

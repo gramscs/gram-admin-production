@@ -357,7 +357,7 @@ def consignments_import_template_excel():
         "drop_pincode",
         "drop_tag",
         "drop_date",
-        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "measurement_mode",
+        "identifier_type", "pieces", "weight", "volume", "company_id", "measurement_mode",
     ])
 
     buffer = io.BytesIO()
@@ -382,7 +382,8 @@ def consignments_import_excel():
 
     workbook = load_workbook(uploaded_file, data_only=True)
     sheet = workbook.active
-    headers = [_normalize_header(cell) for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
+    measurement_headers = {"weight": "chargeable_weight", "volume": "chargeable_volume"}
+    headers = [measurement_headers.get(_normalize_header(cell), _normalize_header(cell)) for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
 
     existing_numbers = {
         row[0]
@@ -458,7 +459,7 @@ def consignments_export_excel():
         "drop_date",
         "pickup_address",
         "drop_address",
-        "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "client_company", "measurement_mode",
+        "identifier_type", "pieces", "weight", "volume", "company_id", "client_company", "measurement_mode",
     ]
     sheet.append(headers)
 
@@ -571,7 +572,8 @@ def _normalize_shipment_fields(row, existing=None):
             if not number.is_finite() or number < 0 or number > Decimal("999999999.999") or number != number.quantize(Decimal("0.001")):
                 raise ValueError()
         except (InvalidOperation, ValueError):
-            raise ValueError(f"{name.replace('_', ' ').title()} must be non-negative with up to 3 decimal places.") from None
+            title = "Weight" if name == "chargeable_weight" else "Volume"
+            raise ValueError(f"{title} must be non-negative with up to 3 decimal places.") from None
         fields[name] = number
     return fields
 

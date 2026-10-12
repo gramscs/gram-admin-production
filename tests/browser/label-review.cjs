@@ -23,6 +23,11 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.locator('[name=username]').fill('admin');
         await page.locator('[name=password]').fill(process.env.SYSTEM_TEST_PASSWORD);
         await page.locator('button[type=submit]').click(); await page.waitForURL('**/admin/dashboard');
+        for (const route of ['/admin/dashboard', '/admin/consignments', '/admin/mis', '/admin/labels']) {
+            await page.goto(base + route);
+            assert.ok(!/chargeable/i.test(await page.locator('body').innerText()), route);
+            assert.equal(await page.locator('[aria-label*=chargeable i]').count(), 0);
+        }
         const saved = await page.request.post(base + '/admin/consignments/save', {data: {rows: Array.from({length: 50}, (_, i) => ({consignment_number: prefix + '-' + String(i).padStart(2, '0'), identifier_type: 'LRN', pieces: i === 0 ? 2 : 1, chargeable_weight: '100', pickup_date: '2026-10-09', pickup_address: '429 Jagraj Gram, Delhi', drop_address: 'Ms Ashiya, Delhi', drop_pincode: '110037'}))}});
         assert.equal(saved.status(), 200);
         const baseline = (await (await page.request.get(base + '/admin/consignments/list', {params: {search: prefix, per_page: 100}})).json()).rows;
@@ -54,6 +59,11 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
             });
         });
         const first = page.locator('.label-review-card').first();
+        assert.equal(await first.locator('[data-field=sender_name]').inputValue(), '');
+        assert.equal(await first.locator('[data-field=receiver_name]').inputValue(), '');
+        assert.equal(await first.locator('[data-field=sender_name]').evaluate(input => input.required), false);
+        await first.locator('[data-field=sender_name]').fill('GRAM Dispatch Team');
+        await first.locator('[data-field=receiver_name]').fill('Ashiya Receiving Team');
         await first.locator('[data-field=eway_bill_exists]').check();
         await first.locator('[data-field=eway_bill_number]').fill('123456789012');
         const last = page.locator('.label-review-card').last();
@@ -62,8 +72,13 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         assert.equal(await page.locator('#label-review-ready').textContent(), '50 / 50 ready');
         console.log('PASS: common defaults, individual overrides, invoice amount validation and optional e-way bill');
 
+        const submitted = page.waitForRequest(request => request.url().endsWith('/labels/generate'));
         const download = page.waitForEvent('download');
         await page.locator('#download-labels-btn').click();
+        const payload = (await submitted).postDataJSON();
+        assert.equal(payload.label_details[0].sender_name, 'GRAM Dispatch Team');
+        assert.equal(payload.label_details[0].receiver_name, 'Ashiya Receiving Team');
+        assert.equal(payload.label_details.at(-1).sender_name, '');
         await (await download).saveAs(path.join(artifacts, 'labels-50-shipments.pdf'));
         await page.waitForFunction(() => !document.querySelector('#download-labels-btn').disabled);
         const run = await page.evaluate(() => JSON.parse(sessionStorage.getItem('gram-label-selection:admin')).job);
@@ -77,6 +92,8 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await modal.getByRole('button', {name: 'Back', exact: true}).click(); await modal.waitFor({state: 'hidden'});
         await page.reload(); await page.locator('#review-labels-btn').click(); await modal.waitFor({state: 'visible'});
         assert.equal(await page.locator('#label-review-ready').textContent(), '50 / 50 ready');
+        assert.equal(await page.locator('[data-field=sender_name]').first().inputValue(), 'GRAM Dispatch Team');
+        assert.equal(await page.locator('[data-field=receiver_name]').first().inputValue(), 'Ashiya Receiving Team');
         assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('gram-label-selection:admin')).job), run);
         const again = page.waitForEvent('download'); await page.locator('#download-labels-btn').click();
         await (await again).saveAs(path.join(artifacts, 'labels-reprint.pdf'));
@@ -94,6 +111,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
             });
             assert.equal(reachable, true, theme + ' ' + width);
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+            assert.equal(await page.locator('[data-field=sender_name]').first().evaluate(input => input.getBoundingClientRect().right <= innerWidth), true);
             await page.screenshot({path: path.join(artifacts, 'review-' + theme + '-' + width + '.png')});
         }
         assert.deepEqual(errors, []); assert.deepEqual(failures, []);

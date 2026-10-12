@@ -78,7 +78,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }).join('') + '</select>';
     }
     function buildNumberInput(name, value, min, step) {
-        return '<input type="number" aria-label="' + name.replaceAll('_', ' ') + '" class="form-control form-control-sm ' + name + '" min="' + min + '" step="' + step + '" value="' + escapeHtml(String(value)) + '" />';
+        var title = {chargeable_weight: 'Weight (kg)', chargeable_volume: 'Volume (m³)'}[name] || name.replaceAll('_', ' ');
+        return '<input type="number" aria-label="' + title + '" class="form-control form-control-sm ' + name + '" min="' + min + '" step="' + step + '" value="' + escapeHtml(String(value)) + '" />';
     }
 
     function measurementMode(row) {

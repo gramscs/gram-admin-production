@@ -16,7 +16,7 @@ COLUMNS = {
     'status': 'Current status', 'pickup_date': 'Pickup date', 'drop_date': 'Expected drop date',
     'pickup_tag': 'Pickup location', 'pickup_pincode': 'Pickup pincode', 'pickup_address': 'Pickup address',
     'drop_tag': 'Drop location', 'drop_pincode': 'Drop pincode', 'drop_address': 'Drop address',
-    'pieces': 'Pieces', 'measurement_mode': 'Measurement basis', 'chargeable_weight': 'Chargeable weight (kg)', 'chargeable_volume': 'Chargeable volume (m³)',
+    'pieces': 'Pieces', 'measurement_mode': 'Measurement basis', 'chargeable_weight': 'Weight (kg)', 'chargeable_volume': 'Volume (m³)',
     'pod': 'POD uploaded', 'invoice': 'Invoice uploaded', 'issues': 'Attention flags',
 }
 DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'chargeable_weight', 'chargeable_volume', 'measurement_mode', 'pod', 'invoice', 'issues']

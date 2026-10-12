@@ -33,7 +33,7 @@ def text_cell(sheet, values):
 
 def metric_rows(report):
     m = report['metrics']
-    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Pieces', m['pieces']), ('Chargeable weight (kg)', m['weight']), ('Chargeable volume (m³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
+    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Pieces', m['pieces']), ('Weight (kg)', m['weight']), ('Volume (m³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
 
 
 def excel(report, columns):
@@ -138,7 +138,7 @@ def pdf(report, columns):
         story += [p(message), Spacer(1,10)]
     if m['excluded_undated']:
         story += [p(f"{m['excluded_undated']} shipment(s) were excluded because their pickup date is missing or invalid. Choose All time to include them."), Spacer(1,8)]
-    kpis = Table([[p('SHIPMENTS'), p('DELIVERED SHARE'), p('PIECES'), p('CHARGEABLE WEIGHT')], [p(f'{m["total"]:,}', 'MISHeading'), p(f'{m["delivered_share"]}%', 'MISHeading'), p(f'{m["pieces"]:,}', 'MISHeading'), p(f'{m["weight"]:,.3f} kg', 'MISHeading')]], colWidths=[189]*4)
+    kpis = Table([[p('SHIPMENTS'), p('DELIVERED SHARE'), p('PIECES'), p('WEIGHT')], [p(f'{m["total"]:,}', 'MISHeading'), p(f'{m["delivered_share"]}%', 'MISHeading'), p(f'{m["pieces"]:,}', 'MISHeading'), p(f'{m["weight"]:,.3f} kg', 'MISHeading')]], colWidths=[189]*4)
     kpis.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EDF5F1')), ('TOPPADDING',(0,0),(-1,-1),12), ('BOTTOMPADDING',(0,0),(-1,-1),8)]))
     story += [kpis, Spacer(1, 20)]
     drawing = Drawing(756, 180)
@@ -284,7 +284,7 @@ def consignment_pdf(report, columns):
     m = report['metrics']
     story = [p('Consignment register', 'Heading1'),
              p('Generated ' + report['generated_at']),
-             p(f'{m["total"]:,} shipments · {m["pieces"]:,} pieces · Chargeable weight total {m["weight"]:,.3f} kg · Volume total {m["volume"]:,.3f} m³'), Spacer(1, 8)]
+             p(f'{m["total"]:,} shipments · {m["pieces"]:,} pieces · Weight total {m["weight"]:,.3f} kg · Volume total {m["volume"]:,.3f} m³'), Spacer(1, 8)]
     if report['filters'].get('search'):
         story.append(p('Search: ' + report['filters']['search']))
     if not report['details']:

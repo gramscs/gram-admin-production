@@ -86,10 +86,10 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
         assert (float(page.mediabox.width), float(page.mediabox.height)) == (288, 432)
         if index < 2:
             assert 'Rs 6,000.50' in extracted and 'TO PAY' in extracted
-            assert 'E-WAY BILL:' in extracted and '123456789012' in extracted
+            assert 'EWBN:' in extracted and '123456789012' in extracted
         else:
             assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
-            assert 'E-WAY BILL' not in extracted and 'ignore unchecked' not in extracted
+            assert 'EWBN' not in extracted and 'ignore unchecked' not in extracted
     assert snapshot(app) == before
     archive, _, report = unpack(client.get('/admin/generate-backup'))
     counter = next(item for item in report['documents'] if (item.get('source_reference') or '').endswith('.label-state/counters.json'))
@@ -123,6 +123,8 @@ def test_fifty_shipments_and_reprints_keep_one_number_per_shipment(panel, monkey
     {'invoice_amount': 'Infinity'}, {'invoice_amount': '1.001'}, {'invoice_amount': True},
     {'invoice_amount': '1000000000'}, {'payment_mode': 'cash'}, {'goods_description': ''},
     {'goods_description': 'x' * 161}, {'eway_bill_exists': 'yes'},
+    {'sender_name': 'x' * 121}, {'receiver_name': None}, {'sender_name': 123},
+    {'receiver_name': 'Name\nInjected'}, {'sender_name': 'Name\x7f'},
     {'eway_bill_exists': True, 'eway_bill_number': '123'},
 ])
 def test_invalid_label_details_do_not_allocate_or_touch_shipments(app, admin_client, change):

@@ -217,7 +217,7 @@ def test_tracker_pdf_replaces_title_only_export_with_all_saved_shipments(admin_c
     assert 'Shipment register' in text
     for identifier in ('=SUM(1,2)', 'OPEN-1', 'UNDATED', 'OLDER'):
         assert identifier in text
-    assert 'Chargeable weight (kg)' in text and '19.750 kg' in text
+    assert 'Weight (kg)' in text and '19.750 kg' in text
 
 
 def test_all_pdf_entry_points_include_healthy_shipments_not_only_attention_records(app, admin_client):

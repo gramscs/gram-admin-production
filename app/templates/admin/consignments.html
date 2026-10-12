@@ -53,7 +53,7 @@
             <th scope="col"><input type="checkbox" id="select-visible-shipments" class="form-check-input" aria-label="Select shipments on this page" /></th>
             <th scope="col" class="shipment-column">{{ sort_button('consignment_number', 'Identifier #') }}<span class="column-hint">Type / number</span></th>
             <th scope="col" class="pieces-column">Pieces</th>
-            <th scope="col" class="chargeable-column">Chargeable<span class="column-hint">Weight / volume</span></th>
+            <th scope="col" class="chargeable-column">Weight / volume<span class="column-hint">kg / m³</span></th>
             <th scope="col" class="status-column">{{ sort_button('status', 'Status') }}</th>
             <th scope="col" class="route-column">{{ sort_button('pickup_tag', 'Pickup Tag') }}{{ sort_button('pickup_date', 'Pickup Date') }}</th>
             <th scope="col" class="route-column">{{ sort_button('drop_pincode', 'Drop Pin') }}{{ sort_button('drop_date', 'Drop Estimated') }}</th>
@@ -90,6 +90,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
 {% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'consignments.js'] %}
-<script src="{{ url_for('static', filename='js/' ~ script) }}"></script>
+<script src="{{ url_for('static', filename='js/' ~ script, v='measurement-names-1') }}"></script>
 {% endfor %}
 {% endblock %}

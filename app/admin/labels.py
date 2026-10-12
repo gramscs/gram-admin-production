@@ -95,15 +95,23 @@ def _review_details(values, rows):
         description = item.get('goods_description')
         if not isinstance(description, str) or not 1 <= len(description.strip()) <= 160 or any(ord(char) < 32 and char not in '\n\t' for char in description):
             raise ValueError('Enter a goods description of 1–160 characters for every shipment.')
+        names = {}
+        for key, title in (('sender_name', 'Sender name'), ('receiver_name', 'Receiver name')):
+            name = item.get(key, '')
+            if not isinstance(name, str) or len(name.strip()) > 120 or any(ord(char) < 32 or ord(char) == 127 for char in name):
+                raise ValueError(f'{title} must be text of up to 120 characters.')
+            # Omit blank names to keep previously saved label runs compatible.
+            if name.strip():
+                names[key] = name.strip()
         exists = item.get('eway_bill_exists', False)
         if not isinstance(exists, bool):
-            raise ValueError('E-way bill exists must be true or false.')
+            raise ValueError('EWBN exists must be true or false.')
         eway = item.get('eway_bill_number', '') if exists else ''
         if exists and (not isinstance(eway, str) or not re.fullmatch(r'[0-9]{12}', eway.strip())):
-            raise ValueError('Enter the 12-digit e-way bill number, or uncheck E-way bill exists.')
+            raise ValueError('Enter the 12-digit EWBN, or uncheck EWBN exists.')
         details[identifier] = {'invoice_amount': f'{amount:.2f}', 'payment_mode': payment,
                                'goods_description': description.strip(), 'eway_bill_exists': exists,
-                               'eway_bill_number': eway.strip()}
+                               'eway_bill_number': eway.strip(), **names}
     if set(details) != {str(row.id) for row in rows}:
         raise ValueError('Label details must match exactly the selected shipments.')
     return [{**label_shipment(row), **details[str(row.id)]} for row in rows]
@@ -161,10 +169,14 @@ def _address(pdf, title, name, address, pin, top, height, recipient=False):
     left, width = 18, 252
     pdf.setFont('LabelSansBold', 6.5)
     pdf.drawString(left, top, title)
-    if not recipient:
-        pdf.setFont('LabelSansBold', 7)
-        pdf.drawRightString(left + width, top, 'PIN: ' + (pin or '—'))
-    text = '<b>' + escape(name or ('Recipient' if recipient else 'Sender')) + '</b><br/>' + escape(address or 'Address not provided').replace('\n', '<br/>')
+    lines = []
+    if name:
+        lines.append('<b>' + escape(name) + '</b>')
+    lines.append(escape(address or 'Address not provided').replace('\n', '<br/>'))
+    # A supplied PIN belongs to the address, never a separate routing banner.
+    if pin and not re.search(r'(?<!\d)' + re.escape(pin) + r'(?!\d)', address or ''):
+        lines.append(escape(pin))
+    text = '<br/>'.join(lines)
     _fit_text(pdf, text, left, top-7, width, height, size=11 if recipient else 8.5, leading=13 if recipient else 10.5)
 
 
@@ -198,25 +210,19 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             pdf.line(18, 376, 270, 376)
             pdf.setLineWidth(.5)
 
-            # Sender, destination and routing PIN follow the reference hierarchy.
-            _address(pdf, 'SHIP FROM', shipment['pickup_tag'], shipment['pickup_address'], shipment['pickup_pincode'], 366, 32)
+            # Optional names precede addresses; postal codes stay in the address.
+            _address(pdf, 'SHIP FROM', shipment.get('sender_name', ''), shipment['pickup_address'], shipment['pickup_pincode'], 366, 32)
             pdf.line(18, 318, 270, 318)
-            _address(pdf, 'DELIVER TO', shipment['drop_tag'], shipment['drop_address'], shipment['drop_pincode'], 307, 54, recipient=True)
-            pdf.rect(18, 208, 252, 32, fill=1, stroke=0)
-            _fit_text(pdf, escape(shipment['drop_pincode'] or 'PIN NOT SET'), 26, 238, 236, 20,
-                      font='LabelSansBold', size=18, alignment=1, text_color=colors.white)
-            pdf.setFillColor(colors.white)
-            pdf.setFont('LabelSans', 5.5)
-            pdf.drawCentredString(144, 213, 'DESTINATION PIN')
-            pdf.setFillColor(colors.black)
+            _address(pdf, 'DELIVER TO', shipment.get('receiver_name', ''), shipment['drop_address'], shipment['drop_pincode'], 307, 88, recipient=True)
+            pdf.line(18, 208, 270, 208)
 
             # Measurements, boxes, pickup date and piece count share one row.
             pdf.setFont('LabelSans', 6)
-            pdf.drawString(18, 198, 'CHARGEABLE TOTALS')
+            volume_mode = shipment.get('measurement_mode') == 'volume'
+            pdf.drawString(18, 198, 'VOLUME' if volume_mode else 'WEIGHT')
             pdf.drawString(101, 198, 'BOXES')
             pdf.drawString(149, 198, 'PICKUP DATE')
             pdf.drawString(237, 198, 'PIECE')
-            volume_mode = shipment.get('measurement_mode') == 'volume'
             value = shipment['chargeable_volume'] if volume_mode else shipment['chargeable_weight']
             unit = 'm³' if volume_mode else 'kg'
             _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, 194, 75, 12, font='LabelSansBold', size=9)
@@ -254,7 +260,7 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 82, 49, 188, 27, size=8, leading=9)
             if shipment['eway_bill_exists']:
                 pdf.setFont('LabelSans', 6.5)
-                pdf.drawString(18, 12, 'E-WAY BILL:')
+                pdf.drawString(18, 12, 'EWBN:')
                 pdf.setFont('LabelSansBold', 8)
                 pdf.drawString(82, 12, shipment['eway_bill_number'])
             pdf.showPage()

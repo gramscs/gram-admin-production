@@ -20,7 +20,7 @@
 </div>
 {% if report %}
 <div class="measure-strip surface-panel">
-  {% for value, label, note in [(metrics.pieces, 'Total pieces', 'Across selected shipments'), ('{:,.3f}'.format(metrics.weight), 'Chargeable weight · kg', metrics.weight_recorded|string ~ ' / ' ~ metrics.total|string ~ ' shipments recorded'), ('{:,.3f}'.format(metrics.volume), 'Chargeable volume · m³', metrics.volume_recorded|string ~ ' / ' ~ metrics.total|string ~ ' shipments recorded'), (metrics.open, 'Open shipments', 'All statuses except Delivered')] %}<div><strong>{{ value }}</strong><span>{{ label }}</span><small>{{ note }}</small></div>{% endfor %}
+  {% for value, label, note in [(metrics.pieces, 'Total pieces', 'Across selected shipments'), ('{:,.3f}'.format(metrics.weight), 'Weight · kg', metrics.weight_recorded|string ~ ' / ' ~ metrics.total|string ~ ' shipments recorded'), ('{:,.3f}'.format(metrics.volume), 'Volume · m³', metrics.volume_recorded|string ~ ' / ' ~ metrics.total|string ~ ' shipments recorded'), (metrics.open, 'Open shipments', 'All statuses except Delivered')] %}<div><strong>{{ value }}</strong><span>{{ label }}</span><small>{{ note }}</small></div>{% endfor %}
 </div>
 {% include 'admin/_dashboard_documents.html' %}
 <div class="chart-grid">
