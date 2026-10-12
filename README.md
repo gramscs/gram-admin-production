@@ -290,9 +290,15 @@ heading. The reference-inspired layout places the logo and payment badge first,
 then sender, recipient and a bold destination-PIN band. Chargeable totals, boxes,
 pickup date and piece count share one row, followed by tracking/barcode and the
 invoice amount, order/invoice numbers, goods description and optional e-way bill.
-Order and invoice numbers appear side by side.
+The footer uses aligned caption/value columns for invoice amount, order ID,
+invoice number, goods description and the optional e-way bill.
 An inset double border with rounded corners and muted green strokes frames the
 label, with clear space around its addresses, tracking barcode and footer.
+Only the shipment's selected measurement is printed: **Weight** uses kg and
+**Volume** uses m³. Any saved value in the inactive measurement field stays in
+the database but is omitted from the label, selection list and review summary.
+The embedded Liberation Sans fonts use Arial-compatible metrics for a compact
+courier-style typeface.
 
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
@@ -447,7 +453,10 @@ Inside the ZIP:
   JSON is the authoritative full-data copy; Excel is for browsing the records.
 - `documents/000001_<consignment-number>_id-<id>/`: that shipment's POD and invoice
   files. Numeric prefixes follow the consignment data/Excel order (database ID
-  ascending), so repeated original filenames cannot overwrite one another.
+  ascending). Files keep the standard names, such as `DEMO0017_pod.png` and
+  `DEMO0017_invoice.pdf`, including attachments saved under older storage names.
+- `file_history/`: retained ER document versions, in separate numbered folders
+  so repeated standard filenames remain distinct.
 - `other_uploads/`: all discovered uploaded files that no longer have a record
   link, including local legacy uploads and unlinked admin Supabase uploads.
 - `document_report.json` and `README.txt`: included/missing/unavailable files,
@@ -533,6 +542,18 @@ support 200 shipments and 250 MB per download. Special characters in download
 filenames are sanitized. Ambiguous upload names are rejected rather than linked
 to the wrong shipment. Rare duplicate ZIP names use a shipment-ID subfolder.
 Bulk uploads save immediately; the form's individual uploads still use Save All.
+New files use the same standard basename in private storage, individual
+downloads, bulk ZIPs and complete backups. Supabase objects use
+`consignments/<version-folder>/DEMO0017_pod.png` or
+`consignments/<version-folder>/DEMO0017_invoice.pdf` in their respective buckets;
+local development uses the same version-folder/name under `instance/uploads`.
+Unique version folders prevent overwrites and preserve rollback/history. Original
+upload names remain in metadata. Validated JPEG files use `.jpg`; unsafe characters
+in shipment numbers are sanitized. Existing storage objects keep their references;
+their downloads/backups receive the standard names without moving the originals.
+If a shipment number is edited, downloads use its current number. Complete
+backups retain the shipment-order folders, and unknown/unlinked files keep their
+stored basename because no shipment/document mapping is available for them.
 ER databases retain previous document versions when you **replace** a file;
 legacy local databases delete the previous file after a successful replacement.
 Explicit **Remove** deletes every saved version of that shipment's selected
@@ -585,7 +606,8 @@ The server detects the file contents independently of the browser MIME type.
 Images are decoded/re-encoded without metadata, limited to one image and
 16 megapixels. PDFs must be readable, unencrypted and 1–200 pages; files with
 scripts, automatic actions or embedded attachments are rejected. SVG and other
-file formats are rejected. Stored names are generated, document requests require
+file formats are rejected. Stored names follow the shipment/document convention
+inside unique version folders. Document requests require
 admin login, and downloads disable content sniffing and caching. This is file
 validation, not antivirus scanning. For Supabase storage, use a **private bucket**
 and keep the storage key on the server; a public bucket has its own access rules.
@@ -635,6 +657,11 @@ bands with white text, irrespective of the admin theme. The supplied green logo
 remains unchanged. The destination address and PIN receive priority; shipment totals
 are clearly marked so they are not mistaken for per-piece weights/volumes.
 Fonts are embedded for consistent printing. [View a sample three-piece label PDF](docs/b2b-label-example.pdf).
+
+Companies includes an **eye icon** to view the company, contacts and all saved
+locations without changing them. The view hides Save/Add/Remove actions; choose
+**Edit** separately to change the master. Login retains its theme toggle and no
+longer includes the Admin Home link.
 
 
 ## Management dashboard and MIS

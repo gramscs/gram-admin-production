@@ -42,11 +42,11 @@ def test_pdf_document_save_private_download_replace_and_staged_remove(admin_clie
     row = create_shipment(admin_client, **attachment(kind, pdf_bytes(), 'delivery.pdf', 'text/html'))
     field = 'pod_image' if kind == 'pod' else 'invoice_file'
     old = Path(app.instance_path, 'uploads', row[field])
-    assert old.exists() and old.name.startswith(kind + '-')
+    assert old.exists() and old.name == f"{row['consignment_number']}_{kind}.pdf"
     response = admin_client.get(f"/admin/consignments/{row['id']}/{kind}?preview=1")
     assert response.status_code == 200 and response.mimetype == 'application/pdf'
     assert response.headers['Content-Disposition'].startswith('attachment')
-    assert 'delivery.pdf' in response.headers['Content-Disposition']
+    assert f"{row['consignment_number']}_{kind}.pdf" in response.headers['Content-Disposition']
     assert response.headers['X-Content-Type-Options'] == 'nosniff'
     assert response.headers['Cache-Control'] == 'private, no-store'
     assert 'sandbox' in response.headers['Content-Security-Policy']
@@ -99,7 +99,7 @@ def test_storage_failure_cleans_new_files_and_preserves_previous_documents(admin
     from app.admin import consignment_controller
     original = consignment_controller._store_pod_bytes
     def failing_store(filename, *args):
-        if filename.startswith('invoice-'):
+        if Path(filename).stem.endswith('_invoice'):
             raise RuntimeError('simulated storage failure')
         return original(filename, *args)
     monkeypatch.setattr(consignment_controller, '_store_pod_bytes', failing_store)
@@ -193,7 +193,8 @@ def test_private_supabase_document_roundtrip(admin_client, monkeypatch):
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'private-documents')
     monkeypatch.setattr(consignment_controller, '_get_supabase_client', lambda: Client())
     row = create_shipment(admin_client, **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
-    assert row['invoice_file'].startswith('supabase:private-documents/consignments/invoice-')
+    assert row['invoice_file'].startswith('supabase:private-documents/consignments/')
+    assert Path(row['invoice_file']).name == f"{row['consignment_number']}_invoice.pdf"
     response = admin_client.get(f"/admin/consignments/{row['id']}/invoice")
     assert response.status_code == 200 and len(PdfReader(io.BytesIO(response.data)).pages) == 1
     assert admin_client.delete(f"/admin/consignments/{row['id']}/invoice").status_code == 200

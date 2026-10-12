@@ -77,8 +77,9 @@ def test_new_fields_excel_roundtrip(admin_client):
     assert Decimal(imported["chargeable_weight"]) == Decimal("5.25")
 
 
-def test_labels_pdf_size_piece_count_and_contents(admin_client):
-    row = saved(admin_client)
+@pytest.mark.parametrize('measurement_mode', ['weight', 'volume'])
+def test_labels_pdf_size_piece_count_and_contents(admin_client, measurement_mode):
+    row = saved(admin_client, measurement_mode=measurement_mode)
     assert b"B2B Shipping Labels" in admin_client.get("/admin/labels").data
     response = admin_client.post("/admin/labels/generate", data=label_form([row['id']]))
     assert response.status_code == 200
@@ -91,7 +92,10 @@ def test_labels_pdf_size_piece_count_and_contents(admin_client):
         assert 'PIECE' in text and f"{index} of 3" in text
         assert row["consignment_number"] in text
         assert "12 Sender Road" in text and "34 Receiver Road" in text
-        assert "12.345 kg" in text and "0.125 m3" in text
+        if measurement_mode == 'volume':
+            assert '0.125 m³' in text and '12.345 kg' not in text
+        else:
+            assert '12.345 kg' in text and '0.125 m³' not in text
         assert b" re" in page.get_contents().get_data()  # Barcode bars are drawn as rectangles.
 
 

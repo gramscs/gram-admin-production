@@ -390,7 +390,8 @@ engines were not checked; print the generated PDFs at actual size (100%).
 The current label follows the user's supplied reference: a compact logo/payment
 header, sender block, larger recipient block, bold destination-PIN band, one row
 for chargeable measurements/boxes/pickup date/piece count, tracking/barcode,
-then commercial details. Order and invoice numbers remain paired in the footer.
+then commercial details. The footer now uses aligned caption/value columns for
+invoice amount, order ID, invoice number, goods description and optional e-way bill.
 The payment badge uses the selected Pre-paid/To pay/Cash on delivery value;
 the routing band uses the actual drop PIN. No priority, carrier routing codes,
 telephone numbers, country or package dimensions are invented. All existing
@@ -415,3 +416,51 @@ drawn inside the 4×6 page without moving any content. The existing PDF checks
 were rerun for piece counts, embedded logo/fonts, barcode on/off, reviewed
 fields and unchanged database snapshots. The sample PDF and rendered preview
 were updated and visually checked for clearance around the frame.
+
+## Selected label measures, company viewing and document names
+
+The final full suite passed **578 tests**, with **10 expected skips**, no
+failures and two dependency deprecation warnings, using disposable SQLite and
+PostgreSQL databases.
+
+Login no longer has the Admin Home link. The company eye icon opens the complete
+master and locations in view-only mode: text is selectable but read-only, status
+checkboxes are disabled, Save/Add/Remove actions are hidden, and form submission
+is blocked. Closing View and choosing Edit restores the normal editor. Browser
+checks verified no company write requests from View, including Enter on a field,
+and reachable Close controls on desktop and dark-mode phones.
+
+The label list, review summary and PDF use only the shipment's selected
+measurement mode, even when both numeric values are saved. Weight uses kg;
+volume uses m³. Separate weight/volume PDF pages were downloaded and verified.
+Label fonts are bundled Liberation Sans regular/bold, with Arial-compatible
+metrics and their OFL license, embedded in PDFs. The revised footer keeps all
+existing commercial values in a caption/value grid. Samples for weight, volume,
+longer addresses and descriptions were rendered and visually inspected.
+
+One shared filename helper now names stored PODs/invoices and individual/bulk/
+complete-backup downloads: `consignmentNum_pod.ext` or
+`consignmentNum_invoice.ext`. Unique storage version folders retain rollback and
+ER history without changing the visible basename. Current and retained document
+copies in complete backups use the same convention. Numbered backup folders
+still follow the original shipment order; unknown uploads retain their stored
+basename in separate numbered folders. Existing storage references are not moved.
+
+The new naming tests passed **eight cases** across disposable SQLite/PostgreSQL
+fixtures. They upload **150 files for 75 shipments** in three 50-file batches,
+check both bucket names and exact storage basenames, verify every complete-backup
+filename, and submit the extracted files for bulk review without renaming.
+Same-extension replacement retains distinct paths with identical basenames;
+historical backups use the same name, and a commit failure preserves the current
+bytes/reference and removes the unsuccessful upload.
+
+All **13 browser workflow groups** passed: three new admin follow-up groups,
+six document-editor groups and four 50-shipment label-review groups. These include
+POD/invoice upload, replacement, Remove/Undo, stale-edit rejection, actual file
+downloads and complete backups, company viewing/editing transitions, selected
+measurements, preview/reprint numbering, and responsive light/dark screens.
+
+Storage tests use a simulated Supabase client. No live bucket credentials were
+used and no existing live objects were renamed. Pull and restart the app; no
+database migration or new Python dependency is required. The source ZIP includes
+both label fonts and their license.

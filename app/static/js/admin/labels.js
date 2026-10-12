@@ -78,7 +78,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const card = node('section', 'label-review-card'); card.dataset.id = row.id; card.dataset.identifier = row.consignment_number;
             card.append(node('h3', '', row.identifier_type + ' · ' + row.consignment_number));
             const snapshot = node('div', 'label-snapshot');
-            [row.pieces + ' boxes', 'Pickup: ' + row.pickup_date, (row.chargeable_weight || '—') + ' kg', row.chargeable_volume ? row.chargeable_volume + ' m³' : '', row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
+            const volumeMode = row.measurement_mode === 'volume';
+            const chargeable = (volumeMode ? row.chargeable_volume : row.chargeable_weight) ?? '—';
+            [row.pieces + ' boxes', 'Pickup: ' + row.pickup_date, chargeable + (volumeMode ? ' m³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
             card.append(snapshot);
             const fields = node('div', 'label-review-fields');
             const amount = node('input', 'form-control'); amount.id = 'label-amount-' + index; amount.type = 'number'; amount.min = '0'; amount.max = '999999999.99'; amount.step = '0.01'; amount.required = true; amount.value = data.invoice_amount; amount.dataset.field = 'invoice_amount';

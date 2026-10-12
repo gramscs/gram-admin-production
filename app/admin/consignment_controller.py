@@ -72,7 +72,12 @@ def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None):
 
     upload_folder = os.path.join(current_app.instance_path, "uploads")
     os.makedirs(upload_folder, exist_ok=True)
-    dest_path = os.path.join(upload_folder, filename)
+    root = Path(upload_folder).resolve()
+    target = (root / filename).resolve()
+    if not target.is_relative_to(root):
+        raise ValueError('Invalid document storage path.')
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    dest_path = str(target)
     opened = False
     try:
         with open(dest_path, "xb") as handle:
@@ -81,8 +86,17 @@ def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None):
     except Exception:
         if opened and os.path.isfile(dest_path):
             os.remove(dest_path)
+        _remove_empty_upload_directory(target, root)
         raise
     return filename
+
+
+def _remove_empty_upload_directory(path, root):
+    if path.parent != root:
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass  # Other files/history in the directory must remain untouched.
 
 
 def _parse_supabase_pod_value(pod_value):
@@ -201,6 +215,7 @@ def _delete_pod_file(pod_value):
     pod_path = os.path.normpath(os.path.join(upload_folder, pod_value))
     if Path(pod_path).resolve().is_relative_to(Path(upload_folder).resolve()) and os.path.isfile(pod_path):
         os.remove(pod_path)
+        _remove_empty_upload_directory(Path(pod_path).resolve(), Path(upload_folder).resolve())
 
 
 def _is_external_pod_url(value):

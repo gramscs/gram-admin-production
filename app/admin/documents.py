@@ -30,6 +30,12 @@ IMAGE_TYPES = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'), 'WE
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.pdf'}
 
 
+def document_name(number, kind, extension):
+    """One safe shipment/document filename for storage and every download."""
+    stem = secure_filename(str(number)) or 'shipment'
+    return f'{stem}_{kind}{extension.lower()}'
+
+
 @contextmanager
 def open_stored_document(value):
     """Read private storage without fetching external URLs or escaping uploads."""
@@ -165,7 +171,9 @@ def store_document_changes(consignment, changes, created, obsolete):
         old = getattr(consignment, field)
         if document:
             content, ext, mime, original = document
-            filename = f'{kind}-{uuid4().hex}{ext}'
+            # A unique folder preserves replacement rollback and ER history;
+            # the visible leaf always follows the bulk-upload naming convention.
+            filename = f'{uuid4().hex}/{document_name(consignment.consignment_number, kind, ext)}'
             bucket = (os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads') if kind == 'invoice' else None
             value = _store_pod_bytes(filename, content, mime, bucket_name=bucket)
             created.append(value)
@@ -254,7 +262,8 @@ def consignment_document(consignment_id, kind):
         if preview:
             # Verify old files too before allowing image previews.
             validate_document(content, storage_name)
-        response = send_file(io.BytesIO(content), as_attachment=not preview, download_name=getattr(row, name_field) or Path(storage_name).name, mimetype=mime, max_age=0)
+        response = send_file(io.BytesIO(content), as_attachment=not preview,
+                             download_name=document_name(row.consignment_number, kind, extension), mimetype=mime, max_age=0)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Cache-Control'] = 'private, no-store'
         response.headers['Content-Security-Policy'] = "default-src 'none'; sandbox"

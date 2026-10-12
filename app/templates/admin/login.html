@@ -8,7 +8,7 @@
 </head>
 <body class="login-page">
   <main class="login-layout">
-    <div class="login-topline"><a href="{{ url_for('index') }}"><i class="fa fa-arrow-left me-2" aria-hidden="true"></i>Admin Home</a>{% include 'admin/_theme_toggle.html' %}</div>
+    <div class="login-topline justify-content-end">{% include 'admin/_theme_toggle.html' %}</div>
     <div class="surface-panel login-shell">
       <div class="login-header">
         <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Gram SCS Logo" />

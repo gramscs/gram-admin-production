@@ -8,7 +8,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
 
-import reportlab
 from flask import current_app, jsonify, render_template, request, send_file, session
 from reportlab.graphics.barcode import code128
 from reportlab.lib import colors
@@ -101,9 +100,9 @@ def _review_details(values, rows):
     return [{**label_shipment(row), **details[str(row.id)]} for row in rows]
 
 
-# Embed fonts supplied by ReportLab so printing does not depend on local fonts.
-_font_dir = Path(reportlab.__file__).resolve().parent / 'fonts'
-for _name, _filename in (('LabelSans', 'Vera.ttf'), ('LabelSansBold', 'VeraBd.ttf')):
+# Bundled Arial-metric sans fonts keep PDF printing independent of host fonts.
+_font_dir = Path(__file__).resolve().parents[1] / 'static' / 'fonts' / 'labels'
+for _name, _filename in (('LabelSans', 'LiberationSans-Regular.ttf'), ('LabelSansBold', 'LiberationSans-Bold.ttf')):
     if _name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(_name, str(_font_dir / _filename)))
 pdfmetrics.registerFontFamily('LabelSans', normal='LabelSans', bold='LabelSansBold', italic='LabelSans', boldItalic='LabelSansBold')
@@ -207,10 +206,10 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             pdf.drawString(101, 198, 'BOXES')
             pdf.drawString(149, 198, 'PICKUP DATE')
             pdf.drawString(237, 198, 'PIECE')
-            weight, volume = shipment['chargeable_weight'], shipment['chargeable_volume']
-            _fit_text(pdf, (weight or '—') + ' kg', 18, 194, 75, 12, font='LabelSansBold', size=9)
-            if volume is not None:
-                _fit_text(pdf, volume + ' m3', 18, 182, 75, 9, size=7)
+            volume_mode = shipment.get('measurement_mode') == 'volume'
+            value = shipment['chargeable_volume'] if volume_mode else shipment['chargeable_weight']
+            unit = 'm³' if volume_mode else 'kg'
+            _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, 194, 75, 12, font='LabelSansBold', size=9)
             _fit_text(pdf, str(pieces), 101, 194, 40, 12, font='LabelSansBold', size=9)
             _fit_text(pdf, escape(shipment['pickup_date']), 149, 194, 80, 12, font='LabelSansBold', size=8)
             _fit_text(pdf, f'{piece} of {pieces}', 237, 194, 33, 12, font='LabelSansBold', size=8)
@@ -234,18 +233,20 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
                       size=14 if include_barcode else 18, leading=16 if include_barcode else 20, alignment=1)
             pdf.line(18, 86, 270, 86)
 
-            # Existing commercial parameters stay in a compact, aligned footer.
-            _fit_text(pdf, '<b>INVOICE AMOUNT</b>  Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, 82, 252, 12, size=9)
-            pdf.setFont('LabelSans', 6)
-            pdf.drawString(18, 64, 'ORDER NUMBER')
-            pdf.drawString(148, 64, 'INVOICE NUMBER')
-            _fit_text(pdf, assignment['order_id'], 18, 60, 122, 10, size=7.5)
-            _fit_text(pdf, assignment['invoice_number'], 148, 60, 122, 10, size=7.5)
-            pdf.drawString(18, 43, 'GOODS DESCRIPTION')
-            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, 39, 252, 20, size=7.5, leading=9)
+            # One caption column and one value column keep references readable.
+            pdf.setFont('LabelSans', 6.5)
+            for caption, baseline in [('INVOICE AMOUNT', 78), ('ORDER ID', 65), ('INVOICE NO.', 54), ('GOODS', 42)]:
+                pdf.drawString(18, baseline, caption)
+            pdf.setFont('LabelSansBold', 9)
+            pdf.drawString(82, 78, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}")
+            _fit_text(pdf, assignment['order_id'], 82, 72, 188, 10, size=8)
+            _fit_text(pdf, assignment['invoice_number'], 82, 61, 188, 10, size=8)
+            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 82, 49, 188, 27, size=8, leading=9)
             if shipment['eway_bill_exists']:
-                pdf.setFont('LabelSansBold', 7)
-                pdf.drawString(18, 12, 'E-WAY BILL: ' + shipment['eway_bill_number'])
+                pdf.setFont('LabelSans', 6.5)
+                pdf.drawString(18, 12, 'E-WAY BILL:')
+                pdf.setFont('LabelSansBold', 8)
+                pdf.drawString(82, 12, shipment['eway_bill_number'])
             pdf.showPage()
     pdf.save()
     buffer.seek(0)

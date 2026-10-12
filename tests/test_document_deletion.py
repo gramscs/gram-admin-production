@@ -197,14 +197,17 @@ def test_invoice_upload_download_replace_remove_uses_supabase_not_instance(panel
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', bucket)
     local_before = {path for path in Path(app.instance_path, 'uploads').rglob('*') if path.is_file()}
     original = add(client)
-    assert original['invoice_file'].startswith(f'supabase:{bucket}/consignments/invoice-')
-    assert original['pod_image'].startswith('supabase:pod-uploads/consignments/pod-')
+    assert original['invoice_file'].startswith(f'supabase:{bucket}/consignments/')
+    assert Path(original['invoice_file']).name == 'DEMO0017_invoice.pdf'
+    assert original['pod_image'].startswith('supabase:pod-uploads/consignments/')
+    assert Path(original['pod_image']).name == 'DEMO0017_pod.png'
     assert client.get(f"/admin/consignments/{original['id']}/invoice").mimetype == 'application/pdf'
     # A later setting change must not change the location of an existing file.
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'next-invoices')
     assert client.get(f"/admin/consignments/{original['id']}/invoice").status_code == 200
     current = replace(client, original, 'invoice')
-    assert current['invoice_file'].startswith('supabase:next-invoices/consignments/invoice-')
+    assert current['invoice_file'].startswith('supabase:next-invoices/consignments/')
+    assert Path(current['invoice_file']).name == 'DEMO0017_invoice.pdf'
     result = client.delete(f"/admin/consignments/{original['id']}/invoice", json={'expected_reference': current['invoice_file']})
     assert result.status_code == 200, result.json
     assert get_row(client)['invoice_file'] is None

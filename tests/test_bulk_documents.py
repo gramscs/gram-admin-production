@@ -123,7 +123,7 @@ def failed_storage_rolls_back_batch(client, app, monkeypatch):
     from app.admin import consignment_controller
     real_store = consignment_controller._store_pod_bytes
     def fail_second(filename, content, mime=None, bucket_name=None):
-        if filename.startswith('invoice-'): raise RuntimeError('Simulated storage failure')
+        if Path(filename).stem.endswith('_invoice'): raise RuntimeError('Simulated storage failure')
         return real_store(filename, content, mime, bucket_name)
     monkeypatch.setattr(consignment_controller, '_store_pod_bytes', fail_second)
     result = upload(client, [('BULK-ROLLBACK_pod.png', image()), ('BULK-ROLLBACK_invoice.pdf', pdf())], apply=True)

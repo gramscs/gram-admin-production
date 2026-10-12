@@ -12,7 +12,7 @@ from app import limiter, orm as models
 from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.admin.documents import (DOCUMENTS, MAX_DOCUMENT_BYTES, validate_document,
-    store_document_changes, cleanup_documents, open_stored_document)
+    store_document_changes, cleanup_documents, open_stored_document, document_name)
 from app.admin.reporting import filter_shipments, normalize_shipment_filters
 from app.models import db
 from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError
@@ -21,11 +21,6 @@ MAX_UPLOAD_FILES = 50
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_DOWNLOAD_SHIPMENTS = 200
 MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
-
-
-def document_name(number, kind, extension):
-    stem = secure_filename(str(number)) or 'shipment'
-    return f'{stem}_{kind}{extension.lower()}'
 
 
 def _same_origin():

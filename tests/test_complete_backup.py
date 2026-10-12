@@ -65,6 +65,9 @@ def test_complete_backup_contains_all_tables_fields_and_documents_in_data_order(
     first, second = data['consignments']
     assert '/000001_ZZZ001_' in first['pod_backup_path'] and '/000002_AAA001_' in second['pod_backup_path']
     assert first['pod_backup_path'] != second['pod_backup_path']
+    assert Path(first['pod_backup_path']).name == 'ZZZ001_pod.png'
+    assert Path(first['invoice_backup_path']).name == 'ZZZ001_invoice.pdf'
+    assert Path(second['pod_backup_path']).name == 'AAA001_pod.png'
     assert archive.read(first['pod_backup_path']) == content['proof.png']
     assert archive.read(first['invoice_backup_path']) == content['invoice.pdf']
     assert archive.read(second['pod_backup_path']) == content['other.png']

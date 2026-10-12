@@ -15,7 +15,7 @@ from openpyxl.cell import WriteOnlyCell
 from sqlalchemy import select
 from werkzeug.utils import secure_filename
 
-from app.admin.documents import DOCUMENTS, open_stored_document
+from app.admin.documents import DOCUMENTS, open_stored_document, document_name
 from app.models import db
 from app import orm as models
 
@@ -239,7 +239,8 @@ def build_complete_backup(payload):
                     if value:
                         referenced.add(_reference_key(value))
                     name = row.get(name_field) or (Path(value).name if value else kind)
-                    path = folder + '/' + kind + '_' + _safe_name(name)
+                    extension = Path(value or name).suffix.lower()
+                    path = folder + '/' + document_name(identifier, kind, extension)
                     entry = _add_document(archive, report, value, path, backup_order=order, consignment_id=row['id'],
                                           consignment_number=identifier, kind=kind, source='shipment', original_name=name if value else None)
                     row[kind + '_backup_path'] = entry['archive_path']
@@ -260,13 +261,21 @@ def build_complete_backup(payload):
                 row['file_backup_path'], row['file_backup_status'] = entry['archive_path'], entry['status']
             if er:
                 # Include historical versions and unlinked file records too.
+                shipments = {row['id']: row for row in payload['consignments']}
+                document_files = {item['file_id']: item for item in reversed(payload['shipment_documents'])}
                 for index, file in enumerate(payload['files'], start=1):
                     value = file['storage_path']
                     if _reference_key(value) not in referenced:
-                        _add_document(archive, report, value, f"file_history/{index:06d}_" + _safe_name(file['original_filename']), source='file_record', kind='retained_file', file_id=file['id'], original_name=file['original_filename'])
+                        doc = document_files.get(file['id'])
+                        shipment = shipments.get(doc['consignment_id']) if doc else None
+                        name = _safe_name(file['original_filename'])
+                        if shipment:
+                            kind = 'pod' if doc['document_type'] == 'POD' else 'invoice'
+                            name = document_name(shipment.get('identifier_value') or shipment.get('consignment_number'), kind, Path(value).suffix)
+                        _add_document(archive, report, value, f"file_history/{index:06d}/" + name, source='file_record', kind='retained_file', file_id=file['id'], original_name=file['original_filename'])
                         referenced.add(_reference_key(value))
             for index, (value, source) in enumerate(_inventory(referenced, report), start=1):
-                path = f'other_uploads/{index:06d}_' + _safe_name(Path(value).name)
+                path = f'other_uploads/{index:06d}/' + _safe_name(Path(value).name)
                 _add_document(archive, report, value, path, source=source, kind='unlinked_upload', original_name=Path(value).name)
             counts = dict(Counter(row['status'] for row in report['documents']))
             incomplete = any(counts.get(status, 0) for status in ('missing', 'unavailable', 'invalid_reference')) or bool(report['inventory_errors'])
@@ -295,7 +304,10 @@ JSON is the authoritative full-data copy; Excel is for browsing the records.
 
 Consignment folders start with the same backup_order number as the consignment
 data/Excel sheet (database ID ascending). Each contains POD and invoice files
-when attached. Unlinked uploaded files are in other_uploads/. Files are copied
+named consignmentNum_pod.ext and consignmentNum_invoice.ext when attached.
+Retained versions use separate file_history/ folders with the same filenames.
+Unlinked uploaded files are in other_uploads/ with their stored basenames.
+Files are copied
 exactly. SHA-256 checksums and missing/unavailable file details are in
 document_report.json and the Excel report sheets.
 

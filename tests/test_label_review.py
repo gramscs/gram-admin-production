@@ -32,7 +32,8 @@ def create(client, count=1):
     rows = [{'consignment_number': f'LABEL-{index:03d}', 'identifier_type': 'AWB', 'pieces': 2,
         'pickup_date': '2026-10-09', 'pickup_address': '429 Jagraj Gram, Delhi',
         'drop_address': 'Ms Ashiya, Delhi', 'pickup_pincode': '110001', 'drop_pincode': '110037',
-        'chargeable_weight': '100', 'chargeable_volume': '1.5'} for index in range(count)]
+        'chargeable_weight': '100', 'chargeable_volume': '1.5',
+        'measurement_mode': 'volume' if index % 2 else 'weight'} for index in range(count)]
     saved = client.post('/admin/consignments/save', json={'rows': rows})
     assert saved.status_code == 200, saved.json
     found = client.get('/admin/consignments/list', query_string={'search': 'LABEL-', 'per_page': 100}).json['rows']
@@ -71,15 +72,21 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
         assert 'SHIPMENT /' not in extracted and 'AWB' not in extracted
         assert '09/10/2026' in extracted
         assert rows[index // 2]['consignment_number'] in extracted
-        assert '100.000 kg' in extracted and '1.500 m3' in extracted
+        if index < 2:
+            assert '100.000 kg' in extracted and '1.500 m³' not in extracted
+        else:
+            assert '1.500 m³' in extracted and '100.000 kg' not in extracted
         assert 'PIECE' in extracted and f'{index % 2 + 1} of 2' in extracted
         assert f'B2B-20261011-{index // 2 + 1:04d}' in extracted
         assert f'B2B-2026-27-{index // 2 + 1:04d}' in extracted
         assert '429 Jagraj Gram' in extracted and 'Ms Ashiya' in extracted
         assert list(page.images), 'GRAM logo must be embedded'
+        embedded = [font.get_object().get('/BaseFont', '') for font in page['/Resources']['/Font'].values()]
+        assert any('LiberationSans' in name for name in embedded)
         assert (float(page.mediabox.width), float(page.mediabox.height)) == (288, 432)
         if index < 2:
-            assert 'Rs 6,000.50' in extracted and 'TO PAY' in extracted and 'E-WAY BILL: 123456789012' in extracted
+            assert 'Rs 6,000.50' in extracted and 'TO PAY' in extracted
+            assert 'E-WAY BILL:' in extracted and '123456789012' in extracted
         else:
             assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
             assert 'E-WAY BILL' not in extracted and 'ignore unchecked' not in extracted
