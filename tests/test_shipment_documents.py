@@ -180,6 +180,10 @@ def test_private_supabase_document_roundtrip(admin_client, monkeypatch):
             if path not in objects:
                 raise FileNotFoundError('Object not found')
             return objects[path]
+        def info(self, path):
+            if path not in objects:
+                raise FileNotFoundError('Object not found')
+            return {'name': path}
         def remove(self, paths):
             for path in paths:
                 objects.pop(path, None)

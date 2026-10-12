@@ -74,6 +74,7 @@ function pdf() {
         const newer = await page.request.post(base + '/admin/consignments/' + shipment.id + '/pod', {multipart: {file: {name: 'newer.pdf', mimeType: 'application/pdf', buffer: pdf()}}});
         assert.equal(newer.status(), 200); const reference = (await newer.json()).pod_image;
         await page.locator('#document-editor-remove').click(); await save('pod', 'DELETE', 409);
+        await page.locator('#document-editor-error:not(.d-none)').waitFor({state: 'visible'});
         assert.match(await page.locator('#document-editor-error').innerText(), /changed since you opened/); assert.equal((await current()).pod_image, reference);
         await cancel(); await page.reload(); await page.waitForFunction(() => document.querySelector('#document-count').textContent.startsWith('Showing'));
         console.log('PASS: stale editor cannot remove a newer document');

@@ -30,6 +30,7 @@ def storage(monkeypatch):
         removed = None
         def __init__(self):
             self.objects, self.removed = {}, []
+            self.cached, self.cache_deleted_downloads = {}, False
             self.storage = self
         def from_(self, name):
             remote = self
@@ -40,9 +41,17 @@ def storage(monkeypatch):
                     remote.objects[name, path] = bytes(data)
                 def download(self, path):
                     try:
-                        return remote.objects[name, path]
+                        content = remote.objects[name, path]
+                        remote.cached[name, path] = content
+                        return content
                     except KeyError:
+                        if remote.cache_deleted_downloads and (name, path) in remote.cached:
+                            return remote.cached[name, path]
                         raise StorageApiError('Object not found', 'not_found', 400) from None
+                def info(self, path):
+                    if (name, path) not in remote.objects:
+                        raise StorageApiError('Object not found', 'not_found', 400)
+                    return {'name': path}
                 def remove(self, paths):
                     for path in paths:
                         remote.removed.append((name, path))

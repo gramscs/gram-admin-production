@@ -1,11 +1,17 @@
-# System testing — 11 October 2026
+# System testing — latest check 12 October 2026
 
-The latest full-suite run passed **490 tests**, with **10 backend-specific skips**
-and **no failures**. Browser workflows also passed after correcting one saving
-bug found during this review. These results validate the tested application;
-live Supabase storage and the team's running Codespaces app still need an
-environment-specific check. The shipment filters, Documents and dashboard follow-ups below
-add coverage to the original 359-test baseline.
+The final full-suite run passed **700 tests**, with **10 backend-specific skips**
+and **no failures**. All eight browser runners passed, covering 34 workflow
+groups. A separate guarded integration check verified real private Supabase
+POD/invoice/MIS operations with a disposable PostgreSQL database; every temporary
+test object was removed and its absence verified through object metadata.
+The final check found and fixed a cached-download deletion/rollback issue.
+
+The running Codespaces app currently reports **SQLite for records** and
+**Supabase for all three storage buckets**. Supabase PostgreSQL is supported and
+tested, but it is not the database that this running app currently uses.
+See the final flow-check section below for current results and setup limitations.
+The sections that follow retain the earlier baseline and subsequent checks.
 
 ## Environment and isolation
 
@@ -654,3 +660,79 @@ No live Supabase objects or business database records were written or removed.
 The user's manual bucket cleanup was left untouched. Pull and restart the app;
 no database migration or new dependency is required. Keep the private local MIS
 folder persistent, or configure a separate report bucket for shared storage.
+
+## Final frontend/backend/database/storage checks (12 October 2026)
+
+### Results
+
+| Check | Result and scope |
+| --- | --- |
+| Full automated suite | **700 passed, 10 skipped**, no failures; SQLite and disposable PostgreSQL variants enabled. Two upstream dependency deprecation warnings. |
+| Focused storage regressions | **245 passed**, no failures or skips; includes 32 new cached-download cases across database variants. |
+| Browser workflows | All **eight runners / 34 groups** passed: staging, filters, Documents, dashboard document lists, company viewing, label review/IDs, modal validation and real downloads. |
+| Browser with actual Supabase | Passed upload, replacement, stale-editor rejection, downloads, remove/undo/re-upload and shipment deletion against a temporary PostgreSQL schema and the real private POD/invoice buckets. |
+| Backend → SQL → storage → download | Passed. Independently queried SQL document/file relationships match the actual bucket/path; remote bytes match downloaded bytes. New remote POD/invoice uploads create no local file copies. |
+| Shipment edits | Passed. Updates persist, renamed shipment downloads use the current identifier, and stored bytes/references remain intact. |
+| MIS storage | Passed real PDF/Excel/CSV generation, SQL report/file relationships, `mis-reports` routing, download and deletion. |
+| PDFs and labels | Passed nonblank shipment register and management PDF text checks, embedded fonts/layout regressions, and a three-piece label download. |
+| Complete backup | Passed real document/report retrieval, exact document bytes, current-identifier names, complete manifest/ZIP integrity and all three remote MIS files. Backup inventory was restricted to the temporary test prefix. |
+| Cleanup | Passed. POD/invoice/report removal clears the corresponding SQL metadata and actual storage objects. All temporary object prefixes from successful and failed attempts were cleaned and absence verified. |
+
+The live integration harness used only unique `system-check-<uuid>` subfolders
+under the app's `consignments/` and `mis_reports/` namespaces. It guarded every
+upload/download/delete against that prefix and journaled its own object paths
+before uploading. A `finally` cleanup removed any remaining test objects.
+Business records were not written: SQL writes used disposable loopback schemas,
+which were dropped afterward. Existing business objects were neither modified
+nor removed. This was an explicit integration check, separate from pytest and
+its blanket HTTP/credential isolation.
+
+### Issue found and fixed
+
+After a successful Supabase deletion, a download could briefly return the old
+bytes. Treating that GET as proof that the object still existed caused a false
+failure and SQL rollback. The same cached GET could also make rollback believe
+an already-deleted file needed no restoration.
+
+Deletion now verifies the exact object's **metadata** through the supported SDK
+`info()` API. Remote reads check metadata before downloading bytes, so manually
+deleted files return missing rather than cached content, backups report them
+missing, and rollback restores the actual object. Genuine denied deletes still
+fail and roll back. New regressions deliberately keep deleted bytes readable in
+a simulated download cache and verify removal, missing downloads/backups and
+restoration after a SQL commit failure for both document types and save flows.
+
+The document-editor browser test also now waits for the visible error summary
+before reading it; response headers can arrive before JSON parsing/rendering.
+This corrects a test timing race without changing application behavior.
+
+### Running-environment findings
+
+The user supplied the following Codespaces command results during this check:
+
+```text
+check-db: Connected to sqlite. All required admin tables and columns are present.
+check-storage: Storage: Supabase.
+POD: readable at pod-uploads/consignments.
+Invoice: readable at invoice-uploads/consignments.
+MIS: readable at mis-reports/mis_reports.
+Read-only storage check passed.
+```
+
+This confirms the current architecture is **SQLite records + Supabase files**.
+It does not confirm a Supabase PostgreSQL application connection. Direct
+read-only checks of the configured remote PostgreSQL endpoint from the cloud
+workspace were refused, including a retry outside the sandbox. PostgreSQL
+application tests therefore used a disposable local server. To make Supabase
+PostgreSQL the running database, securely configure a valid `DATABASE_URL` in
+Codespaces and reconcile/migrate any newly created SQLite data before switching.
+Take a complete backup of the active SQLite installation first; its current data
+may differ from earlier cloud imports.
+
+The terminal also reports an unset `ADMIN_PASSWORD_HASH` and the development
+default password. Environment credentials should be configured before using
+this as a shared production installation. No login credentials were changed by
+these tests.
+
+Pull the update and restart the app to activate the metadata verification fix.
+No schema migration or new dependency is required for this code update.

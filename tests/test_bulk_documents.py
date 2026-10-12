@@ -92,6 +92,10 @@ def bucket_separation(client, app, monkeypatch):
             if (self.name, path) not in objects:
                 raise FileNotFoundError('Object not found')
             return objects[self.name, path]
+        def info(self, path):
+            if (self.name, path) not in objects:
+                raise FileNotFoundError('Object not found')
+            return {'name': path}
         def remove(self, paths):
             for path in paths: objects.pop((self.name, path), None)
     class Storage:

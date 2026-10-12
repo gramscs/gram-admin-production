@@ -603,7 +603,11 @@ by another shipment (including its history) or an MIS report are kept. Audit log
 and original migration archives remain for traceability.
 
 Removal checks the saved reference's actual bucket, even if bucket settings have
-since changed. A failed or silently denied Storage delete returns an error and
+since changed. It verifies deletion through live object metadata, because a
+download can briefly return cached bytes after the object is deleted. Downloads
+also check metadata before reading bytes, so removed files are reported missing
+and SQL rollback can restore an object instead of trusting its stale cache.
+A failed or silently denied Storage delete returns an error and
 rolls back the database changes. Temporary copies restore files already deleted
 if a later delete or database commit fails. Restored bytes are verified. If
 restoration fails, the error says manual recovery is needed and the app attempts

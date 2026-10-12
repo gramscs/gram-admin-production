@@ -156,6 +156,10 @@ def test_private_supabase_backup_lists_unlinked_uploads_and_nested_folders(admin
             return [{'name': 'old.png', 'id': '3'}]
         def download(self, path):
             return objects[path]
+        def info(self, path):
+            if path not in objects:
+                raise FileNotFoundError('Object not found')
+            return {'name': path}
     class Storage:
         def from_(self, bucket):
             assert bucket == 'private-uploads'
@@ -182,6 +186,8 @@ def test_unavailable_supabase_inventory_and_download_are_explicit(admin_client, 
         def list(self, *args):
             raise Exception('storage SDK error with sensitive details')
         def download(self, *args):
+            raise Exception('storage SDK error with sensitive details')
+        def info(self, *args):
             raise Exception('storage SDK error with sensitive details')
     class Storage:
         def from_(self, *args):
@@ -241,6 +247,8 @@ def test_supabase_inventory_includes_files_beyond_first_page(admin_client, app, 
             return [{'name': name, 'id': name} for name in names[options['offset']:options['offset']+options['limit']]]
         def download(self, path):
             return path.encode()
+        def info(self, path):
+            return {'name': path}
     class Storage:
         def from_(self, bucket):
             return Bucket()
@@ -277,6 +285,7 @@ def test_backup_inventories_unlinked_files_in_both_configured_buckets(admin_clie
     class Bucket:
         def list(self, folder, options): return [{'name': 'unlinked.png', 'id': '1'}]
         def download(self, path): return image_bytes()
+        def info(self, path): return {'name': path}
     class Storage:
         def from_(self, name):
             buckets.append(name)

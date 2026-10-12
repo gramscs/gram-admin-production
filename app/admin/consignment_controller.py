@@ -136,7 +136,11 @@ def _download_supabase_pod_file(pod_value):
         raise RuntimeError('Supabase not configured.')
 
     bucket, object_path = _parse_supabase_pod_value(pod_value)
-    content = client.storage.from_(bucket).download(object_path)
+    storage = client.storage.from_(bucket)
+    # Downloads may remain cached briefly after removal. Check live metadata so
+    # missing objects are not served from that cache or mistaken for restored files.
+    storage.info(object_path)
+    content = storage.download(object_path)
     if hasattr(content, 'read'):
         content = content.read()
     if isinstance(content, bytearray):
@@ -159,10 +163,10 @@ def _delete_pod_file(pod_value):
         storage = client.storage.from_(bucket)
         storage.remove([object_path])
         # A denied DELETE can return an empty list instead of an error. Verify
-        # the exact object is absent rather than reporting false success.
+        # live metadata; a cached download can still return deleted bytes.
         from app.admin.document_lifecycle import storage_object_missing
         try:
-            storage.download(object_path)
+            storage.info(object_path)
         except Exception as error:
             if not storage_object_missing(error):
                 raise
