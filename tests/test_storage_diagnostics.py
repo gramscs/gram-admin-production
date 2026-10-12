@@ -79,8 +79,9 @@ def test_broken_remote_settings_still_allow_backup_of_local_files(app, admin_cli
     assert 'PRIVATE-TEST-KEY' not in str(report)
 
 
+@pytest.mark.parametrize('report_bucket', ['', 'mis-reports'])
 @pytest.mark.parametrize('fail_bucket', [None, 'invoice-uploads'])
-def test_remote_checks_both_buckets_without_writing(app, monkeypatch, fail_bucket):
+def test_remote_checks_both_buckets_without_writing(app, monkeypatch, fail_bucket, report_bucket):
     reads = []
     class Bucket:
         def __init__(self, name): self.name = name
@@ -98,6 +99,7 @@ def test_remote_checks_both_buckets_without_writing(app, monkeypatch, fail_bucke
     monkeypatch.setattr(controller, '_get_supabase_client', lambda: Client())
     monkeypatch.setenv('SUPABASE_BUCKET', 'pod-uploads')
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'invoice-uploads')
+    monkeypatch.setenv('SUPABASE_MIS_BUCKET', report_bucket)
     result = app.test_cli_runner().invoke(args=['check-storage'])
     assert result.exit_code == (1 if fail_bucket else 0)
     assert ('list', 'pod-uploads', 'consignments', {'limit': 1}) in reads
@@ -105,3 +107,18 @@ def test_remote_checks_both_buckets_without_writing(app, monkeypatch, fail_bucke
     assert 'Upload permissions were not tested' in result.output
     assert 'PRIVATE-KEY-IN-REMOTE-ERROR' not in result.output
     assert 'POD: readable at pod-uploads/consignments' in result.output
+    if report_bucket:
+        assert ('list', 'mis-reports', 'mis_reports', {'limit': 1}) in reads
+        assert 'MIS: readable at mis-reports/mis_reports' in result.output
+    else:
+        assert 'MIS: private local report storage' in result.output
+
+
+@pytest.mark.parametrize('bucket', ['pod-uploads', 'invoice-uploads'])
+def test_storage_check_rejects_reusing_a_document_bucket_for_reports(app, monkeypatch, bucket):
+    monkeypatch.setattr(controller, '_get_supabase_client', lambda: object())
+    monkeypatch.setenv('SUPABASE_BUCKET', 'pod-uploads')
+    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'invoice-uploads')
+    monkeypatch.setenv('SUPABASE_MIS_BUCKET', bucket)
+    checked = app.test_cli_runner().invoke(args=['check-storage'])
+    assert checked.exit_code != 0 and 'must be separate' in checked.output

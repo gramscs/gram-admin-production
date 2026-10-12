@@ -377,6 +377,9 @@ python -m pytest -q
 Tests use temporary databases and uploads. They cover login protection, admin
 screens, shipment editing, PDF/image PODs and invoices, content validation and
 failed-save recovery, Excel import/export, labels, backups, startup, and persistence.
+Test fixtures explicitly blank the Supabase credentials so a developer's `.env`
+cannot restore them. External HTTP requests are blocked during pytest; remote
+Storage tests use simulated clients and never upload to the team's buckets.
 
 ## Behavior retained from the original
 
@@ -486,15 +489,18 @@ Inside the ZIP:
   ascending). Files keep the standard names, such as `DEMO0017_pod.png` and
   `DEMO0017_invoice.pdf`, including attachments saved under older storage names.
 - `file_history/`: retained ER document versions, in separate numbered folders
-  so repeated standard filenames remain distinct.
+  so repeated standard filenames remain distinct. These also use the current
+  shipment number and `_pod`/`_invoice` suffix. For older opaque storage keys,
+  the extension is recovered from the original filename or saved MIME type.
 - `other_uploads/`: all discovered uploaded files that no longer have a record
   link, including local legacy uploads and unlinked admin Supabase uploads.
 - `document_report.json` and `README.txt`: included/missing/unavailable files,
   upload-listing errors, original references, sizes, and SHA-256 checksums.
 
 Local inventory covers `instance/uploads/`. Supabase inventory covers the
-`consignments/` namespace used by the admin uploader in configured/referenced
-buckets, plus every file directly referenced by shipments or saved MIS reports. It does not
+`consignments/` and `mis_reports/` namespaces used by the admin uploader in
+configured/referenced buckets, plus every file directly referenced by shipments
+or saved MIS reports. It does not
 export unrelated website buckets/tables or environment credentials.
 
 Missing files or failed storage listings make the filename end in
@@ -532,10 +538,14 @@ API URL for `SUPABASE_URL` (not the PostgreSQL connection string), and a server-
 legacy **service_role** key for `SUPABASE_KEY` (under Supabase API Keys → Legacy). Keep that key out of the browser and
 Git. Restart the app after editing `.env`. The buckets must already
 exist, and the server key must allow uploads/downloads in both. PODs go to
-`pod-uploads/consignments`; invoices go to `invoice-uploads/consignments`. Saved MIS files continue using
-the POD/default bucket. Existing references still download from their original
-bucket; this update does not move earlier files. Complete backups inventory
-both configured buckets, including unlinked files under `consignments/`.
+`pod-uploads/consignments`; invoices go to `invoice-uploads/consignments`.
+New saved MIS reports use private `instance/uploads/mis_reports/` by default.
+For shared report storage, create a separate private bucket and set
+`SUPABASE_MIS_BUCKET=mis-reports`; new reports then use its `mis_reports/` folder.
+The MIS bucket cannot be the POD or invoice bucket. Existing reports still
+download from their original references; this update does not move or delete
+earlier files. Complete backups include local reports, referenced older reports
+and unlinked files in the configured admin upload namespaces.
 
 Invoice upload, download, replacement and removal use the same document service
 as PODs. With both Supabase credentials set, new invoices are stored under
@@ -603,6 +613,9 @@ storage reference. Complete backups include these recovery copies too.
 Storage and SQL are separate services: this is
 compensating rollback, not a distributed transaction; an interrupted process or
 an uncertain database commit can still need reconciliation.
+If a file was already deleted manually in Supabase, its download returns a
+missing-file message, backups mark it missing, and **Remove** can clear the
+remaining attachment record. Deleting files manually does not update SQL rows.
 
 For documents removed by the old ER behavior, use the targeted repair below.
 It refuses to touch a current attachment and preserves shared files. The first

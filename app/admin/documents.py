@@ -22,7 +22,7 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.admin.document_lifecycle import (commit_document_cleanup, document_is_retained,
-    purge_shipment_documents, StorageSyncError)
+    purge_shipment_documents, storage_object_missing, StorageSyncError)
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 DOCUMENTS = {'pod': ('pod_image', 'pod_original_name'), 'invoice': ('invoice_file', 'invoice_original_name')}
@@ -36,6 +36,16 @@ def document_name(number, kind, extension):
     return f'{stem}_{kind}{extension.lower()}'
 
 
+def document_extension(storage_name, original_name=None, mime_type=None):
+    """Preserve a usable extension when an older object key is opaque."""
+    for name in (storage_name, original_name):
+        extension = Path(name or '').suffix.lower()
+        if extension in EXTENSIONS:
+            return extension
+    return {'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png',
+            'image/webp': '.webp'}.get(mime_type, '')
+
+
 @contextmanager
 def open_stored_document(value):
     """Read private storage without fetching external URLs or escaping uploads."""
@@ -45,7 +55,12 @@ def open_stored_document(value):
         raise ValueError('External document references cannot be fetched.')
     if value.startswith('supabase:'):
         from app.admin.consignment_controller import _download_supabase_pod_file
-        content, name = _download_supabase_pod_file(value)
+        try:
+            content, name = _download_supabase_pod_file(value)
+        except Exception as error:
+            if storage_object_missing(error):
+                raise FileNotFoundError('Document file missing from storage.') from None
+            raise
         with io.BytesIO(content) as source:
             yield source, name
     else:

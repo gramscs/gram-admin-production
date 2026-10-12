@@ -597,3 +597,60 @@ Validation completed with disposable local data:
 
 No live database or Supabase data was changed. Pull and restart the app; no
 migration or new dependency is needed.
+
+## Storage isolation, deletion and backup filenames (12 October 2026)
+
+The earlier test fixtures deleted `SUPABASE_URL`/`SUPABASE_KEY` from the process
+environment. `create_app()` could then restore a developer's real credentials
+from `.env`. Tests now set explicit blank credentials instead, and pytest blocks
+unmocked synchronous/asynchronous HTTP requests. The browser fixture also blanks
+the optional MIS bucket. A regression creates a credentials-bearing sample
+`.env`, verifies that both database modes retain blank settings, and confirms
+that their sample uploads stay in disposable local storage. Production Storage
+credentials were not used for testing.
+
+The unused legacy POD path-guessing helper was removed. Current downloads and
+deletions continue using the exact saved storage reference. Explicit POD/invoice
+removal already deleted and verified the Supabase object before completing SQL
+cleanup; that behavior was verified for both the Documents editor and Save All,
+including retained versions, shipment deletion, shared-file protection, denied
+deletes and SQL rollback. A manually deleted object now produces a 404 download
+and a `missing` backup entry; Remove can clear its stale attachment metadata
+without deleting another file.
+
+Complete backups use the current shipment identifier value for both current
+POD/invoice files and retained shipment-document versions:
+`consignmentValue_pod.ext` or `consignmentValue_invoice.ext`. Opaque older keys
+remain untouched; extensions fall back to the original filename or MIME metadata.
+Unknown/unlinked uploads retain their stored basename in `other_uploads/` and
+their manifest mapping. Files are copied byte-for-byte and no data is discarded.
+
+New saved MIS reports no longer use the POD bucket. The default is private local
+`instance/uploads/mis_reports/`; an optional, distinct `SUPABASE_MIS_BUCKET`
+routes them to that bucket's `mis_reports/` namespace. Reusing either document
+bucket is rejected. Older report references remain usable. Backups include local
+reports, directly referenced earlier reports and unlinked files in the dedicated
+report namespace. `check-storage` checks the optional bucket without writing.
+
+Validation used disposable SQLite and PostgreSQL databases, private temporary
+uploads and a simulated Supabase client:
+
+- Focused storage/deletion/backup checks: **126 passed**, no failures or skips.
+  This includes a 150-document upload → backup → bulk-review round trip in both
+  database modes, exact bytes/names, LRN/Order ID/AWB identifiers, renaming a
+  shipment, opaque keys, retained versions and manual missing-object cleanup.
+- Full pytest suite: **659 passed, 10 skipped**, no failures; two dependency
+  deprecation warnings. Skips cover backend-specific cases and additional
+  optional PostgreSQL test configurations.
+- Final MIS configuration/inventory and storage diagnostic checks after the
+  final refinements: **35 passed**, no failures or skips. These verify dedicated
+  bucket reads, unlinked report backup, missing credentials and invalid bucket
+  reuse without local fallback or secret disclosure.
+- All six Documents browser workflow groups passed: PDF POD/image invoice
+  upload, invalid content/Cancel/replacement, Undo/remove/re-upload, stale-editor
+  rejection, downloads and responsive controls, and the shipment eye link.
+
+No live Supabase objects or business database records were written or removed.
+The user's manual bucket cleanup was left untouched. Pull and restart the app;
+no database migration or new dependency is required. Keep the private local MIS
+folder persistent, or configure a separate report bucket for shared storage.

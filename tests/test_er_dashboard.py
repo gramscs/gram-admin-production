@@ -25,8 +25,8 @@ def migrated_admin(populated, tmp_path, monkeypatch):
         monkeypatch.setenv('FLASK_ENV', 'development')
         monkeypatch.setenv('DATABASE_URL', destination.url.render_as_string(hide_password=False))
         monkeypatch.setenv('ADMIN_USERNAME', 'admin')
-        monkeypatch.delenv('SUPABASE_URL', raising=False)
-        monkeypatch.delenv('SUPABASE_KEY', raising=False)
+        monkeypatch.setenv('SUPABASE_URL', '')
+        monkeypatch.setenv('SUPABASE_KEY', '')
         application = create_app({'TESTING': True, 'SECRET_KEY': 'er-test-key',
             'INSTANCE_PATH': str(storage.root.parent), 'AUTO_CREATE_TABLES': False,
             'RATELIMIT_ENABLED': False, 'ADMIN_DATABASE_MODEL': 'auto'})

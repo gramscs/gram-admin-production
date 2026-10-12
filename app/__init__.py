@@ -188,6 +188,8 @@ def create_app(test_config=None):
         except RuntimeError as error:
             raise click.ClickException(str(error)) from None
         if client is None:
+            if os.getenv('SUPABASE_MIS_BUCKET', '').strip():
+                raise click.ClickException('Set SUPABASE_URL and SUPABASE_KEY to use the configured report bucket. No files were changed.')
             click.echo('Storage: local. SUPABASE_URL and SUPABASE_KEY are both blank.')
             click.echo(f'Uploads are saved in {Path(app.instance_path, "uploads")}.')
             click.echo('DATABASE_URL connects shipment data only; it does not enable Supabase Storage.')
@@ -198,16 +200,23 @@ def create_app(test_config=None):
             'POD': os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
             'Invoice': os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
         }
+        if mis_bucket := os.getenv('SUPABASE_MIS_BUCKET', '').strip():
+            if mis_bucket in buckets.values():
+                raise click.ClickException('SUPABASE_MIS_BUCKET must be separate from the POD and invoice buckets. No files were changed.')
+            buckets['MIS'] = mis_bucket
+        else:
+            click.echo('MIS: private local report storage (SUPABASE_MIS_BUCKET is blank).')
         failed = []
         for kind, bucket in buckets.items():
+            namespace = 'mis_reports' if kind == 'MIS' else 'consignments'
             try:
                 client.storage.get_bucket(bucket)
-                client.storage.from_(bucket).list('consignments', {'limit': 1})
+                client.storage.from_(bucket).list(namespace, {'limit': 1})
             except Exception:
-                click.echo(f'{kind}: cannot read {bucket}/consignments. Check the project, bucket, key and Storage permissions.')
+                click.echo(f'{kind}: cannot read {bucket}/{namespace}. Check the project, bucket, key and Storage permissions.')
                 failed.append(bucket)
             else:
-                click.echo(f'{kind}: readable at {bucket}/consignments.')
+                click.echo(f'{kind}: readable at {bucket}/{namespace}.')
         click.echo('No files or database records were changed. Upload permissions were not tested.')
         if failed:
             raise click.ClickException('Storage checks failed. Existing uploaded files were left untouched.')

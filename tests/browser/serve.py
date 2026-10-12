@@ -16,7 +16,7 @@ def main():
             DATABASE_URL=f'sqlite:///{root}/admin.db', FLASK_ENV='development',
             ADMIN_USERNAME='admin', ADMIN_PASSWORD='system-test-only',
             ADMIN_PASSWORD_HASH=generate_password_hash('system-test-only'),
-            SUPABASE_URL='', SUPABASE_KEY='',
+            SUPABASE_URL='', SUPABASE_KEY='', SUPABASE_MIS_BUCKET='',
         )
         from sqlalchemy import create_engine
         from sqlalchemy.orm import Session

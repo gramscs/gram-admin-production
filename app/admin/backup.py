@@ -15,7 +15,7 @@ from openpyxl.cell import WriteOnlyCell
 from sqlalchemy import select
 from werkzeug.utils import secure_filename
 
-from app.admin.documents import DOCUMENTS, open_stored_document, document_name
+from app.admin.documents import DOCUMENTS, open_stored_document, document_name, document_extension
 from app.models import db
 from app import orm as models
 
@@ -64,9 +64,9 @@ def _reference_key(value):
         return 'invalid:' + value
 
 
-def _remote_uploads(client, bucket):
+def _remote_uploads(client, bucket, namespace='consignments'):
     """List the namespace used by this app, including nested legacy folders."""
-    folders = ['consignments']
+    folders = [namespace]
     while folders:
         folder = folders.pop(0)
         if len(folder.split('/')) > 64:
@@ -108,17 +108,23 @@ def _inventory(referenced, report):
     except Exception:
         report['inventory_errors'].append({'source': 'local_uploads', 'message': 'The local upload folder could not be fully listed.'})
     from app.admin.consignment_controller import _get_supabase_client, _parse_supabase_pod_value
-    buckets = set()
+    buckets, report_buckets = set(), set()
     for value in referenced:
         if value.startswith('supabase:'):
             try:
-                buckets.add(_parse_supabase_pod_value(value)[0])
+                bucket, path = _parse_supabase_pod_value(value)
+                buckets.add(bucket)
+                if path.startswith('mis_reports/'):
+                    report_buckets.add(bucket)
             except ValueError:
                 report['inventory_errors'].append({'source': 'supabase_uploads', 'message': 'A legacy storage reference is invalid.'})
     configured = bool(os.getenv('SUPABASE_URL', '').strip() and os.getenv('SUPABASE_KEY', '').strip())
     if configured:
-        buckets.add(os.getenv('SUPABASE_BUCKET', 'pod-uploads'))
+        buckets.add(os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads')
         buckets.add(os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads')
+        if bucket := os.getenv('SUPABASE_MIS_BUCKET', '').strip():
+            buckets.add(bucket)
+            report_buckets.add(bucket)
     if not buckets:
         return
     try:
@@ -126,14 +132,17 @@ def _inventory(referenced, report):
     except RuntimeError:
         client = None
     for bucket in sorted(buckets):
+        namespace = 'consignments'
         try:
             if client is None:
                 raise RuntimeError('Storage is unavailable.')
-            for value in _remote_uploads(client, bucket):
-                if value not in referenced:
-                    yield value, 'supabase_uploads'
+            namespaces = ['consignments'] + (['mis_reports'] if bucket in report_buckets else [])
+            for namespace in namespaces:
+                for value in _remote_uploads(client, bucket, namespace):
+                    if value not in referenced:
+                        yield value, 'supabase_uploads'
         except Exception:
-            report['inventory_errors'].append({'source': 'supabase_uploads', 'bucket': bucket, 'namespace': 'consignments/',
+            report['inventory_errors'].append({'source': 'supabase_uploads', 'bucket': bucket, 'namespace': namespace + '/',
                                                 'message': 'The admin upload namespace could not be fully listed.'})
 
 
@@ -215,7 +224,7 @@ def _workbook(payload, report, table_columns):
 def build_complete_backup(payload):
     buffer = SpooledTemporaryFile(max_size=8*1024*1024, mode='w+b')
     report = {'format_version': 2, 'generated_at': payload['metadata']['generated_at'], 'ordering': 'Consignments ordered by database ID ascending; numeric folder prefixes match backup_order in data and Excel.',
-              'documents': [], 'inventory_errors': [], 'storage_scope': ['instance/uploads/', 'configured/referenced Supabase buckets: consignments/ namespace and all directly referenced files']}
+              'documents': [], 'inventory_errors': [], 'storage_scope': ['instance/uploads/', 'configured/referenced Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
     table_columns = {TABLE_KEYS.get(table.name, table.name): [column.name for column in table.columns] for table in models.tables()}
     referenced = set()
     er = models.using_er()
@@ -229,7 +238,7 @@ def build_complete_backup(payload):
                 identifier = row.get('consignment_number') or row.get('identifier_value')
                 folder = f"documents/{order:06d}_{_safe_name(identifier)}_id-{row['id']}"
                 for kind, (field, name_field) in DOCUMENTS.items():
-                    value = row.get(field)
+                    value, mime_type = row.get(field), None
                     if er:
                         doc_type = 'POD' if kind == 'pod' else 'invoice'
                         doc = current_documents.get((row['id'], doc_type))
@@ -237,10 +246,11 @@ def build_complete_backup(payload):
                         value = file['storage_path'] if file else None
                         if file:
                             row[name_field] = file['original_filename']
+                            mime_type = file['mime_type']
                     if value:
                         referenced.add(_reference_key(value))
                     name = row.get(name_field) or (Path(value).name if value else kind)
-                    extension = Path(value or name).suffix.lower()
+                    extension = document_extension(value, name, mime_type)
                     path = folder + '/' + document_name(identifier, kind, extension)
                     entry = _add_document(archive, report, value, path, backup_order=order, consignment_id=row['id'],
                                           consignment_number=identifier, kind=kind, source='shipment', original_name=name if value else None)
@@ -272,7 +282,8 @@ def build_complete_backup(payload):
                         name = _safe_name(file['original_filename'])
                         if shipment:
                             kind = 'pod' if doc['document_type'] == 'POD' else 'invoice'
-                            name = document_name(shipment.get('identifier_value') or shipment.get('consignment_number'), kind, Path(value).suffix)
+                            name = document_name(shipment.get('identifier_value') or shipment.get('consignment_number'), kind,
+                                                 document_extension(value, file['original_filename'], file['mime_type']))
                         _add_document(archive, report, value, f"file_history/{index:06d}/" + name, source='file_record', kind='retained_file', file_id=file['id'], original_name=file['original_filename'])
                         referenced.add(_reference_key(value))
             for index, (value, source) in enumerate(_inventory(referenced, report), start=1):
@@ -312,7 +323,7 @@ Files are copied
 exactly. SHA-256 checksums and missing/unavailable file details are in
 document_report.json and the Excel report sheets.
 
-Supabase inventory covers the admin app's consignments/ namespace in
+Supabase inventory covers the admin app's consignments/ and mis_reports/ namespaces in
 configured/referenced buckets, plus all files directly referenced by records.
 Unrelated website storage and environment credentials are not part of admin data.
 

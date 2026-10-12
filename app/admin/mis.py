@@ -133,7 +133,7 @@ def mis_view(view_id=None):
 @require_admin
 @protect_errors
 def mis_generate():
-    from app.admin.consignment_controller import _store_pod_bytes
+    from app.admin.consignment_controller import _store_mis_bytes
     data = payload()
     name, notes = clean_text(data, 'name', 120, required=True), clean_text(data, 'notes', 500)
     filters = normalize_filters(data.get('filters', {}))
@@ -147,7 +147,7 @@ def mis_generate():
         view_options['view_id'] = view.id
     report = analyze(filters)
     content = export_bytes(report, columns, fmt)
-    stored = _store_pod_bytes(f'mis-{uuid4().hex}.{fmt}', content, MIMES[fmt])
+    stored = _store_mis_bytes(f'mis-{uuid4().hex}.{fmt}', content, MIMES[fmt])
     try:
         row = models.MisReport(name=name, notes=notes, filters_json=json.dumps(filters), columns_json=json.dumps(columns), summary_json=json.dumps({**report['metrics'], 'client_label': report['client_label'], 'status_label': report['status_label'], 'period_label': report['period_label']}), output_format=fmt, row_count=report['metrics']['total'], file_ref=stored, file_name=f'shipment-mis_{datetime.now(IST):%Y%m%d_%H%M%S_IST}.{fmt}', generated_by=_creator(), **view_options)
         db.session.add(row)

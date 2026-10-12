@@ -267,7 +267,8 @@ def test_shared_file_survives_until_last_attachment_is_removed(panel, storage):
 
 
 @pytest.mark.parametrize('delete_first', ['report', 'document'])
-def test_file_shared_with_mis_report_is_kept_until_both_are_removed(panel, storage, delete_first):
+def test_file_shared_with_mis_report_is_kept_until_both_are_removed(panel, storage, delete_first, monkeypatch):
+    monkeypatch.setenv('SUPABASE_MIS_BUCKET', 'mis-reports')
     app, client = panel
     row = add(client, both=False)
     generated = client.post('/admin/mis/reports', json={'name': 'Shared PDF', 'format': 'pdf',
