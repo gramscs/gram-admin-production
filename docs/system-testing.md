@@ -464,3 +464,30 @@ Storage tests use a simulated Supabase client. No live bucket credentials were
 used and no existing live objects were renamed. Pull and restart the app; no
 database migration or new Python dependency is required. The source ZIP includes
 both label fonts and their license.
+
+## Label record-ID handling
+
+The reported after-menu error was reproduced by submitting a UI/widget ID in
+the manual details while the selected shipment ID remained a valid UUID. Review
+cards now bind their IDs and input references directly to the server-returned
+shipment, rather than collecting arbitrary `data-field` values or trusting the
+card's mutable DOM ID. Changes to unrelated fields or UI identifiers cannot
+overwrite the shipment ID or the key used to save invoice/description drafts.
+
+The label page declares its numeric/UUID ID format and removes incompatible
+cached selections from older databases, preserving current selections and
+manual details. Its script URL is versioned so updated pages load the fix.
+Malformed selected/detail IDs return specific recovery instructions; they do
+not allocate label numbers or change database rows. Valid IDs still go through
+the same strict record lookup and selected/detail matching checks.
+
+The focused label/company/ER suite passed **94 tests**, with **one expected skip**
+and no failures, against disposable SQLite/PostgreSQL fixtures. The new browser
+regression passed three workflow groups: stale numeric/malformed selections
+on the UUID app, actual PDF download despite overwritten DOM IDs/injected fields,
+and Preview/refresh preserving both numbering and edited invoice details.
+The recovered PDF was inspected for its real shipment reference, invoice amount
+and goods description. No live database or Storage object was changed.
+The existing four 50-shipment browser workflow groups also passed again,
+including cross-page selection, actual download/preview/reprint, refresh and
+responsive light/dark controls.

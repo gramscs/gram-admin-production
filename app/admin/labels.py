@@ -28,6 +28,15 @@ from app.admin.reporting import parse_date
 PAYMENT_MODES = {'pre-paid': 'Pre-paid', 'to-pay': 'To pay', 'cash-on-delivery': 'Cash on delivery'}
 
 
+def _label_record_id(value, *, details=False):
+    try:
+        return models.record_id(value)
+    except ValueError:
+        message = ('The label details are out of date. Reopen Generate labels and review the shipments again.'
+                   if details else 'The saved shipment selection is out of date. Refresh Labels and select your shipments again.')
+        raise ValueError(message) from None
+
+
 def label_shipment(row):
     day = parse_date(row.pickup_date)
     return {'id': str(row.id), 'consignment_number': row.consignment_number,
@@ -45,7 +54,7 @@ def label_shipment(row):
 def _selected_rows(values):
     if not isinstance(values, list) or not values or len(values) > 500:
         raise ValueError('Select between 1 and 500 saved shipments.')
-    selected = list(dict.fromkeys(models.record_id(value) for value in values))
+    selected = list(dict.fromkeys(_label_record_id(value) for value in values))
     found = {row.id: row for row in models.shipment_query().filter(models.Consignment.id.in_(selected)).all()}
     if len(found) != len(selected):
         raise ValueError('A selected shipment no longer exists. Refresh the list and select again.')
@@ -68,7 +77,7 @@ def _review_details(values, rows):
     for item in values:
         if not isinstance(item, dict):
             raise ValueError('Invalid shipment label details.')
-        identifier = str(models.record_id(item.get('id')))
+        identifier = str(_label_record_id(item.get('id'), details=True))
         if identifier in details:
             raise ValueError('Label details include a duplicate shipment.')
         amount = item.get('invoice_amount')
@@ -117,7 +126,8 @@ def _label_rows():
                                 models.Consignment.pickup_tag.ilike(f'%{search}%'), models.Consignment.drop_tag.ilike(f'%{search}%')))
     total = query.count()
     rows = query.order_by(models.Consignment.id.desc()).offset((page - 1) * 25).limit(25).all()
-    return dict(rows=rows, label_page_rows=[label_shipment(row) for row in rows], page=page, total=total, search=search)
+    return dict(rows=rows, label_page_rows=[label_shipment(row) for row in rows],
+                label_id_format='uuid' if models.using_er() else 'integer', page=page, total=total, search=search)
 
 
 @admin_bp.get('/admin/labels')

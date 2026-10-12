@@ -12,7 +12,8 @@
   <div><span class="step-number">3</span><strong>Preview & print</strong><p>Print the PDF at actual size (100%).</p></div>
 </div>
 <form method="get" class="surface-panel p-3 d-flex flex-wrap gap-2 mb-3"><label class="visually-hidden" for="label-search">Search shipments</label><input id="label-search" name="search" value="{{ search }}" class="form-control sheet-search" placeholder="Identifier, client company or route tag" /><button class="btn btn-outline-primary">Search</button><a class="btn btn-outline-secondary" href="{{ url_for('admin.labels_panel') }}">Reset</a></form>
-<form method="post" action="{{ url_for('admin.labels_generate') }}" id="labels-form" data-review-url="{{ url_for('admin.labels_review') }}" data-scope="{{ session.get('admin_username', 'admin') }}">
+<div id="label-selection-notice" class="alert alert-info d-none" role="status"></div>
+<form method="post" action="{{ url_for('admin.labels_generate') }}" id="labels-form" data-review-url="{{ url_for('admin.labels_review') }}" data-scope="{{ session.get('admin_username', 'admin') }}" data-id-format="{{ label_id_format }}">
 <div class="label-layout">
   <div class="label-shipments">
     <div class="surface-panel table-responsive"><table class="table mb-0"><thead><tr><th scope="col"><input id="select-all-labels" type="checkbox" aria-label="Select all shipments on this page" /></th><th scope="col">Shipment</th><th scope="col">Route</th><th scope="col">Pieces</th><th scope="col">Chargeable</th></tr></thead><tbody>
@@ -55,4 +56,4 @@
   </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='record-ids-2') }}"></script>{% endblock %}

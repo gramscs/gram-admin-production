@@ -6,13 +6,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const inputs = Array.from(document.querySelectorAll('[name="consignment_ids"]'));
     const pageRows = JSON.parse(part('label-page-data').textContent);
     const key = 'gram-label-selection:' + form.dataset.scope;
+    const idPattern = form.dataset.idFormat === 'uuid' ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i : /^[1-9][0-9]*$/;
+    const validId = value => typeof value === 'string' && idPattern.test(value);
+    const reviewFields = new WeakMap();
     let selected = new Map(), drafts = {}, review = [], job = null, busy = false;
     try {
         const saved = JSON.parse(sessionStorage.getItem(key) || '{}');
-        if (Array.isArray(saved.selected)) selected = new Map(saved.selected.filter(row => row && typeof row.id === 'string' && Number.isInteger(row.pieces) && row.pieces > 0).map(row => [row.id, row]));
+        if (Array.isArray(saved.selected)) selected = new Map(saved.selected.filter(row => row && validId(row.id) && Number.isInteger(row.pieces) && row.pieces > 0).map(row => [row.id, row]));
         drafts = saved.drafts && typeof saved.drafts === 'object' ? saved.drafts : {};
         review = Array.isArray(saved.review) ? saved.review : [];
         job = typeof saved.job === 'string' ? saved.job : null;
+        if (Array.isArray(saved.selected) && selected.size < saved.selected.length) {
+            review = []; job = null;
+            const notice = part('label-selection-notice');
+            notice.textContent = 'Removed outdated shipment selections. Your current selections and entered details have been kept.';
+            notice.classList.remove('d-none');
+        }
     } catch (_) { /* In-memory selection still works when storage is disabled. */ }
     pageRows.forEach(row => {if (selected.has(row.id)) selected.set(row.id, row);});
     function persist() {
@@ -60,14 +69,16 @@ document.addEventListener('DOMContentLoaded', function () {
         input.value = value; input.required = true; return input;
     }
     function cardValues(card) {
-        const value = {id: card.dataset.id};
-        card.querySelectorAll('[data-field]').forEach(input => {value[input.dataset.field] = input.type === 'checkbox' ? input.checked : input.value;});
+        const fields = reviewFields.get(card);
+        const value = {id: fields.id};
+        Object.entries(fields.inputs).forEach(([name, input]) => {value[name] = input.type === 'checkbox' ? input.checked : input.value;});
         if (!value.eway_bill_exists) value.eway_bill_number = '';
         return value;
     }
-    function cardReady(card) {return Array.from(card.querySelectorAll('[data-field]')).every(input => input.disabled || input.checkValidity());}
+    function cardReady(card) {return Object.values(reviewFields.get(card).inputs).every(input => input.disabled || input.checkValidity());}
     function changed(card) {
-        drafts[card.dataset.id] = cardValues(card); job = null; persist();
+        const value = cardValues(card);
+        drafts[value.id] = value; job = null; persist();
         const cards = Array.from(part('label-review-rows').children);
         part('label-review-ready').textContent = cards.filter(cardReady).length + ' / ' + cards.length + ' ready';
     }
@@ -85,7 +96,8 @@ document.addEventListener('DOMContentLoaded', function () {
             const fields = node('div', 'label-review-fields');
             const amount = node('input', 'form-control'); amount.id = 'label-amount-' + index; amount.type = 'number'; amount.min = '0'; amount.max = '999999999.99'; amount.step = '0.01'; amount.required = true; amount.value = data.invoice_amount; amount.dataset.field = 'invoice_amount';
             field(fields, 'Invoice amount (Rs) *', amount);
-            field(fields, 'Payment mode *', payment('label-payment-' + index, data.payment_mode));
+            const paymentInput = payment('label-payment-' + index, data.payment_mode);
+            field(fields, 'Payment mode *', paymentInput);
             const description = node('input', 'form-control'); description.id = 'label-goods-' + index; description.maxLength = 160; description.required = true; description.value = data.goods_description; description.dataset.field = 'goods_description';
             field(fields, 'Goods description *', description); card.append(fields);
             const eway = node('div', 'label-eway'), label = node('label', 'd-flex align-items-center gap-2 small');
@@ -95,6 +107,8 @@ document.addEventListener('DOMContentLoaded', function () {
             function toggleEway() {number.disabled = !exists.checked; number.required = exists.checked; number.classList.toggle('d-none', !exists.checked);}
             toggleEway(); exists.addEventListener('change', toggleEway);
             eway.append(label, number); card.append(eway); root.append(card);
+            reviewFields.set(card, {id: row.id, inputs: {invoice_amount: amount, payment_mode: paymentInput,
+                goods_description: description, eway_bill_exists: exists, eway_bill_number: number}});
             card.addEventListener('input', () => changed(card)); card.addEventListener('change', () => changed(card));
         });
         const pieces = review.reduce((sum, row) => sum + row.pieces, 0);
@@ -142,7 +156,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const invalid = cards.find(card => !cardReady(card));
         if (invalid) {
             part('label-review-search').value = ''; cards.forEach(card => {card.hidden = false;});
-            const field = Array.from(invalid.querySelectorAll('[data-field]')).find(input => !input.disabled && !input.checkValidity());
+            const field = Object.values(reviewFields.get(invalid).inputs).find(input => !input.disabled && !input.checkValidity());
             error('label-review-error', 'Complete the details for ' + invalid.dataset.identifier + ' before generating.');
             field.focus(); field.reportValidity(); return;
         }

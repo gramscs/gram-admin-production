@@ -211,3 +211,22 @@ def test_review_limits_missing_ids_validation_origin_and_login(app, admin_client
     assert admin_client.post('/admin/labels/generate', data={'consignment_ids': [row['id']]}).status_code == 400
     admin_client.get('/admin/logout')
     assert client.post('/admin/labels/review', json={'consignment_ids': [row['id']]}).status_code == 401
+
+
+def test_label_id_format_and_outdated_detail_ids_are_actionable_and_do_not_allocate(panel):
+    app, client = panel
+    row = create(client)[0]
+    with app.app_context():
+        expected = 'uuid' if models.using_er() else 'integer'
+    assert f'data-id-format="{expected}"' in client.get('/admin/labels').get_data(as_text=True)
+    invalid = client.post('/admin/labels/review', json={'consignment_ids': ['label-card-0']})
+    assert invalid.status_code == 400 and 'selection is out of date' in invalid.json['message']
+    data = label_form([row['id']])
+    details = json.loads(data['label_details']); details[0]['id'] = 'label-amount-0'
+    data['label_details'] = json.dumps(details)
+    before = snapshot(app)
+    rejected = client.post('/admin/labels/generate', data=data)
+    assert rejected.status_code == 400 and 'details are out of date' in rejected.json['message']
+    assert snapshot(app) == before
+    assert not Path(app.instance_path, 'uploads', '.label-state', 'counters.json').exists()
+    assert client.post('/admin/labels/generate', data=label_form([row['id']])).status_code == 200

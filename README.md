@@ -306,6 +306,13 @@ year and a sequence across that year. Preview, download and reprint of the same
 unchanged batch reuse its numbers. Changing its selection/details creates a new
 batch. Preview reserves numbers, so abandoned previews can leave sequence gaps.
 
+After switching between the older numeric-ID database and the migrated UUID
+database, Labels removes incompatible saved browser selections automatically
+and keeps current selections and entered details. Preview/download binds each
+review card to the actual saved shipment ID. If the app reports outdated label
+details, reopen **Generate labels**; if a selected shipment was deleted, use
+**Clear selection** and select the current shipments again.
+
 **No database schema or records are changed by label generation.** Reviewed
 snapshots and locked numbering files are stored privately under
 `instance/uploads/.label-state/` and included in the complete backup. Preserve
