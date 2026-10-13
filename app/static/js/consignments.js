@@ -32,6 +32,9 @@ document.addEventListener("DOMContentLoaded", function () {
     var statusTimeoutId = null;
     var listRequest = 0;
     var packageEditor = new PackageContentsEditor(document.getElementById('package-contents-editor'));
+    document.getElementById('modal-chargeable-weight').addEventListener('input', function () {
+        packageEditor.setDefaultWeight(this.value);
+    });
     function packageStep(open) {
         document.getElementById('shipment-details-step').hidden = open;
         document.getElementById('shipment-packages-step').hidden = !open;
@@ -220,7 +223,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function populateModal(row) {
         clearModalValidation();
-        packageEditor.set(row.package_contents, row.pieces || 1);
+        packageEditor.set(row.package_contents, row.pieces || 1, row.chargeable_weight);
         packageStep(false);
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
@@ -963,4 +966,3 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 10000);
     } catch (e) {}
 });
-

@@ -139,6 +139,20 @@ def test_invalid_label_details_do_not_allocate_or_touch_shipments(app, admin_cli
     assert snapshot(app) == before
 
 
+@pytest.mark.parametrize('box_amounts', [[], ['NaN', '1'], ['-1', '1'], ['1.001', '1'], [True, '1']])
+def test_invalid_per_box_invoice_values_do_not_allocate_or_touch_shipments(app, admin_client, box_amounts):
+    row = create(admin_client)[0]
+    before = snapshot(app)
+    data = label_form([row['id']])
+    details = json.loads(data['label_details'])
+    details[0]['box_invoice_amounts'] = box_amounts
+    data['label_details'] = json.dumps(details)
+    rejected = admin_client.post('/admin/labels/generate', data=data)
+    assert rejected.status_code == 400 and rejected.json['success'] is False
+    assert not Path(app.instance_path, 'uploads', '.label-state').exists()
+    assert snapshot(app) == before
+
+
 def test_run_cannot_be_reused_for_different_details_or_owner(app, admin_client):
     row = create(admin_client)[0]
     data = label_form([row['id']])

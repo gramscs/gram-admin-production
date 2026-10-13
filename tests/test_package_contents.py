@@ -49,10 +49,32 @@ def test_per_box_counts_exceptions_persist_and_print_on_the_right_page(panel):
     assert client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]['package_contents'] == CONTENTS
 
 
+def test_box_weight_exceptions_persist_and_invoice_values_can_vary_per_box(panel):
+    app, client = panel
+    contents = {'kind': 'box', 'default_pieces': 10,
+                'boxes': {'2': {'pieces': 8, 'note': 'Fragile', 'weight': '3.250'}}}
+    row = saved(client, measurement_mode='weight', chargeable_weight='12.345', package_contents=contents)
+    assert row['package_contents'] == contents
+    reviewed = client.post('/admin/labels/review', json={'consignment_ids': [row['id']]}).json['shipments'][0]
+    assert [box['weight'] for box in reviewed['boxes']] == ['12.345', '3.250', '12.345']
+    data = label_form([row['id']])
+    details = json.loads(data['label_details'])
+    details[0]['box_invoice_amounts'] = ['6000.00', '50.25', '7000']
+    data['label_details'] = json.dumps(details)
+    output = pages(client.post('/admin/labels/generate', data=data))
+    assert len(output) == 3
+    assert '12.345 kg' in output[0].extract_text() and 'Rs 6,000.00' in output[0].extract_text()
+    assert '3.250 kg' in output[1].extract_text() and 'Rs 50.25' in output[1].extract_text()
+    assert '12.345 kg' in output[2].extract_text() and 'Rs 7,000.00' in output[2].extract_text()
+
+
 @pytest.mark.parametrize('contents', [
     {'kind': 'bag'}, {'default_pieces': -1}, {'default_pieces': True}, {'default_pieces': '1.5'},
     {'boxes': {'4': {'pieces': 2}}}, {'boxes': {'02': {'pieces': 2}}},
     {'boxes': {'1': {'note': 'x' * 121}}}, {'boxes': {'1': {'note': 'two\nlines'}}},
+    {'boxes': {'1': {'weight': -1}}}, {'boxes': {'1': {'weight': 'NaN'}}},
+    {'boxes': {'1': {'weight': 'Infinity'}}}, {'boxes': {'1': {'weight': '1.0001'}}},
+    {'boxes': {'1': {'weight': '1000000000'}}}, {'boxes': {'1': {'weight': True}}},
 ])
 def test_bad_contents_rejected_without_partial_save(panel, contents):
     app, client = panel

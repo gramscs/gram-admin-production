@@ -38,9 +38,9 @@ def _label_record_id(value, *, details=False):
         raise ValueError(message) from None
 
 
-def label_shipment(row):
+def label_shipment(row, *, include_boxes=False):
     day = parse_date(row.pickup_date)
-    return {'id': str(row.id), 'consignment_number': row.consignment_number,
+    shipment = {'id': str(row.id), 'consignment_number': row.consignment_number,
             'identifier_type': row.identifier_type or 'LRN', 'pieces': row.pieces or 1,
             'company': row.company.name if row.company else '',
             'pickup_date': day.strftime('%d/%m/%Y') if day else row.pickup_date or 'Not set',
@@ -51,6 +51,20 @@ def label_shipment(row):
             'package_contents': row.package_contents, 'volume_unit': 'ft3',
             'chargeable_weight': str(row.chargeable_weight) if row.chargeable_weight is not None else None,
             'chargeable_volume': str(volume_ft3(row)) if row.chargeable_volume is not None else None}
+    if include_boxes:
+        contents = row.package_contents or {}
+        boxes = []
+        for number in range(1, (row.pieces or 1) + 1):
+            package = package_at(contents, number)
+            box_weight = package.get('weight')
+            if box_weight is None:
+                box_weight = row.chargeable_weight
+            boxes.append({'number': number, 'pieces': package['pieces'],
+                          'weight': str(box_weight) if box_weight is not None else None,
+                          'weight_exception': package.get('weight') is not None,
+                          'note': package.get('note', '')})
+        shipment['boxes'] = boxes
+    return shipment
 
 
 def _selected_rows(values):
@@ -76,21 +90,36 @@ def _review_details(values, rows):
     if not isinstance(values, list) or len(values) != len(rows):
         raise ValueError('Enter label details for every selected shipment.')
     details = {}
+    rows_by_id = {str(row.id): row for row in rows}
     for item in values:
         if not isinstance(item, dict):
             raise ValueError('Invalid shipment label details.')
         identifier = str(_label_record_id(item.get('id'), details=True))
         if identifier in details:
             raise ValueError('Label details include a duplicate shipment.')
-        amount = item.get('invoice_amount')
-        if isinstance(amount, bool) or not isinstance(amount, (str, int)) or len(str(amount)) > 20 or not str(amount).strip():
-            raise ValueError('Enter an invoice amount for every shipment.')
-        try:
-            amount = Decimal(str(amount).strip())
-            if not amount.is_finite() or amount < 0 or amount > Decimal('999999999.99') or amount != amount.quantize(Decimal('.01')):
-                raise ValueError('Invoice amounts must be between Rs 0 and Rs 999,999,999.99, with at most two decimal places.')
-        except InvalidOperation:
-            raise ValueError('Enter a valid invoice amount.') from None
+        row = rows_by_id.get(identifier)
+        if row is None:
+            raise ValueError('Label details must match exactly the selected shipments.')
+        def invoice_amount(raw, *, required):
+            if raw in (None, '') and not required:
+                return amount
+            if isinstance(raw, bool) or not isinstance(raw, (str, int, Decimal)) or len(str(raw)) > 20 or not str(raw).strip():
+                raise ValueError('Enter a valid invoice amount for every box.')
+            try:
+                parsed = Decimal(str(raw).strip())
+                if not parsed.is_finite() or parsed < 0 or parsed > Decimal('999999999.99') or parsed != parsed.quantize(Decimal('.01')):
+                    raise ValueError('Invoice amounts must be between Rs 0 and Rs 999,999,999.99, with at most two decimal places.')
+            except InvalidOperation:
+                raise ValueError('Enter a valid invoice amount.') from None
+            return parsed
+
+        amount = invoice_amount(item.get('invoice_amount'), required=True)
+        box_amounts = item.get('box_invoice_amounts')
+        if box_amounts is None:
+            box_amounts = [amount] * (row.pieces or 1)
+        if not isinstance(box_amounts, list) or len(box_amounts) != (row.pieces or 1):
+            raise ValueError('Enter an invoice value for every box/pallet.')
+        box_amounts = [f'{invoice_amount(value, required=False):.2f}' for value in box_amounts]
         payment = item.get('payment_mode')
         if payment not in PAYMENT_MODES:
             raise ValueError('Choose Pre-paid, To pay or Cash on delivery for every shipment.')
@@ -111,12 +140,12 @@ def _review_details(values, rows):
         eway = item.get('eway_bill_number', '') if exists else ''
         if exists and (not isinstance(eway, str) or not re.fullmatch(r'[0-9]{12}', eway.strip())):
             raise ValueError('Enter the 12-digit EWBN, or uncheck EWBN exists.')
-        details[identifier] = {'invoice_amount': f'{amount:.2f}', 'payment_mode': payment,
+        details[identifier] = {'invoice_amount': f'{amount:.2f}', 'box_invoice_amounts': box_amounts, 'payment_mode': payment,
                                'goods_description': description.strip(), 'eway_bill_exists': exists,
                                'eway_bill_number': eway.strip(), **names}
     if set(details) != {str(row.id) for row in rows}:
         raise ValueError('Label details must match exactly the selected shipments.')
-    return [{**label_shipment(row), **details[str(row.id)]} for row in rows]
+    return [{**label_shipment(row, include_boxes=True), **details[str(row.id)]} for row in rows]
 
 
 # Bundled fonts keep label printing independent of host fonts.
@@ -157,7 +186,7 @@ def labels_review():
         if not isinstance(data, dict):
             raise ValueError('Send the selected shipment IDs.')
         rows = _selected_rows(data.get('consignment_ids'))
-        return jsonify(success=True, shipments=[label_shipment(row) for row in rows])
+        return jsonify(success=True, shipments=[label_shipment(row, include_boxes=True) for row in rows])
     except (ValueError, TypeError) as error:
         return jsonify(success=False, message=str(error)), 400
 
@@ -241,9 +270,13 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             contents = shipment.get('package_contents') or {}
             package = package_at(contents, piece)
             pdf.drawString(237, metric_heading, 'PALLET' if contents.get('kind') == 'pallet' else 'BOX')
-            value = shipment['chargeable_volume'] if volume_mode else shipment['chargeable_weight']
+            box = shipment['boxes'][piece-1]
+            value = shipment['chargeable_volume'] if volume_mode else box['weight']
             unit = ('ft³' if shipment.get('volume_unit') == 'ft3' else 'm³') if volume_mode else 'kg'
-            _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, metric_value, 79, 12, font='LabelMonoBold', size=9)
+            measurement = (value if value is not None else '—') + ' ' + unit
+            if volume_mode and box['weight_exception']:
+                measurement += ' / ' + (box['weight'] if box['weight'] is not None else '—') + ' kg'
+            _fit_text(pdf, measurement, 18, metric_value, 79, 12, font='LabelMonoBold', size=9)
             _fit_text(pdf, str(package['pieces']) if package['pieces'] is not None else '—', 105, metric_value, 32, 12, font='LabelMonoBold', size=9)
             _fit_text(pdf, escape(shipment['pickup_date']), 145, metric_value, 84, 12, font='LabelMonoBold', size=8)
             _fit_text(pdf, f'{piece} of {pieces}', 237, metric_value, 33, 12, font='LabelMonoBold', size=7)
@@ -273,7 +306,7 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             for caption, baseline in [('INVOICE AMOUNT', 116), ('ORDER ID', 82), ('GOODS', 49)]:
                 pdf.drawString(18, baseline, caption)
             pdf.drawString(152, 82, 'INVOICE NO.')
-            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, 109, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
+            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['box_invoice_amounts'][piece-1]):,.2f}", 18, 109, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
             _fit_text(pdf, assignment['order_id'], 18, 75, 118, 12, font='LabelMono', size=7.5)
             _fit_text(pdf, assignment['invoice_number'], 152, 75, 118, 12, font='LabelMono', size=7.5)
             note = package.get('note', '')

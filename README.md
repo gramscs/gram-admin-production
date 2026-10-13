@@ -85,7 +85,7 @@ the same SQLite database to display these records. On Windows PowerShell, set
   staged removal, and file-content validation.
 - Excel import/export, import-template download, and a complete shipment MIS PDF.
 - Client company masters with multiple pickup/drop presets and editable shipment snapshots.
-- B2B piece labels with optional Code 128 barcodes and PDF preview.
+- B2B piece labels with optional Code 128 barcodes and PDF preview, saved per-box weight exceptions, and editable invoice values for each box.
 - Complete ZIP backup of all admin tables and uploaded files, with ordered
   consignment folders, Excel/JSON data, checksums, and a missing-file report.
 - Local Bootstrap, icon fonts, interface fonts, scripts, and logo. The interface

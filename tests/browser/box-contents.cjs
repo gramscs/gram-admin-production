@@ -25,12 +25,14 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.locator('#modal-pieces').fill('100');
         await page.locator('#modal-measurement-mode').selectOption('volume');
         await page.locator('#modal-chargeable-volume').fill('250');
+        await page.locator('#modal-chargeable-weight').fill('18.500');
         await page.locator('#modal-pickup-address').fill('GRAM warehouse, Delhi 110001');
         await page.locator('#modal-drop-address').fill('Receiving warehouse, Mumbai 400001');
         await page.locator('#modal-pickup-date').fill('2026-10-13');
         await page.locator('#edit-box-contents').click();
         await page.locator('#package-default').fill('12');
         await page.getByRole('spinbutton', {name: 'Pieces in box 2', exact: true}).fill('8');
+        await page.getByRole('spinbutton', {name: 'Weight exception in kg for box 2', exact: true}).fill('3.25');
         await page.getByRole('textbox', {name: 'Exception for box 2', exact: true}).fill('Fragile — glass components');
         for (let n = 0; n < 3; n++) await page.locator('.package-next').click();
         await page.getByRole('spinbutton', {name: 'Pieces in box 99', exact: true}).fill('4');
@@ -51,6 +53,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         row = (await (await page.request.get(base + '/admin/consignments/list?search=' + prefix)).json()).rows[0];
         assert.equal(row.package_contents.default_pieces, 12);
         assert.equal(row.package_contents.boxes['2'].pieces, 8);
+        assert.equal(row.package_contents.boxes['2'].weight, '3.250');
         assert.equal(row.package_contents.boxes['99'].pieces, 4);
         assert.equal(row.volume_unit, 'ft3'); assert.equal(row.chargeable_volume, '250.000');
         console.log('PASS: 100 boxes, defaults, exceptions across pages, modal validation and SQL persistence.');
@@ -70,10 +73,10 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.setViewportSize({width: 1440, height: 1000});
         await page.goto(base + '/admin/labels?search=' + prefix);
         await page.locator('#select-all-labels').check(); await page.locator('#review-labels-btn').click();
-        await page.locator('.label-package-summary summary').click();
         assert.match(await page.locator('.label-package-summary').textContent(), /1188 pieces total/);
         assert.match(await page.locator('.label-package-summary').textContent(), /Short pack/);
         await page.locator('[data-field=invoice_amount]').fill('6000');
+        await page.locator('[data-box-invoice="2"]').fill('50.25');
         await page.locator('[data-field=goods_description]').fill('Precision components');
         await page.screenshot({path: directory + '/label-package-review.png'});
         const download = page.waitForEvent('download'); await page.locator('#download-labels-btn').click();
@@ -83,6 +86,8 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         for (let i = 0; i < 100; i++) {
             assert(pages[i].includes((i + 1) + ' of 100'));
             assert(pages[i].includes('250.000 ft³'));
+            assert.equal(pages[i].includes('3.250 kg'), i === 1);
+            assert.equal(pages[i].includes('Rs 50.25'), i === 1);
             assert.equal(pages[i].includes('Fragile'), i === 1);
             assert.equal(pages[i].includes('Short pack'), i === 98);
         }
