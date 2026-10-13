@@ -3,7 +3,7 @@
 {% block title %}Shipment Tracker – Gram SCS{% endblock %}
 {% block topbar_title %}Shipments{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='modal-validation-1') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='box-contents-1') }}" />
 {% endblock %}
 
 {% macro sort_button(column, label) -%}
@@ -52,8 +52,8 @@
           <tr>
             <th scope="col"><input type="checkbox" id="select-visible-shipments" class="form-check-input" aria-label="Select shipments on this page" /></th>
             <th scope="col" class="shipment-column">{{ sort_button('consignment_number', 'Identifier #') }}<span class="column-hint">Type / number</span></th>
-            <th scope="col" class="pieces-column">Pieces</th>
-            <th scope="col" class="chargeable-column">Weight / volume<span class="column-hint">kg / m³</span></th>
+            <th scope="col" class="pieces-column">Boxes / pallets</th>
+            <th scope="col" class="chargeable-column">Weight / volume<span class="column-hint">kg / ft³</span></th>
             <th scope="col" class="status-column">{{ sort_button('status', 'Status') }}</th>
             <th scope="col" class="route-column">{{ sort_button('pickup_tag', 'Pickup Tag') }}{{ sort_button('pickup_date', 'Pickup Date') }}</th>
             <th scope="col" class="route-column">{{ sort_button('drop_pincode', 'Drop Pin') }}{{ sort_button('drop_date', 'Drop Estimated') }}</th>
@@ -89,7 +89,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
-{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'consignments.js'] %}
-<script src="{{ url_for('static', filename='js/' ~ script, v='modal-validation-1') }}"></script>
+{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'admin/package-contents.js', 'consignments.js'] %}
+<script src="{{ url_for('static', filename='js/' ~ script, v='box-contents-1') }}"></script>
 {% endfor %}
 {% endblock %}

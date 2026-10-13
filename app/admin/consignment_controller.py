@@ -2,6 +2,7 @@
 
 from decimal import Decimal, InvalidOperation
 import io
+import json
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
+from app.shipment_packages import normalize_contents, volume_ft3
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
 from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
 
@@ -200,7 +202,9 @@ def _serialize_consignment(consignment):
         "identifier_type": consignment.identifier_type or "LRN",
         "pieces": consignment.pieces or 1,
         "chargeable_weight": str(consignment.chargeable_weight) if consignment.chargeable_weight is not None else None,
-        "chargeable_volume": str(consignment.chargeable_volume) if consignment.chargeable_volume is not None else None,
+        "chargeable_volume": str(volume_ft3(consignment)) if consignment.chargeable_volume is not None else None,
+        "volume_unit": "ft3",
+        "package_contents": consignment.package_contents,
         "measurement_mode": consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
         "company_id": consignment.company_id,
         "company_name": consignment.company.name if consignment.company else None,
@@ -321,7 +325,7 @@ def consignments_import_template_excel():
         "drop_pincode",
         "drop_tag",
         "drop_date",
-        "identifier_type", "pieces", "weight", "volume", "company_id", "measurement_mode",
+        "identifier_type", "boxes_pallets", "weight", "volume", "company_id", "measurement_mode", "volume_unit", "package_contents",
     ])
 
     buffer = io.BytesIO()
@@ -346,7 +350,7 @@ def consignments_import_excel():
 
     workbook = load_workbook(uploaded_file, data_only=True)
     sheet = workbook.active
-    measurement_headers = {"weight": "chargeable_weight", "volume": "chargeable_volume"}
+    measurement_headers = {"weight": "chargeable_weight", "volume": "chargeable_volume", "boxes_pallets": "pieces"}
     headers = [measurement_headers.get(_normalize_header(cell), _normalize_header(cell)) for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
 
     existing_numbers = {
@@ -423,7 +427,7 @@ def consignments_export_excel():
         "drop_date",
         "pickup_address",
         "drop_address",
-        "identifier_type", "pieces", "weight", "volume", "company_id", "client_company", "measurement_mode",
+        "identifier_type", "boxes_pallets", "weight", "volume", "company_id", "client_company", "measurement_mode", "volume_unit", "package_contents",
     ]
     sheet.append(headers)
 
@@ -439,9 +443,10 @@ def consignments_export_excel():
             getattr(consignment, "pickup_address", None),
             getattr(consignment, "drop_address", None),
             consignment.identifier_type, consignment.pieces,
-            consignment.chargeable_weight, consignment.chargeable_volume,
+            consignment.chargeable_weight, volume_ft3(consignment),
             models.export_id(consignment.company_id), consignment.company.name if consignment.company else None,
             consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
+            'ft3', json.dumps(consignment.package_contents) if consignment.package_contents else None,
         ])
 
     buffer = io.BytesIO()
@@ -507,11 +512,23 @@ def _normalize_shipment_fields(row, existing=None):
         if not pieces.is_finite() or pieces != pieces.to_integral_value() or not 1 <= pieces <= 10000:
             raise ValueError()
     except (InvalidOperation, ValueError):
-        raise ValueError("Pieces must be a whole number from 1 to 10000.") from None
+        raise ValueError("Boxes/pallets must be a whole number from 1 to 10000.") from None
     fields = {"identifier_type": identifier_type, "pieces": int(pieces)}
+    contents = value('package_contents', None)
+    if isinstance(contents, str):
+        try:
+            contents = json.loads(contents) if contents.strip() else None
+        except (ValueError, TypeError):
+            raise ValueError('Box contents must be valid JSON in the import file.') from None
+    fields['package_contents'] = normalize_contents(contents, int(pieces))
+    if 'chargeable_volume' in row:
+        unit = row.get('volume_unit') or 'ft3'
+        if unit not in ('ft3', 'm3'):
+            raise ValueError('Volume unit must be ft3 (CBFT) or m3 (legacy CBM import).')
+        fields['volume_unit'] = unit
     mode = value('measurement_mode', None) or ('volume' if value('chargeable_volume', None) not in (None, '') and value('chargeable_weight', None) in (None, '') else 'weight')
     if mode not in ('weight', 'volume'):
-        raise ValueError('Choose Weight (kg) or Volume (m³).')
+        raise ValueError('Choose Weight (kg) or Volume (ft³).')
     fields['measurement_mode'] = mode
     company_id = value("company_id", None)
     if company_id in (None, ""):

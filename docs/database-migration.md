@@ -250,3 +250,13 @@ Do not assume success or rollback without a confirmation: a retry verifies any
 completed import and does not duplicate it. Once the dashboard begins editing
 the destination, repeat-import verification appropriately reports changed data;
 it is not a synchronization command.
+
+
+## Box contents and volume units
+
+After importing, run `python -m flask --app wsgi:app upgrade-db` against the
+new target before opening the app. This restores package contents and unit
+metadata from the full migration archive, and converts old unmarked CBM values
+to ft³ (CBFT). Existing `ft3` markers are retained and never converted again.
+The original source, archive records and historical report files retain their
+original values. New imports preserve package contents for legacy and ER sources.

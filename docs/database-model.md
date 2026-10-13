@@ -23,7 +23,7 @@ PDF/image/report bytes; the `files` table stores their details and location.
 | `admin_users` | Internal team usernames, roles, active/inactive state | Identifies who entered events, uploaded files, created views/reports, and made changes |
 | `companies` | Client name, registered address, contact details, active state | One client can have many locations and shipments |
 | `company_locations` | Saved pickup/drop addresses and the default of each kind | Belongs to one company; may be selected as a shipment preset |
-| `consignments` | Shipment identifier, client, current status, pieces, weight/volume, copied addresses and dates | Links to its client and optional pickup/drop presets |
+| `consignments` | Shipment identifier, client, current status, boxes/pallets, weight/volume, copied addresses and dates | Links to its client and optional pickup/drop presets |
 | `shipment_events` | Shipment status history, when each event happened, and when it was entered | Many events belong to one shipment; the recording user is optional for historical imports |
 | `files` | Storage bucket/path, filename, MIME type, bytes, checksum, upload time | Shared metadata for documents and generated reports |
 | `shipment_documents` | POD/invoice attachments, their version and current/old state | Links a shipment to a file; retains earlier versions |
@@ -65,7 +65,7 @@ existing screen fields.
 - Shipment identifiers are `LRN`, `Order ID`, or `AWB`. The identifier value
   remains globally unique, matching today's app; introducing per-client Order ID
   reuse would require a separate business-rule change.
-- Pieces must be at least one. Weight (kg) and volume (m³) use exact decimal
+- Outer boxes/pallets (`pieces` for compatibility) must be at least one. Weight (kg) and volume (ft³ / CBFT) use exact decimal
   `NUMERIC(12,3)` values and cannot be negative. Both are optional.
 - A shipment may have no assigned company or presets. A selected preset must
   belong to that shipment's company and have the correct pickup/drop kind.
@@ -134,7 +134,7 @@ The dashboard supports both legacy local tables and the migrated UUID model.
 See [dashboard cutover](database-migration.md#dashboard-cutover) for the one-time
 `upgrade-db` preparation after importing. Its adapter preserves existing screen
 fields, including the weight/volume measurement choice, in `admin_record_extras`
-and leaves the original-row archive unchanged. Volumes remain m³; this choice
+and leaves the original-row archive unchanged. Volumes use ft³ after the CBM upgrade; the measurement choice
 does not calculate carrier-specific volumetric weight.
 
 Flask writes shipment status changes, their events and audit entries in one
@@ -162,7 +162,7 @@ backup until reconciliation and rollback have been tested.
 | `company.id` / `company.address` | Generate stable UUID mappings; `companies.id` / `registered_address` |
 | `company_location` | `company_locations`; remap its client ID, preserve kind/address/default |
 | `consignment.consignment_number` / `status` | `identifier_value` / `current_status` |
-| Shipment client/pieces/weight/volume | Same meaning; map `company_id` through the UUID map |
+| Shipment client/boxes/weight/volume | Same meaning; map `company_id` through the UUID map |
 | Shipment pickup/drop addresses | Copy into `pickup_address_snapshot` / `drop_address_snapshot` |
 | String pickup and expected-delivery dates | Parse only recognized formats into typed dates; flag ambiguous values for review |
 | `pod_image` / `invoice_file` | Inventory real files; create deduplicated `files` rows and current version-1 document links |
@@ -204,3 +204,20 @@ The optional PostgreSQL run uses `ER_TEST_DATABASE_URL`, not the app's
 database called `gram_admin_er_test`. It creates and removes a unique schema
 per test. Set that variable to your disposable test database connection, then
 run the same command. PostgreSQL tests also execute the exported SQL itself.
+
+
+### Box contents and units
+
+`pieces` counts outer boxes/pallets. `package_contents` stores package kind, a
+default number of pieces inside each package and sparse numbered overrides
+(`pieces`, optional 120-character handling `note`). Counts are optional when
+unknown; entered counts must be integers from 1 to 1,000,000. Overrides must
+reference an existing outer package. Application validation rejects reductions
+that would orphan recorded exceptions. Labels read these saved values.
+
+Legacy SQL uses a JSON column and `volume_unit VARCHAR(3)`. ER runtime uses
+`admin_record_extras` for both fields. They are retained in backups and migration
+archives, including ER-to-ER copies. `upgrade-db` converts historical CBM values
+once and records `ft3`, with all numeric changes and unit markers in one transaction.
+Rows without a marker are historical CBM; newly entered values use ft³. Old MIS
+files and archive snapshots preserve their original units and values.

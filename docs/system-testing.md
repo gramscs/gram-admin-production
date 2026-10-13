@@ -1,6 +1,32 @@
-# System testing — latest check 12 October 2026
+# System testing — latest check 13 October 2026
+The 13 October boxes/CBFT release passed **770 tests**, with **10 expected
+backend-specific skips** and two upstream deprecation warnings. Five Chromium
+runners passed (17 workflow groups): box contents, consignment staging, modal
+validation, label review and admin follow-up. All databases were disposable
+SQLite/PostgreSQL 16 databases; Supabase operations were mocked in this run.
 
-The final full-suite run passed **700 tests**, with **10 backend-specific skips**
+New coverage includes 100 boxes with default pieces and exceptions on boxes 2
+and 99, a 100-page PDF with the correct per-box counts/notes, a 50-shipment label
+batch, mobile controls, contents preservation on cancel/reload, rejecting orphaned
+exceptions when a box count decreases, PDF geometry with long notes and goods,
+CBM conversion and repeat-safe upgrades on both database models, overflow
+rollback, complete backups, Excel round trips, and legacy/ER fresh imports.
+Existing reporting expectations were updated to the correctly converted ft³
+values. Five browser runners completed with no uncaught JavaScript errors.
+
+Updated sample: [B2B labels](b2b-label-example.pdf). Screenshots:
+[box contents](screenshots/box-contents.png),
+[mobile form](screenshots/box-contents-mobile.png),
+[volume label](screenshots/b2b-label-volume.png).
+
+Deploy by taking a complete backup, stopping the app, pulling the update, running
+`AUTO_CREATE_TABLES=false python -m flask --app wsgi:app upgrade-db`, and restarting.
+This converts operational CBM values once. No live business database or storage
+objects were changed during this release's tests.
+
+## Previous storage/system baseline
+
+The 12 October storage baseline passed **700 tests**, with **10 backend-specific skips**
 and **no failures**. All eight browser runners passed, covering 34 workflow
 groups. A separate guarded integration check verified real private Supabase
 POD/invoice/MIS operations with a disposable PostgreSQL database; every temporary

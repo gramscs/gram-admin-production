@@ -62,11 +62,11 @@ def test_new_fields_excel_roundtrip(admin_client):
     values = list(sheet.iter_rows(values_only=True))
     exported = dict(zip(values[0], values[1]))
     assert exported["identifier_type"] == "Order ID"
-    assert exported["pieces"] == 3
+    assert exported["boxes_pallets"] == 3
     assert exported["weight"] == 12.345
     template = load_workbook(io.BytesIO(admin_client.get("/admin/consignments/import-template.xlsx").data))
     headers = [cell.value for cell in template.active[1]]
-    row = {"consignment_number": "EXCELNEW01", "status": "In Transit", "identifier_type": "LRN", "pieces": 2, "weight": 5.25, "volume": 0.4}
+    row = {"consignment_number": "EXCELNEW01", "status": "In Transit", "identifier_type": "LRN", "boxes_pallets": 2, "weight": 5.25, "volume": 0.4}
     template.active.append([row.get(header) for header in headers])
     buffer = io.BytesIO()
     template.save(buffer)
@@ -93,9 +93,9 @@ def test_labels_pdf_size_piece_count_and_contents(admin_client, measurement_mode
         assert row["consignment_number"] in text
         assert "12 Sender Road" in text and "34 Receiver Road" in text
         if measurement_mode == 'volume':
-            assert '0.125 m³' in text and '12.345 kg' not in text
+            assert '0.125 ft³' in text and '12.345 kg' not in text
         else:
-            assert '12.345 kg' in text and '0.125 m³' not in text
+            assert '12.345 kg' in text and '0.125 ft³' not in text
         assert b" re" in page.get_contents().get_data()  # Barcode bars are drawn as rectangles.
 
 

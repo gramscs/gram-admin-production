@@ -33,7 +33,7 @@ def text_cell(sheet, values):
 
 def metric_rows(report):
     m = report['metrics']
-    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Pieces', m['pieces']), ('Weight (kg)', m['weight']), ('Volume (m³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
+    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Boxes / pallets', m['pieces']), ('Weight (kg)', m['weight']), ('Volume (ft³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
 
 
 def excel(report, columns):
@@ -45,7 +45,7 @@ def excel(report, columns):
     sheets = [
         ('Status', ['Current status', 'Shipments'], [[x['label'], x['count']] for x in report['statuses']]),
         ('Pickup trend', [f'Pickup period ({report["grain"]})', 'Shipments'], [[x['label'], x['count']] for x in report['trend']]),
-        ('Clients', ['Client', 'Shipments', 'Delivered', 'Pieces', 'Weight (kg)'], [[x['label'], x['count'], x['delivered'], x['pieces'], x['weight']] for x in report['clients']]),
+        ('Clients', ['Client', 'Shipments', 'Delivered', 'Boxes / pallets', 'Weight (kg)'], [[x['label'], x['count'], x['delivered'], x['pieces'], x['weight']] for x in report['clients']]),
         ('Routes', ['Pickup → drop', 'Shipments'], [[x['label'], x['count']] for x in report['routes']]),
         ('Attention', ['Shipment identifier', 'Client', 'Attention flags'], [[x['identifier'], x['client'], '; '.join(x['issues'])] for x in report['exceptions']]),
         ('Shipments', [COLUMNS[key] for key in columns], [[row[key] for key in columns] for row in report['details']]),
@@ -181,7 +181,7 @@ def pdf(report, columns):
         result.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#E7F0EC')),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#F6F8F7')]),('VALIGN',(0,0),(-1,-1),'TOP'),('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4)]))
         story.extend([result, Spacer(1,12)])
     table('Operational attention & data coverage', ['Measure', 'Value'], metric_rows(report)[9:], [590,166])
-    table('Client performance · top 15 by shipment volume', ['Client','Shipments','Delivered','Pieces','Weight (kg)'], [[x['label'],x['count'],x['delivered'],x['pieces'],f'{x["weight"]:,.3f}'] for x in report['clients'][:15]] or [['No shipments','0','0','0','0']], [350,90,90,90,136])
+    table('Client performance · top 15 by shipment volume', ['Client','Shipments','Delivered','Boxes / pallets','Weight (kg)'], [[x['label'],x['count'],x['delivered'],x['pieces'],f'{x["weight"]:,.3f}'] for x in report['clients'][:15]] or [['No shipments','0','0','0','0']], [350,90,90,90,136])
     table('Routes · top 15 by shipment volume', ['Pickup → drop','Shipments'], [[x['label'],x['count']] for x in report['routes'][:15]] or [['No routes',0]], [650,106])
     table(f'Attention register · first 50 of {len(report["exceptions"])} shipments', ['Shipment','Client','Attention flags'], [[x['identifier'],x['client'],'; '.join(x['issues'])] for x in report['exceptions'][:50]] or [['No attention flags','','']], [150,200,406])
     story.append(p('The full filtered shipment register follows. Client/route summary tables show the top 15; the attention summary shows the first 50. Blank measurements are excluded from totals.'))
@@ -284,7 +284,7 @@ def consignment_pdf(report, columns):
     m = report['metrics']
     story = [p('Consignment register', 'Heading1'),
              p('Generated ' + report['generated_at']),
-             p(f'{m["total"]:,} shipments · {m["pieces"]:,} pieces · Weight total {m["weight"]:,.3f} kg · Volume total {m["volume"]:,.3f} m³'), Spacer(1, 8)]
+             p(f'{m["total"]:,} shipments · {m["pieces"]:,} boxes/pallets · Weight total {m["weight"]:,.3f} kg · Volume total {m["volume"]:,.3f} ft³'), Spacer(1, 8)]
     if report['filters'].get('search'):
         story.append(p('Search: ' + report['filters']['search']))
     if not report['details']:

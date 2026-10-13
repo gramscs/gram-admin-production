@@ -256,9 +256,9 @@ exports. The add/edit form groups shipment, pickup, drop, and document details;
 its footer stays visible while you scroll.
 
 Each shipment has an identifier type (LRN, Order ID, or AWB), an identifier of
-up to 64 characters, a number of pieces, weight in kg, and volume in m³.
-Weight/volume accept non-negative values with up to three decimal places. Pieces must be a whole number from 1 to 10000. Identifiers remain unique
-across all types. Existing records default to LRN and one piece.
+up to 64 characters, a number of boxes/pallets, weight in kg, and volume in ft³ (CBFT).
+Weight/volume accept non-negative values with up to three decimal places. Boxes/pallets must be a whole number from 1 to 10000. Identifiers remain unique
+across all types. Existing records default to LRN and one box.
 
 Local SQLite development upgrades existing shipment tables automatically on
 startup. To upgrade an existing PostgreSQL/Supabase database, run explicitly:
@@ -292,21 +292,21 @@ Use **Preview PDF** or **Download PDF** when all shipments are ready.
 The 4×6-inch PDF uses the supplied GRAM logo alone in the header,
 saved pickup date, shipment identifier, boxes, weight/volume totals,
 pickup/sender and drop/recipient addresses and PIN codes. It produces one label
-per piece. All pieces of a shipment share the reviewed commercial details and
+per box/pallet. All boxes/pallets of a shipment share the reviewed commercial details and
 assigned order/invoice numbers. Print at 100% scale; Code 128 barcodes remain
 optional. The Archive Delivered button and deletion endpoint have been removed.
 
 Printed labels show the tracking number without an LRN, AWB or Order ID type
 heading. The reference-inspired layout places the logo and payment badge first,
 then sender and recipient addresses with postal codes in the address block.
-Measurement totals, boxes, pickup date and piece count share one row, followed by tracking/barcode and the
+Shipment measurement, pieces inside the individual box, pickup date and box position share one row, followed by tracking/barcode and the
 invoice amount, order/invoice numbers, goods description and optional e-way bill.
 The footer uses a two-column reference grid for invoice amount/EWBN and
 order ID/invoice number, followed by a full-width goods description.
 An inset double border with rounded corners and muted green strokes frames the
 label, with clear space around its addresses, tracking barcode and footer.
 Only the shipment's selected measurement is printed: **Weight** uses kg and
-**Volume** uses m³. Any saved value in the inactive measurement field stays in
+**Volume** uses ft³ (CBFT). Any saved value in the inactive measurement field stays in
 the database but is omitted from the label, selection list and review summary.
 Addresses and references use embedded **Liberation Mono** (Courier-compatible)
 for a mechanical, fixed-width style; small headings use Liberation Sans.
@@ -320,8 +320,7 @@ Public metrics use **Weight** and **Volume**, including dashboard, forms, MIS,
 PDFs and Excel downloads. Shipment import/export and backup workbooks use
 `weight` and `volume` headers; older imports using `chargeable_weight` and
 `chargeable_volume` are still accepted. Existing database/API field names and
-machine-readable backup JSON remain unchanged for compatibility. No migration
-is required.
+machine-readable backup JSON keep compatible field names. Run `upgrade-db` for the box-contents and CBFT update described below.
 
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial
@@ -635,10 +634,10 @@ Use the running app's environment and database. Replace the identifier and
 `--kind invoice` to repair another previously removed attachment. Repeating the
 cleanup is safe. Restart the app after updating the code; no migration is needed.
 
-**Measure shipment by** selects **Weight (kg)** or **Volume (m³ / CBM)** in both
+**Measure shipment by** selects **Weight (kg)** or **Volume (ft³ / CBFT)** in both
 the form and table. Only the selected input appears. Changing the basis preserves
-any measurement already recorded in the other field. Volume is stored in cubic
-metres; no carrier-specific volumetric-weight conversion is assumed. Excel and
+any measurement already recorded in the other field. New volumes are stored in cubic
+feet; no carrier-specific volumetric-weight conversion is assumed. Excel and
 MIS exports include the measurement basis. ER databases store the choice in
 `admin_record_extras`, preserving the ten-table business model. Run `upgrade-db`
 after pulling the update to add the field to older legacy databases.
@@ -703,7 +702,7 @@ Labels print on white paper with black text and a high-contrast black payment
 badge with white text, irrespective of the admin theme. PIN codes stay in the
 address block, without a separate banner. The supplied green logo
 remains unchanged. The destination address and PIN receive priority; shipment totals
-are clearly marked so they are not mistaken for per-piece weights/volumes.
+are clearly marked so they are not mistaken for per-box weights/volumes.
 Fonts are embedded for consistent printing. [View a sample three-piece label PDF](docs/b2b-label-example.pdf).
 
 Companies includes an **eye icon** to view the company, contacts and all saved
@@ -801,3 +800,48 @@ Preview using sample data: [Management dashboard](docs/screenshots/dashboard-lig
 · [Dark dashboard](docs/screenshots/dashboard-dark.png)
 · [MIS reports](docs/screenshots/mis-reports-dark.png)
 · [Example management PDF](docs/management-mis-example.pdf).
+
+
+### Boxes, contents and CBFT volume (13 October 2026)
+
+Shipment **Boxes / pallets** is the number of outer packages. In Add/Edit, choose
+**Box contents & exceptions →** to open the next screen in the same modal. Choose
+Boxes or Pallets, enter a default pieces-per-package count, and override individual
+counts or add a handling note. Lists show 25 packages per page. Blank counts remain
+unknown and print as **—**. Reducing the package count requires explicitly removing
+any exceptions beyond the new count. Save stages the whole form, including its
+documents; Save All persists it. Cancel discards the modal edits.
+
+Label review includes expandable saved box contents for every selected shipment.
+The PDF prints **PIECES** for items in that specific package and **BOX 1 of N**
+(or **PALLET 1 of N**) for its position. Handling notes appear only on that package's
+label. Weight/volume remains the shipment total, not a per-package calculation.
+The existing 500-label batch limit remains.
+
+Before updating a running app, take a complete backup and stop the server. Pull
+the update, then run this in the same environment/database as the app:
+
+```bash
+git pull origin standalone-admin
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app upgrade-db
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-db
+```
+
+Restart your app afterward. `upgrade-db` adds legacy columns when necessary and
+converts existing operational volumes from CBM to CBFT using
+**1 m³ = 35.31466672148859 ft³**, rounded to three decimal places. The unit marker
+makes repeats safe: ft³ values are never converted again. Conversion rolls back
+if any converted value exceeds the supported range. Read-only screens also
+interpret older unmarked values as CBM and display ft³, without writing on reads.
+Saved historical MIS files and migration archives remain unchanged.
+
+Internally `pieces` remains the outer package count for API compatibility. Legacy
+shipments gain `package_contents` (JSON) and `volume_unit`. ER shipments store those
+fields in existing `admin_record_extras`; all ten business tables remain intact.
+New API volume inputs default to ft³; explicit `volume_unit: "m3"` is accepted for
+old CBM imports. Excel uses `boxes_pallets`, `volume`, `volume_unit` and
+`package_contents` (JSON); legacy `pieces` headers are still accepted. Old Excel
+files containing CBM must add `volume_unit=m3` before import. Full backups include
+contents and units; their readable workbook displays ft³, while restoration JSON
+retains the exact stored records and unit markers. Fresh legacy/ER migrations
+preserve both fields; run `upgrade-db` afterward as usual.

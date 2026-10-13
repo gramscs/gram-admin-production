@@ -61,16 +61,16 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.goto(base + '/admin/labels?' + new URLSearchParams({search: prefix}));
         for (const row of rows) {
             const text = await page.locator('tr').filter({has: page.locator('input[value="' + row.id + '"]')}).locator('td').last().textContent();
-            assert.ok(text.includes(row.measurement_mode === 'volume' ? '9.876 m³' : '10.123 kg'));
-            assert.ok(!text.includes(row.measurement_mode === 'volume' ? 'kg' : 'm³'));
+            assert.ok(text.includes(row.measurement_mode === 'volume' ? '9.876 ft³' : '10.123 kg'));
+            assert.ok(!text.includes(row.measurement_mode === 'volume' ? 'kg' : 'ft³'));
         }
         await page.locator('#select-all-labels').check(); await page.locator('#review-labels-btn').click();
         await page.locator('#labelReviewModal').waitFor({state: 'visible'});
         for (const row of rows) {
             const card = page.locator('.label-review-card[data-id="' + row.id + '"]');
             const text = await card.locator('.label-snapshot').textContent();
-            assert.ok(text.includes(row.measurement_mode === 'volume' ? '9.876 m³' : '10.123 kg'));
-            assert.ok(!text.includes(row.measurement_mode === 'volume' ? 'kg' : 'm³'));
+            assert.ok(text.includes(row.measurement_mode === 'volume' ? '9.876 ft³' : '10.123 kg'));
+            assert.ok(!text.includes(row.measurement_mode === 'volume' ? 'kg' : 'ft³'));
             await card.locator('[data-field=invoice_amount]').fill('6000.50');
         }
         await page.locator('#label-common-description').fill('Precision automotive spare parts, packed securely in reinforced cartons for business delivery.');

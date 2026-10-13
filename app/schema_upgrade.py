@@ -16,6 +16,8 @@ def upgrade_consignment_fields(engine):
             "chargeable_weight": "NUMERIC(12, 3)",
             "chargeable_volume": "NUMERIC(12, 3)",
             "measurement_mode": "VARCHAR(12)",
+            "volume_unit": "VARCHAR(3)",
+            "package_contents": "JSON",
             "company_id": "INTEGER REFERENCES company(id)",
             "pod_original_name": "VARCHAR(255)",
             "invoice_file": "VARCHAR(1024)",

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_
 
 from app import orm as models
+from app.shipment_packages import volume_ft3
 
 IST = ZoneInfo('Asia/Kolkata')
 STATUSES = ('Pickup Scheduled', 'In Transit', 'Out for Delivery', 'Delivered')
@@ -16,7 +17,7 @@ COLUMNS = {
     'status': 'Current status', 'pickup_date': 'Pickup date', 'drop_date': 'Expected drop date',
     'pickup_tag': 'Pickup location', 'pickup_pincode': 'Pickup pincode', 'pickup_address': 'Pickup address',
     'drop_tag': 'Drop location', 'drop_pincode': 'Drop pincode', 'drop_address': 'Drop address',
-    'pieces': 'Pieces', 'measurement_mode': 'Measurement basis', 'chargeable_weight': 'Weight (kg)', 'chargeable_volume': 'Volume (m³)',
+    'pieces': 'Boxes / pallets', 'measurement_mode': 'Measurement basis', 'chargeable_weight': 'Weight (kg)', 'chargeable_volume': 'Volume (ft³)',
     'pod': 'POD uploaded', 'invoice': 'Invoice uploaded', 'issues': 'Attention flags',
 }
 DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'chargeable_weight', 'chargeable_volume', 'measurement_mode', 'pod', 'invoice', 'issues']
@@ -177,7 +178,8 @@ def analyze(filters, today=None):
                 'missing_pod': not bool(row.pod_image), 'missing_invoice': not bool(row.invoice_file),
             })
         pieces = row.pieces if isinstance(row.pieces, int) and row.pieces > 0 else 0
-        weight, volume = number(row.chargeable_weight), number(row.chargeable_volume)
+        weight = number(row.chargeable_weight)
+        volume = number(volume_ft3(row)) if number(row.chargeable_volume) is not None else None
         flags = []
         if group != 'Delivered' and expected and expected < today:
             totals['past_expected'] += 1
@@ -212,7 +214,7 @@ def analyze(filters, today=None):
             dates[pickup] = dates.get(pickup, 0) + 1
         detail = {key: getattr(row, key, '') or '' for key in COLUMNS if hasattr(row, key)}
         detail.update(client=client, status=row.status or 'No status', pieces=pieces, chargeable_weight=float(weight) if weight is not None else '', chargeable_volume=float(volume) if volume is not None else '', pod='Yes' if row.pod_image else 'No', invoice='Yes' if row.invoice_file else 'No', issues='; '.join(flags))
-        detail['measurement_mode'] = 'Volume (m³)' if (row.measurement_mode or ('volume' if volume is not None and weight is None else 'weight')) == 'volume' else 'Weight (kg)'
+        detail['measurement_mode'] = 'Volume (ft³)' if (row.measurement_mode or ('volume' if volume is not None and weight is None else 'weight')) == 'volume' else 'Weight (kg)'
         details.append(detail)
         if flags:
             exceptions.append({'identifier': row.consignment_number, 'client': client, 'issues': flags})

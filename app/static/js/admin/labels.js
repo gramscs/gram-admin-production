@@ -91,8 +91,25 @@ document.addEventListener('DOMContentLoaded', function () {
             const snapshot = node('div', 'label-snapshot');
             const volumeMode = row.measurement_mode === 'volume';
             const measurement = (volumeMode ? row.chargeable_volume : row.chargeable_weight) ?? '—';
-            [row.pieces + ' boxes', 'Pickup: ' + row.pickup_date, measurement + (volumeMode ? ' m³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
+            const contents = row.package_contents || {}, kind = contents.kind === 'pallet' ? 'Pallet' : 'Box';
+            [row.pieces + (kind === 'Pallet' ? ' pallets' : ' boxes'), 'Pickup: ' + row.pickup_date, measurement + (volumeMode ? ' ft³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
             card.append(snapshot);
+            const packages = node('details', 'label-package-summary mb-3');
+            const known = Array.from({length: row.pieces}, (_, i) => {
+                const entry = (contents.boxes || {})[i + 1] || {};
+                return Object.hasOwn(entry, 'pieces') ? entry.pieces : contents.default_pieces;
+            });
+            const total = known.reduce((sum, n) => sum + (n || 0), 0);
+            packages.append(node('summary', 'small fw-semibold', 'Box contents · ' + (known.every(n => n != null) ? total + ' pieces total' : 'some piece counts not entered') + ' · review counts & exceptions'));
+            packages.append(node('p', 'small text-muted mt-2', 'Saved with the shipment. Use Shipments → Edit → Box contents to change these details. Blank counts print as —.'));
+            const table = node('table', 'table table-sm small mb-0'), head = node('thead'), header = node('tr'), body = node('tbody');
+            [kind, 'Pieces inside', 'Exception / handling note'].forEach(title => header.append(node('th', '', title))); head.append(header);
+            for (let n = 1; n <= row.pieces; n++) {
+                const entry = (contents.boxes || {})[n] || {}, tr = node('tr');
+                const count = Object.hasOwn(entry, 'pieces') ? entry.pieces : contents.default_pieces;
+                [n + ' of ' + row.pieces, count ?? '—', entry.note || '—'].forEach(text => tr.append(node('td', '', text))); body.append(tr);
+            }
+            table.append(head, body); const scroll = node('div', 'table-responsive'); scroll.style.maxHeight = '260px'; scroll.append(table); packages.append(scroll); card.append(packages);
             const fields = node('div', 'label-review-fields');
             const amount = node('input', 'form-control'); amount.id = 'label-amount-' + index; amount.type = 'number'; amount.min = '0'; amount.max = '999999999.99'; amount.step = '0.01'; amount.required = true; amount.value = data.invoice_amount; amount.dataset.field = 'invoice_amount';
             field(fields, 'Invoice amount (Rs) *', amount);
@@ -120,7 +137,7 @@ document.addEventListener('DOMContentLoaded', function () {
             card.addEventListener('input', () => changed(card)); card.addEventListener('change', () => changed(card));
         });
         const pieces = review.reduce((sum, row) => sum + row.pieces, 0);
-        part('label-review-summary').textContent = review.length + ' shipments · ' + pieces + ' piece labels';
+        part('label-review-summary').textContent = review.length + ' shipments · ' + pieces + ' box/pallet labels';
         const cards = Array.from(root.children);
         part('label-review-ready').textContent = cards.filter(cardReady).length + ' / ' + cards.length + ' ready';
         part('label-review-search').value = ''; error('label-review-error', '');

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import SpooledTemporaryFile
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -18,6 +19,7 @@ from werkzeug.utils import secure_filename
 from app.admin.documents import DOCUMENTS, open_stored_document, document_name, document_extension
 from app.models import db
 from app import orm as models
+from app.shipment_packages import volume_ft3
 
 TABLE_KEYS = {'consignment': 'consignments', 'company': 'companies', 'company_location': 'company_locations',
               'lead': 'leads', 'newsletter_subscriber': 'newsletter_subscribers'}
@@ -189,7 +191,7 @@ def _add_document(archive, report, value, path, **details):
 
 def _sheet(workbook, title, columns, rows):
     sheet = workbook.create_sheet(title[:31])
-    measurement_headers = {"chargeable_weight": "weight", "chargeable_volume": "volume"}
+    measurement_headers = {"chargeable_weight": "weight", "chargeable_volume": "volume", "pieces": "boxes_pallets"}
     sheet.append([measurement_headers.get(name, name) for name in columns])
     for row in rows:
         cells = []
@@ -211,6 +213,12 @@ def _workbook(payload, report, table_columns):
             continue
         columns = list(table_columns[key])
         if key == 'consignments':
+            extras = {str(item['entity_id']): item['data'] for item in payload.get('admin_record_extras', []) if item['entity_type'] == 'consignments'}
+            rows = [{**row, **{name: extras.get(str(row['id']), {}).get(name, row.get(name)) for name in ('volume_unit', 'package_contents')}} for row in rows]
+            for row in rows:
+                row['chargeable_volume'] = str(volume_ft3(SimpleNamespace(**row))) if row.get('chargeable_volume') is not None else None
+                row['volume_unit'] = 'ft3'
+            columns += [name for name in ('volume_unit', 'package_contents') if name not in columns]
             columns = ['backup_order'] + columns + ['pod_backup_path', 'pod_backup_status', 'invoice_backup_path', 'invoice_backup_status']
         if key in ('mis_report', 'mis_reports'):
             columns += ['file_backup_path', 'file_backup_status']

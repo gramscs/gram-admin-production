@@ -1,0 +1,95 @@
+// Only use the disposable app from serve.py. Never run against business data.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {execFileSync} = require('node:child_process');
+const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const base = process.env.SYSTEM_TEST_URL;
+if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].includes(new URL(base).hostname)) throw Error('Use a disposable loopback app.');
+(async () => {
+    const browser = await chromium.launch({headless: true, executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox']});
+    const page = await browser.newPage({viewport: {width: 1440, height: 1000}}), errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const prefix = 'BOX-UI-' + Date.now();
+    const directory = process.env.SYSTEM_TEST_ARTIFACTS_DIR || '/tmp/gram-box-browser-artifacts';
+    fs.mkdirSync(directory, {recursive: true});
+    let row;
+    try {
+        await page.goto(base + '/admin/login');
+        await page.locator('[name=username]').fill('admin');
+        await page.locator('[name=password]').fill(process.env.SYSTEM_TEST_PASSWORD);
+        await page.locator('button[type=submit]').click(); await page.waitForURL('**/admin/dashboard');
+        await page.goto(base + '/admin/shipments');
+        await page.locator('#add-row-btn').click();
+        await page.locator('#modal-consignment-number').fill(prefix);
+        await page.locator('#modal-status').selectOption('In Transit');
+        await page.locator('#modal-pieces').fill('100');
+        await page.locator('#modal-measurement-mode').selectOption('volume');
+        await page.locator('#modal-chargeable-volume').fill('250');
+        await page.locator('#modal-pickup-address').fill('GRAM warehouse, Delhi 110001');
+        await page.locator('#modal-drop-address').fill('Receiving warehouse, Mumbai 400001');
+        await page.locator('#modal-pickup-date').fill('2026-10-13');
+        await page.locator('#edit-box-contents').click();
+        await page.locator('#package-default').fill('12');
+        await page.getByRole('spinbutton', {name: 'Pieces in box 2', exact: true}).fill('8');
+        await page.getByRole('textbox', {name: 'Exception for box 2', exact: true}).fill('Fragile — glass components');
+        for (let n = 0; n < 3; n++) await page.locator('.package-next').click();
+        await page.getByRole('spinbutton', {name: 'Pieces in box 99', exact: true}).fill('4');
+        await page.getByRole('textbox', {name: 'Exception for box 99', exact: true}).fill('Short pack — 4 pieces only');
+        for (let n = 0; n < 3; n++) await page.locator('.package-prev').click();
+        assert.equal(await page.getByRole('spinbutton', {name: 'Pieces in box 2', exact: true}).inputValue(), '8');
+        await page.screenshot({path: directory + '/box-contents-desktop.png'});
+        // Invalid box counts must be visible in the open modal and preserve edits.
+        await page.getByRole('spinbutton', {name: 'Pieces in box 2', exact: true}).fill('-1');
+        await page.locator('#modal-save-btn').click();
+        await page.locator('#shipment-form-error:not(.d-none)').waitFor();
+        assert.match(await page.locator('#shipment-form-error').textContent(), /Pieces per box/);
+        await page.getByRole('spinbutton', {name: 'Pieces in box 2', exact: true}).fill('8');
+        await page.locator('#modal-save-btn').click();
+        await page.locator('#editConsignmentModal').waitFor({state: 'hidden'});
+        const saved = page.waitForResponse(r => r.url().endsWith('/consignments/save'));
+        await page.locator('#save-btn').click(); assert.equal((await saved).status(), 200);
+        row = (await (await page.request.get(base + '/admin/consignments/list?search=' + prefix)).json()).rows[0];
+        assert.equal(row.package_contents.default_pieces, 12);
+        assert.equal(row.package_contents.boxes['2'].pieces, 8);
+        assert.equal(row.package_contents.boxes['99'].pieces, 4);
+        assert.equal(row.volume_unit, 'ft3'); assert.equal(row.chargeable_volume, '250.000');
+        console.log('PASS: 100 boxes, defaults, exceptions across pages, modal validation and SQL persistence.');
+        await page.reload(); await page.locator('#search-input').fill(prefix);
+        await page.waitForFunction(() => document.querySelector('#total-count').textContent === '1');
+        await page.locator('.edit-row').click(); await page.locator('#edit-box-contents').click();
+        assert.equal(await page.locator('#package-default').inputValue(), '12');
+        await page.setViewportSize({width: 390, height: 844});
+        await page.screenshot({path: directory + '/box-contents-mobile.png'});
+        await page.locator('#back-to-shipment').click(); await page.locator('#modal-pieces').fill('50');
+        await page.locator('#modal-save-btn').click(); await page.locator('.package-removed:not([hidden])').waitFor();
+        assert.match(await page.locator('#shipment-form-error').textContent(), /beyond the new box count/);
+        await page.locator('#editConsignmentModal .modal-footer [data-bs-dismiss=modal]').click();
+        const unchanged = (await (await page.request.get(base + '/admin/consignments/list?search=' + prefix)).json()).rows[0];
+        assert.equal(unchanged.pieces, 100); assert.equal(unchanged.package_contents.boxes['99'].pieces, 4);
+        console.log('PASS: reload, mobile controls, and reducing box count cannot silently lose exceptions.');
+        await page.setViewportSize({width: 1440, height: 1000});
+        await page.goto(base + '/admin/labels?search=' + prefix);
+        await page.locator('#select-all-labels').check(); await page.locator('#review-labels-btn').click();
+        await page.locator('.label-package-summary summary').click();
+        assert.match(await page.locator('.label-package-summary').textContent(), /1188 pieces total/);
+        assert.match(await page.locator('.label-package-summary').textContent(), /Short pack/);
+        await page.locator('[data-field=invoice_amount]').fill('6000');
+        await page.locator('[data-field=goods_description]').fill('Precision components');
+        await page.screenshot({path: directory + '/label-package-review.png'});
+        const download = page.waitForEvent('download'); await page.locator('#download-labels-btn').click();
+        await (await download).saveAs(directory + '/box-labels.pdf');
+        const text = execFileSync('pdftotext', [directory + '/box-labels.pdf', '-'], {encoding: 'utf8'});
+        const pages = text.split('\f').filter(t => t.trim()); assert.equal(pages.length, 100);
+        for (let i = 0; i < 100; i++) {
+            assert(pages[i].includes((i + 1) + ' of 100'));
+            assert(pages[i].includes('250.000 ft³'));
+            assert.equal(pages[i].includes('Fragile'), i === 1);
+            assert.equal(pages[i].includes('Short pack'), i === 98);
+        }
+        assert.deepEqual(errors, []);
+        console.log('PASS: label review matches saved contents; all 100 PDF labels contain correct numbers, units and box-specific notes.');
+    } finally {
+        if (row) await page.request.post(base + '/admin/consignments/save', {data: {rows: [], deleted_ids: [row.id]}});
+        await browser.close();
+    }
+})().catch(error => {console.error(error); process.exitCode = 1;});

@@ -34,7 +34,7 @@ def test_shared_analytics_filters_dates_totals_and_estimated_flags(app, shipment
         filters = normalize_filters({'period': 'custom', 'start': '2026-10-01', 'end': '2026-10-09'}, today=date(2026,10,9))
         report = analyze(filters, today=date(2026,10,9))
         m = report['metrics']
-        assert (m['total'], m['pieces'], m['weight'], m['volume']) == (2, 5, 19.75, .125)
+        assert (m['total'], m['pieces'], m['weight'], m['volume']) == (2, 5, 19.75, 4.414)
         assert (m['delivered'], m['delivered_share'], m['open'], m['past_expected'], m['missing_pod'], m['missing_invoice'], m['excluded_undated']) == (1, 50, 1, 1, 1, 1, 1)
         assert (m['weight_recorded'],m['volume_recorded']) == (2,1)
         assert [item['count'] for item in report['trend']] == [1,1,0,0,0,0,0,0,0]
@@ -229,7 +229,7 @@ def test_all_pdf_entry_points_include_healthy_shipments_not_only_attention_recor
         assert 'HEALTHY-PDF-001' in text
         if '/mis/' in url:
             assert 'No attention flags' in text
-        assert '22.500' in text and '0.750' in text
+        assert '22.500' in text and '26.486' in text
     generated = admin_client.post('/admin/mis/reports', json={'name':'Saved PDF', 'format':'pdf'})
     assert generated.status_code == 200
     text = pdf_text(admin_client.get(generated.json['download_url']).data)
@@ -314,7 +314,7 @@ def test_consignment_pdf_first_page_contains_data_and_keeps_last_row(app, admin_
     assert 'Management MIS' not in first
     text = '\n'.join(page.extract_text() or '' for page in reader.pages)
     for index in range(75): assert f'REGISTER-{index:03d}' in text
-    assert 'Volume (m³)' in text and '1.250' in text
+    assert 'Volume (ft³)' in text and '44.143' in text
     assert all('GRAM SCS' in (page.extract_text() or '') for page in reader.pages)
 
 

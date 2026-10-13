@@ -22,6 +22,7 @@ from sqlalchemy import or_
 from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app import orm as models
+from app.shipment_packages import volume_ft3, package_at
 from app.admin.label_runs import LabelRunConflict, render_label_run
 from app.admin.reporting import parse_date
 
@@ -46,9 +47,10 @@ def label_shipment(row):
             'pickup_address': row.pickup_address or '', 'pickup_tag': row.pickup_tag or '',
             'pickup_pincode': row.pickup_pincode or '', 'drop_address': row.drop_address or '',
             'drop_tag': row.drop_tag or '', 'drop_pincode': row.drop_pincode or '',
-            'measurement_mode': row.measurement_mode or 'weight',
+            'measurement_mode': row.measurement_mode or ('volume' if row.chargeable_volume is not None and row.chargeable_weight is None else 'weight'),
+            'package_contents': row.package_contents, 'volume_unit': 'ft3',
             'chargeable_weight': str(row.chargeable_weight) if row.chargeable_weight is not None else None,
-            'chargeable_volume': str(row.chargeable_volume) if row.chargeable_volume is not None else None}
+            'chargeable_volume': str(volume_ft3(row)) if row.chargeable_volume is not None else None}
 
 
 def _selected_rows(values):
@@ -60,7 +62,7 @@ def _selected_rows(values):
         raise ValueError('A selected shipment no longer exists. Refresh the list and select again.')
     rows = [found[row_id] for row_id in selected]
     if sum(row.pieces or 1 for row in rows) > 500:
-        raise ValueError('Selected shipments exceed 500 piece labels. Select fewer shipments.')
+        raise ValueError('Selected shipments exceed 500 box/pallet labels. Select fewer shipments.')
     return rows
 
 
@@ -234,13 +236,15 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             volume_mode = shipment.get('measurement_mode') == 'volume'
             metric_heading, metric_value = address_rule-10, address_rule-17
             pdf.drawString(18, metric_heading, 'VOLUME' if volume_mode else 'WEIGHT')
-            pdf.drawString(105, metric_heading, 'BOXES')
+            pdf.drawString(105, metric_heading, 'PIECES')
             pdf.drawString(145, metric_heading, 'PICKUP DATE')
-            pdf.drawString(237, metric_heading, 'PIECE')
+            contents = shipment.get('package_contents') or {}
+            package = package_at(contents, piece)
+            pdf.drawString(237, metric_heading, 'PALLET' if contents.get('kind') == 'pallet' else 'BOX')
             value = shipment['chargeable_volume'] if volume_mode else shipment['chargeable_weight']
-            unit = 'm³' if volume_mode else 'kg'
+            unit = ('ft³' if shipment.get('volume_unit') == 'ft3' else 'm³') if volume_mode else 'kg'
             _fit_text(pdf, (value if value is not None else '—') + ' ' + unit, 18, metric_value, 79, 12, font='LabelMonoBold', size=9)
-            _fit_text(pdf, str(pieces), 105, metric_value, 32, 12, font='LabelMonoBold', size=9)
+            _fit_text(pdf, str(package['pieces']) if package['pieces'] is not None else '—', 105, metric_value, 32, 12, font='LabelMonoBold', size=9)
             _fit_text(pdf, escape(shipment['pickup_date']), 145, metric_value, 84, 12, font='LabelMonoBold', size=8)
             _fit_text(pdf, f'{piece} of {pieces}', 237, metric_value, 33, 12, font='LabelMonoBold', size=7)
             tracking_top = address_rule-37
@@ -272,7 +276,11 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, 109, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
             _fit_text(pdf, assignment['order_id'], 18, 75, 118, 12, font='LabelMono', size=7.5)
             _fit_text(pdf, assignment['invoice_number'], 152, 75, 118, 12, font='LabelMono', size=7.5)
-            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, 42, 252, 26, font='LabelMono', size=7.5, leading=8.5)
+            note = package.get('note', '')
+            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, 42, 252, 12 if note else 26, font='LabelMono', size=7.5, leading=8.5)
+            if note:
+                caption = 'PALLET NOTE:' if contents.get('kind') == 'pallet' else 'BOX NOTE:'
+                _fit_text(pdf, '<b>' + caption + '</b> ' + escape(note), 18, 28, 252, 13, font='LabelMono', size=7, leading=8)
             pdf.setLineWidth(.4)
             pdf.line(18, 92, 270, 92)
             pdf.line(18, 59, 270, 59)

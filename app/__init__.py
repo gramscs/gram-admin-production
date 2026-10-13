@@ -145,15 +145,20 @@ def create_app(test_config=None):
     def upgrade_db():
         """Add admin fields and master tables without deleting records."""
         from app.orm import using_er
+        from app.shipment_packages import upgrade_volume_units
         if using_er():
             from app.er_adapter import prepare_backend
             prepare_backend(db.engine)
+            converted = upgrade_volume_units()
             click.echo("ER backend ready. Archived screen fields restored; original records preserved.")
+            click.echo(f"Converted {converted} shipment volumes from CBM to CBFT (ft3).")
             return
         from app.schema_upgrade import upgrade_admin_fields
         changed = upgrade_admin_fields(db.engine)
         db.create_all()
+        converted = upgrade_volume_units()
         click.echo("Database upgraded. Existing records preserved. " + ("Added: " + ", ".join(changed) if changed else "Schema already current."))
+        click.echo(f"Converted {converted} shipment volumes from CBM to CBFT (ft3).")
 
     @app.cli.command("check-db")
     def check_db():

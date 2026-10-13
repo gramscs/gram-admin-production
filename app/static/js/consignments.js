@@ -31,6 +31,18 @@ document.addEventListener("DOMContentLoaded", function () {
     var totalPages = 1;
     var statusTimeoutId = null;
     var listRequest = 0;
+    var packageEditor = new PackageContentsEditor(document.getElementById('package-contents-editor'));
+    function packageStep(open) {
+        document.getElementById('shipment-details-step').hidden = open;
+        document.getElementById('shipment-packages-step').hidden = !open;
+        editModalEl.querySelector('.modal-body').scrollTop = 0;
+    }
+    document.getElementById('edit-box-contents').addEventListener('click', function () {
+        var count = document.getElementById('modal-pieces');
+        if (!count.value || !count.checkValidity()) { showModalError('Enter a whole number of boxes/pallets from 1 to 10000.', count); return; }
+        packageEditor.resize(count.value); packageStep(true);
+    });
+    document.getElementById('back-to-shipment').addEventListener('click', function () { packageStep(false); });
 
     function updatePdfExport() {
         var filters = window.shipmentFilters.read();
@@ -80,7 +92,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }).join('') + '</select>';
     }
     function buildNumberInput(name, value, min, step) {
-        var title = {chargeable_weight: 'Weight (kg)', chargeable_volume: 'Volume (m³)'}[name] || name.replaceAll('_', ' ');
+        var title = {pieces: 'Boxes / pallets', chargeable_weight: 'Weight (kg)', chargeable_volume: 'Volume (ft³)'}[name] || name.replaceAll('_', ' ');
         return '<input type="number" aria-label="' + title + '" class="form-control form-control-sm ' + name + '" min="' + min + '" step="' + step + '" value="' + escapeHtml(String(value)) + '" />';
     }
 
@@ -154,6 +166,7 @@ document.addEventListener("DOMContentLoaded", function () {
         modalError.textContent = message;
         modalError.classList.remove('d-none');
         if (input) {
+            if (input.closest('#shipment-details-step')) packageStep(false);
             input.classList.add('is-invalid');
             input.setAttribute('aria-invalid', 'true');
             var descriptions = (input.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
@@ -207,6 +220,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function populateModal(row) {
         clearModalValidation();
+        packageEditor.set(row.package_contents, row.pieces || 1);
+        packageStep(false);
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
         ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
@@ -264,6 +279,7 @@ document.addEventListener("DOMContentLoaded", function () {
             identifier_type: data.identifier_type || "LRN", pieces: data.pieces ?? 1,
             chargeable_weight: data.chargeable_weight ?? "", chargeable_volume: data.chargeable_volume ?? "",
             measurement_mode: measurementMode(data),
+            volume_unit: 'ft3', package_contents: data.package_contents ?? null,
             status: data.status || "",
             pickup_address: data.pickup_address || "",
             pickup_pincode: data.pickup_pincode || "",
@@ -316,9 +332,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 buildTextInput("consignment_number", source.consignment_number || "", "Identifier", 64) +
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
-            '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBM)</option></select>' +
+            '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBFT)</option></select>' +
                 '<label class="unit-field" data-measurement="weight">' + buildNumberInput('chargeable_weight', source.chargeable_weight ?? '', 0, '0.001') + '<span>kg</span></label>' +
-                '<label class="unit-field" data-measurement="volume">' + buildNumberInput('chargeable_volume', source.chargeable_volume ?? '', 0, '0.001') + '<span>m³</span></label></div></td>' +
+                '<label class="unit-field" data-measurement="volume">' + buildNumberInput('chargeable_volume', source.chargeable_volume ?? '', 0, '0.001') + '<span>ft³</span></label></div></td>' +
             "<td>" + buildStatusSelect(source.status || "") + "</td>" +
             '<td><div class="cell-stack">' + buildTextInput("pickup_tag", source.pickup_tag || "", "Pickup tag") +
                 buildTextInput("pickup_date", source.pickup_date || "", "Pickup date") + '</div></td>' +
@@ -392,7 +408,7 @@ document.addEventListener("DOMContentLoaded", function () {
             showModalError("Drop Pincode must be a valid 6-digit number or empty.", document.getElementById('modal-drop-pincode'));
             return false;
         }
-        var invalidInput = Array.from(editModalEl.querySelectorAll('input[type="number"]')).find(function (input) {
+        var invalidInput = Array.from(document.getElementById('shipment-details-step').querySelectorAll('input[type="number"]')).find(function (input) {
             // Both measurements are retained and validated by the backend.
             // Check an inactive value too, without changing the chosen basis.
             var disabled = input.disabled;
@@ -403,7 +419,7 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         if (invalidInput) {
             var title = editModalEl.querySelector('label[for="' + invalidInput.id + '"]').textContent;
-            var message = invalidInput.id === 'modal-pieces' ? 'Pieces must be a whole number from 1 to 10000.' : title + ' must be non-negative, no greater than 999999999.999, with up to 3 decimal places.';
+            var message = invalidInput.id === 'modal-pieces' ? 'Boxes/pallets must be a whole number from 1 to 10000.' : title + ' must be non-negative, no greater than 999999999.999, with up to 3 decimal places.';
             var target = invalidInput;
             if (invalidInput.disabled) {
                 message += ' Switch the measurement selector to ' + (invalidInput.id.endsWith('weight') ? 'Weight' : 'Volume') + ' to correct or clear that retained value.';
@@ -416,6 +432,11 @@ document.addEventListener("DOMContentLoaded", function () {
         source.consignment_number = consignmentNumber;
         source.company_id = document.getElementById('modal-company-id').value || null;
         source.measurement_mode = document.getElementById('modal-measurement-mode').value;
+        source.volume_unit = 'ft3';
+        try {
+            packageEditor.resize(document.getElementById('modal-pieces').value);
+            source.package_contents = packageEditor.read();
+        } catch (error) { packageStep(true); showModalError(error.message); return false; }
         source.company_name = window.companyPresets.companyName(source.company_id);
         ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
             source[name] = document.getElementById('modal-' + name.replaceAll('_', '-')).value;

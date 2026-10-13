@@ -42,7 +42,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.reload(); assert.equal(await page.locator('#label-selected-count').textContent(), '50');
         await page.locator('#review-labels-btn').click(); await modal.waitFor({state: 'visible'});
         assert.equal(await page.locator('.label-review-card').count(), 50);
-        assert.match(await page.locator('#label-review-summary').textContent(), /50 shipments.*51 piece labels/);
+        assert.match(await page.locator('#label-review-summary').textContent(), /50 shipments.*51 box\/pallet labels/);
         console.log('PASS: 50 shipments selected across pages, refresh preserved, one review card per shipment');
 
         await page.locator('#label-common-payment').selectOption('to-pay');

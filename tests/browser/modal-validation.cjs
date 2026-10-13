@@ -36,7 +36,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         await page.locator('#modal-pickup-address').fill('Keep this address while correcting errors');
         for (const [id,value,message] of [
             ['modal-pickup-pincode','012345','Pickup Pincode'], ['modal-drop-pincode','123','Drop Pincode'],
-            ['modal-pieces','0','Pieces must'], ['modal-pieces','1.5','Pieces must'],
+            ['modal-pieces','0','Boxes/pallets must'], ['modal-pieces','1.5','Boxes/pallets must'],
             ['modal-chargeable-weight','-1','Weight'], ['modal-chargeable-weight','0.0001','Weight'],
             ['modal-chargeable-weight','1000000000','Weight']]) {
             await page.locator('#modal-pickup-pincode').fill(''); await page.locator('#modal-drop-pincode').fill('');

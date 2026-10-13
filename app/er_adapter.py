@@ -82,7 +82,7 @@ def _status_set(row, value):
 
 
 Consignment.status = hybrid_property(_status_get, _status_set).expression(lambda cls: cls.current_status)
-for _key in ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'eta', 'eta_debug_json', 'measurement_mode'):
+for _key in ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'eta', 'eta_debug_json', 'measurement_mode', 'volume_unit', 'package_contents'):
     _extra_field(Consignment, _key)
 
 
@@ -200,7 +200,7 @@ MisReport.file_name = property(lambda row: row.file.original_filename if row.fil
     lambda row, value: setattr(row.file, 'original_filename', value))
 
 
-EXTRA_FIELDS = {'consignments': ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'pickup_date', 'drop_date', 'eta', 'eta_debug_json', 'measurement_mode'),
+EXTRA_FIELDS = {'consignments': ('pickup_pincode', 'drop_pincode', 'pickup_tag', 'drop_tag', 'pickup_date', 'drop_date', 'eta', 'eta_debug_json', 'measurement_mode', 'volume_unit', 'package_contents'),
                 'mis_reports': ('notes',), 'mis_views': ('updated_at',)}
 
 

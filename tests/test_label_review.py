@@ -73,9 +73,9 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
         assert '09/10/2026' in extracted
         assert rows[index // 2]['consignment_number'] in extracted
         if index < 2:
-            assert '100.000 kg' in extracted and '1.500 m³' not in extracted
+            assert '100.000 kg' in extracted and '1.500 ft³' not in extracted
         else:
-            assert '1.500 m³' in extracted and '100.000 kg' not in extracted
+            assert '1.500 ft³' in extracted and '100.000 kg' not in extracted
         assert 'PIECE' in extracted and f'{index % 2 + 1} of 2' in extracted
         assert f'B2B-20261011-{index // 2 + 1:04d}' in extracted
         assert f'B2B-2026-27-{index // 2 + 1:04d}' in extracted
