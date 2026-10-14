@@ -4,7 +4,6 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-
 CONSIGNMENT_ALTER_STATEMENTS = [
     "ALTER TABLE consignment ADD COLUMN IF NOT EXISTS pickup_address TEXT",
     "ALTER TABLE consignment ADD COLUMN IF NOT EXISTS drop_address TEXT",
