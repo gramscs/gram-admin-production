@@ -2,17 +2,14 @@ import io
 from decimal import Decimal
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from pypdf import PdfReader
-from sqlalchemy import Column, Integer, MetaData, Numeric, String, Table, create_engine, inspect, text
-
-from app import create_app
-from app.models import Consignment, db
+from app import orm as models
 from label_helpers import label_form
 
 
 def saved(client, **values):
-    payload = {"consignment_number": "AWB12345678901234567890", "status": "In Transit", "identifier_type": "AWB", "pieces": 3, "chargeable_weight": "12.345", "chargeable_volume": "0.125", "pickup_address": "12 Sender Road, Delhi", "drop_address": "34 Receiver Road, Mumbai", "pickup_pincode": "110001", "drop_pincode": "400001", **values}
+    payload = {"consignment_number": "AWB12345678901234567890", "status": "In Transit", "identifier_type": "AWB", "pieces": 3, "weight": "12.345", "volume": "0.125", "pickup_address": "12 Sender Road, Delhi", "drop_address": "34 Receiver Road, Mumbai", "pickup_pincode": "110001", "drop_pincode": "400001", **values}
     response = client.post("/admin/consignments/save", json={"rows": [payload]})
     assert response.status_code == 200, response.get_json()
     return client.get("/admin/consignments/list").get_json()["rows"][0]
@@ -23,36 +20,37 @@ def test_shipment_fields_save_reload_and_legacy_update(admin_client, identifier_
     row = saved(admin_client, identifier_type=identifier_type)
     assert row["identifier_type"] == identifier_type
     assert row["pieces"] == 3
-    assert Decimal(row["chargeable_weight"]) == Decimal("12.345")
-    assert Decimal(row["chargeable_volume"]) == Decimal("0.125")
+    assert "chargeable_weight" not in row and "chargeable_volume" not in row
+    assert Decimal(row["weight"]) == Decimal("12.345")
+    assert Decimal(row["volume"]) == Decimal("0.125")
     response = admin_client.post("/admin/consignments/save", json={"rows": [{"id": row["id"], "consignment_number": row["consignment_number"], "status": "Delivered"}]})
     assert response.status_code == 200
     updated = admin_client.get("/admin/consignments/list").get_json()["rows"][0]
     assert updated["pieces"] == 3
     assert updated["identifier_type"] == identifier_type
-    assert Decimal(updated["chargeable_weight"]) == Decimal("12.345")
+    assert Decimal(updated["weight"]) == Decimal("12.345")
 
 
 @pytest.mark.parametrize("values", [
     {"identifier_type": "Invalid"}, {"pieces": 0}, {"pieces": -1}, {"pieces": "1.5"},
-    {"pieces": 10001}, {"chargeable_weight": "-0.1"}, {"chargeable_volume": "NaN"},
-    {"chargeable_weight": "Infinity"}, {"chargeable_volume": "0.0001"},
-    {"chargeable_weight": "1000000000"}, {"consignment_number": "X" * 65},
+    {"pieces": 10001}, {"weight": "-0.1"}, {"volume": "NaN"},
+    {"weight": "Infinity"}, {"volume": "0.0001"},
+    {"weight": "1000000000"}, {"consignment_number": "X" * 65},
 ])
 def test_invalid_shipment_fields_do_not_persist(admin_client, app, values):
     response = admin_client.post("/admin/consignments/save", json={"rows": [{"consignment_number": "INVALID01", "status": "In Transit", **values}]})
     assert response.status_code == 400
     with app.app_context():
-        assert Consignment.query.count() == 0
+        assert models.Consignment.query.count() == 0
 
 
 def test_weight_and_volume_can_be_zero_or_cleared(admin_client):
-    row = saved(admin_client, chargeable_weight="0", chargeable_volume="0")
-    assert Decimal(row["chargeable_weight"]) == 0
-    response = admin_client.post("/admin/consignments/save", json={"rows": [{"id": row["id"], "consignment_number": row["consignment_number"], "chargeable_weight": "", "chargeable_volume": ""}]})
+    row = saved(admin_client, weight="0", volume="0")
+    assert Decimal(row["weight"]) == 0
+    response = admin_client.post("/admin/consignments/save", json={"rows": [{"id": row["id"], "consignment_number": row["consignment_number"], "weight": "", "volume": ""}]})
     assert response.status_code == 200
     updated = admin_client.get("/admin/consignments/list").get_json()["rows"][0]
-    assert updated["chargeable_weight"] is None and updated["chargeable_volume"] is None
+    assert updated["weight"] is None and updated["volume"] is None
 
 
 def test_new_fields_excel_roundtrip(admin_client):
@@ -74,7 +72,7 @@ def test_new_fields_excel_roundtrip(admin_client):
     assert b"Added: 1" in result.data
     imported = admin_client.get("/admin/consignments/list?search=EXCELNEW01").get_json()["rows"][0]
     assert imported["pieces"] == 2
-    assert Decimal(imported["chargeable_weight"]) == Decimal("5.25")
+    assert Decimal(imported["weight"]) == Decimal("5.25")
 
 
 @pytest.mark.parametrize('measurement_mode', ['weight', 'volume'])
@@ -113,72 +111,3 @@ def test_labels_require_login(client):
     assert client.get("/admin/labels").status_code == 302
     assert client.post("/admin/labels/generate", data={"consignment_ids": [1]}).status_code == 302
 
-
-def test_measurement_columns_are_renamed_when_app_starts(tmp_path):
-    path = tmp_path / "pre-rename.db"
-    engine = create_engine(f"sqlite:///{path}")
-    metadata = MetaData()
-    tables = {
-        table_name: Table(
-            table_name, metadata,
-            Column("id", Integer, primary_key=True),
-            Column("chargeable_weight", Numeric(12, 3)),
-            Column("chargeable_volume", Numeric(12, 3)),
-        )
-        for table_name in ("consignment", "consignments")
-    }
-    metadata.create_all(engine)
-    with engine.begin() as connection:
-        for table in tables.values():
-            connection.execute(table.insert().values(
-                id=1, chargeable_weight=Decimal("12.345"), chargeable_volume=Decimal("0.125"),
-            ))
-    engine.dispose()
-
-    upgraded = create_app({
-        "INSTANCE_PATH": str(tmp_path / "renamed-instance"),
-        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{path}",
-        "AUTO_CREATE_TABLES": False,
-        "RATELIMIT_ENABLED": False,
-    })
-    with upgraded.app_context():
-        inspector = inspect(db.engine)
-        for table_name in ("consignment", "consignments"):
-            columns = {column["name"] for column in inspector.get_columns(table_name)}
-            assert {"weight", "volume"} <= columns
-            assert not {"chargeable_weight", "chargeable_volume"} & columns
-            values = db.session.execute(
-                text(f'SELECT weight, volume FROM "{table_name}" WHERE id = 1')
-            ).one()
-            assert tuple(Decimal(str(value)) for value in values) == (
-                Decimal("12.345"), Decimal("0.125"),
-            )
-        db.session.remove()
-        db.engine.dispose()
-
-
-def test_old_sqlite_database_upgrades_without_losing_records(app, tmp_path):
-    path = tmp_path / "legacy.db"
-    engine = create_engine(f"sqlite:///{path}")
-    metadata = MetaData()
-    new_fields = {"identifier_type", "pieces", "weight", "volume", "company_id", "pod_original_name", "invoice_file", "invoice_original_name"}
-    columns = [Column(column.name, String(16) if column.name == "consignment_number" else column.type, primary_key=column.primary_key) for column in Consignment.__table__.columns if column.name not in new_fields]
-    old = Table("consignment", metadata, *columns)
-    metadata.create_all(engine)
-    with engine.begin() as connection:
-        connection.execute(old.insert().values(id=1, consignment_number="KEEP001", status="Delivered", pickup_address="Keep existing address", pod_image="legacy-proof.png"))
-    engine.dispose()
-    upgraded = create_app({"INSTANCE_PATH": str(tmp_path / "legacy-instance"), "SQLALCHEMY_DATABASE_URI": f"sqlite:///{path}", "AUTO_CREATE_TABLES": True, "RATELIMIT_ENABLED": False})
-    with upgraded.app_context():
-        row = db.session.get(Consignment, 1)
-        assert row.consignment_number == "KEEP001" and row.pickup_address == "Keep existing address"
-        assert row.identifier_type == "LRN" and row.pieces == 1
-        assert row.chargeable_weight is None
-        assert row.pod_image == "legacy-proof.png"
-        assert row.pod_original_name is None and row.invoice_file is None and row.invoice_original_name is None
-    for _ in range(2):
-        assert upgraded.test_cli_runner().invoke(args=["upgrade-db"]).exit_code == 0
-    with upgraded.app_context():
-        assert Consignment.query.count() == 1
-        db.session.remove()
-        db.engine.dispose()

@@ -17,10 +17,10 @@ COLUMNS = {
     'status': 'Current status', 'pickup_date': 'Pickup date', 'drop_date': 'Expected drop date',
     'pickup_tag': 'Pickup location', 'pickup_pincode': 'Pickup pincode', 'pickup_address': 'Pickup address',
     'drop_tag': 'Drop location', 'drop_pincode': 'Drop pincode', 'drop_address': 'Drop address',
-    'pieces': 'Boxes / pallets', 'measurement_mode': 'Measurement basis', 'chargeable_weight': 'Weight (kg)', 'chargeable_volume': 'Volume (ft³)',
+    'pieces': 'Boxes / pallets', 'measurement_mode': 'Measurement basis', 'weight': 'Weight (kg)', 'volume': 'Volume (ft³)',
     'pod': 'POD uploaded', 'invoice': 'Invoice uploaded', 'issues': 'Attention flags',
 }
-DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'chargeable_weight', 'chargeable_volume', 'measurement_mode', 'pod', 'invoice', 'issues']
+DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'weight', 'volume', 'measurement_mode', 'pod', 'invoice', 'issues']
 DEFINITION = 'Current status of shipments grouped by pickup date. Expected drop dates are estimates; no actual delivery time or on-time delivery metric is recorded. Document indicators show attached references, not file availability.'
 
 
@@ -178,8 +178,8 @@ def analyze(filters, today=None):
                 'missing_pod': not bool(row.pod_image), 'missing_invoice': not bool(row.invoice_file),
             })
         pieces = row.pieces if isinstance(row.pieces, int) and row.pieces > 0 else 0
-        weight = number(row.chargeable_weight)
-        volume = number(volume_ft3(row)) if number(row.chargeable_volume) is not None else None
+        weight = number(row.weight)
+        volume = number(volume_ft3(row)) if number(row.volume) is not None else None
         flags = []
         if group != 'Delivered' and expected and expected < today:
             totals['past_expected'] += 1
@@ -195,7 +195,7 @@ def analyze(filters, today=None):
             flags.append('Pickup date missing or invalid')
         if not row.company_id:
             totals['unassigned'] += 1
-        if any(value is not None and number(value) is None for value in (row.chargeable_weight, row.chargeable_volume)) or not pieces:
+        if any(value is not None and number(value) is None for value in (row.weight, row.volume)) or not pieces:
             totals['invalid_measurements'] += 1
             flags.append('Invalid measurement')
         totals['pieces'] += pieces
@@ -213,7 +213,7 @@ def analyze(filters, today=None):
         if pickup:
             dates[pickup] = dates.get(pickup, 0) + 1
         detail = {key: getattr(row, key, '') or '' for key in COLUMNS if hasattr(row, key)}
-        detail.update(client=client, status=row.status or 'No status', pieces=pieces, chargeable_weight=float(weight) if weight is not None else '', chargeable_volume=float(volume) if volume is not None else '', pod='Yes' if row.pod_image else 'No', invoice='Yes' if row.invoice_file else 'No', issues='; '.join(flags))
+        detail.update(client=client, status=row.status or 'No status', pieces=pieces, weight=float(weight) if weight is not None else '', volume=float(volume) if volume is not None else '', pod='Yes' if row.pod_image else 'No', invoice='Yes' if row.invoice_file else 'No', issues='; '.join(flags))
         detail['measurement_mode'] = 'Volume (ft³)' if (row.measurement_mode or ('volume' if volume is not None and weight is None else 'weight')) == 'volume' else 'Weight (kg)'
         details.append(detail)
         if flags:

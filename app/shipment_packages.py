@@ -5,7 +5,7 @@ CBFT_TO_CBFT = Decimal('35.31466672148859')
 
 
 def volume_ft3(row):
-    value = row.chargeable_volume
+    value = row.volume
     if value is None:
         return None
     value = Decimal(str(value))
@@ -81,11 +81,11 @@ def upgrade_volume_units():
         for row in rows:
             if row.volume_unit == 'ft3':
                 continue
-            if row.chargeable_volume is not None:
+            if row.volume is not None:
                 value = volume_ft3(row)
                 if not value.is_finite() or value < 0 or value > Decimal('999999999.999'):
                     raise ValueError(f'Volume for shipment {row.consignment_number} is outside the supported range after CBM conversion. No volumes were converted.')
-                row.chargeable_volume = value
+                row.volume = value
                 converted += 1
             row.volume_unit = 'ft3'
         db.session.commit()

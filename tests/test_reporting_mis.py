@@ -2,7 +2,6 @@ import csv
 import io
 import json
 from datetime import date
-from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
@@ -20,10 +19,10 @@ def shipments(app):
         db.session.add(client)
         db.session.flush()
         db.session.add_all([
-            Consignment(consignment_number='=SUM(1,2)', company=client, status='Delivered', pickup_date='2026-10-01', drop_date='2026-10-02', pieces=3, chargeable_weight='12.500', chargeable_volume='0.125', pickup_tag='Delhi', drop_tag='Mumbai'),
-            Consignment(consignment_number='OPEN-1', company=client, status='In Transit', pickup_date='02/10/2026', drop_date='2026-10-03', pieces=2, chargeable_weight='7.250', pod_image='proof.png', invoice_file='invoice.pdf', pickup_tag='Delhi', drop_tag='Mumbai'),
+            Consignment(consignment_number='=SUM(1,2)', company=client, status='Delivered', pickup_date='2026-10-01', drop_date='2026-10-02', pieces=3, weight='12.500', volume='0.125', pickup_tag='Delhi', drop_tag='Mumbai'),
+            Consignment(consignment_number='OPEN-1', company=client, status='In Transit', pickup_date='02/10/2026', drop_date='2026-10-03', pieces=2, weight='7.250', pod_image='proof.png', invoice_file='invoice.pdf', pickup_tag='Delhi', drop_tag='Mumbai'),
             Consignment(consignment_number='UNDATED', status='mystery', pickup_date='bad date', pieces=1),
-            Consignment(consignment_number='OLDER', status='Delivered', pickup_date='2026-09-30', pieces=4, chargeable_volume='1.500', pod_image='proof.png'),
+            Consignment(consignment_number='OLDER', status='Delivered', pickup_date='2026-09-30', pieces=4, volume='1.500', pod_image='proof.png'),
         ])
         db.session.commit()
         return client.id
@@ -131,7 +130,6 @@ def test_report_snapshots_remain_immutable_manage_and_backup_every_file(app, adm
     assert saved['file_backup_path'].startswith('mis_reports/')
     assert archive.read(saved['file_backup_path'])==before
     assert admin_client.delete(f'/admin/mis/reports/{generated["id"]}',json={}).status_code==200
-    assert not Path(app.instance_path,'uploads',file_ref).exists()
     assert admin_client.get(generated['download_url']).status_code==404
     with app.app_context():
         assert Consignment.query.count()==4
@@ -145,7 +143,6 @@ def test_report_failure_cleans_new_file_and_preserves_existing_history(app, admi
         response=admin_client.post('/admin/mis/reports',json={'name':'Failure'})
         assert response.status_code==500
         assert MisReport.query.count()==0
-        assert not list(Path(app.instance_path,'uploads').iterdir())
 
 
 def test_mis_auth_and_cross_origin_mutations(client, admin_client):
@@ -167,8 +164,8 @@ def test_empty_reports_and_invalid_download_format(admin_client):
 def test_invalid_measurements_and_large_date_spans_do_not_invent_totals(app):
     with app.app_context():
         db.session.add_all([
-            Consignment(consignment_number='OLD', pickup_date='2000-01-01', chargeable_weight='-5', pieces=0),
-            Consignment(consignment_number='NOW', pickup_date='2026-10-09', chargeable_weight='10', pieces=2),
+            Consignment(consignment_number='OLD', pickup_date='2000-01-01', weight='-5', pieces=0),
+            Consignment(consignment_number='NOW', pickup_date='2026-10-09', weight='10', pieces=2),
         ])
         db.session.commit()
         report=analyze(normalize_filters({}))
@@ -176,6 +173,12 @@ def test_invalid_measurements_and_large_date_spans_do_not_invent_totals(app):
         assert report['metrics']['invalid_measurements']==1
         assert report['grain']=='yearly' and len(report['trend'])==27
         assert sum(item['count'] for item in report['trend'])==2
+
+
+def test_saved_mis_measurement_columns_reject_unknown_names():
+    from app.admin.reporting import validate_columns
+    with pytest.raises(ValueError):
+        validate_columns(["weight", "volume", "retired"])
 
 
 def test_report_snapshot_keeps_client_label_after_master_rename(app, admin_client, shipments):
@@ -222,7 +225,7 @@ def test_tracker_pdf_replaces_title_only_export_with_all_saved_shipments(admin_c
 
 def test_all_pdf_entry_points_include_healthy_shipments_not_only_attention_records(app, admin_client):
     with app.app_context():
-        db.session.add(Consignment(consignment_number='HEALTHY-PDF-001', status='Delivered', pieces=7, chargeable_weight=22.5, chargeable_volume=.75, pickup_date='2026-10-10', pickup_tag='Delhi', drop_tag='Mumbai', pod_image='pod.pdf', invoice_file='invoice.pdf'))
+        db.session.add(Consignment(consignment_number='HEALTHY-PDF-001', status='Delivered', pieces=7, weight=22.5, volume=.75, pickup_date='2026-10-10', pickup_tag='Delhi', drop_tag='Mumbai', pod_image='pod.pdf', invoice_file='invoice.pdf'))
         db.session.commit()
     for url in ('/admin/mis/export?format=pdf', '/admin/consignments/export.pdf'):
         text = pdf_text(admin_client.get(url).data, 'Consignment register' if '/consignments/' in url else 'Management MIS')
@@ -302,7 +305,7 @@ def test_pdf_download_controls_are_available_everywhere(admin_client):
 def test_consignment_pdf_first_page_contains_data_and_keeps_last_row(app, admin_client):
     with app.app_context():
         db.session.add_all([Consignment(consignment_number=f'REGISTER-{index:03d}', status='In Transit',
-            measurement_mode='volume', chargeable_volume='1.250', pickup_address='Warehouse & loading bay <A>',
+            measurement_mode='volume', volume='1.250', pickup_address='Warehouse & loading bay <A>',
             drop_address='Receiving dock B', pieces=2) for index in range(75)])
         db.session.commit()
     result = admin_client.get('/admin/consignments/export.pdf')

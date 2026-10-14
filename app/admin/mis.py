@@ -57,7 +57,7 @@ def _creator():
 
 
 def view_data(row):
-    return {'id': row.id, 'name': row.name, 'notes': row.notes, 'filters': json.loads(row.filters_json), 'columns': json.loads(row.columns_json), 'format': row.output_format}
+    return {'id': row.id, 'name': row.name, 'notes': row.notes, 'filters': json.loads(row.filters_json), 'columns': validate_columns(json.loads(row.columns_json)), 'format': row.output_format}
 
 
 def report_response(content, filename, fmt):

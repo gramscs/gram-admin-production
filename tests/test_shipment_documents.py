@@ -1,12 +1,22 @@
 import base64
 import io
-from pathlib import Path
+from pathlib import PurePosixPath
 
 import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
-from app.models import Consignment, db
+from app.models import db
+from app.admin import consignment_controller
+
+
+def object_bytes(reference):
+    bucket, path = consignment_controller._parse_supabase_pod_value(reference)
+    return consignment_controller._get_supabase_client().storage.from_(bucket).download(path)
+
+
+def object_key(reference):
+    return consignment_controller._parse_supabase_pod_value(reference)
 
 
 def pdf_bytes(script=False, encrypted=False):
@@ -38,11 +48,11 @@ def attachment(kind, content, name, mime='application/octet-stream'):
 
 
 @pytest.mark.parametrize('kind', ['pod', 'invoice'])
-def test_pdf_document_save_private_download_replace_and_staged_remove(admin_client, app, kind):
+def test_pdf_document_save_private_download_replace_and_staged_remove(admin_client, app, isolated_storage, kind):
     row = create_shipment(admin_client, **attachment(kind, pdf_bytes(), 'delivery.pdf', 'text/html'))
     field = 'pod_image' if kind == 'pod' else 'invoice_file'
-    old = Path(app.instance_path, 'uploads', row[field])
-    assert old.exists() and old.name == f"{row['consignment_number']}_{kind}.pdf"
+    old = row[field]
+    assert old.startswith('supabase:')
     response = admin_client.get(f"/admin/consignments/{row['id']}/{kind}?preview=1")
     assert response.status_code == 200 and response.mimetype == 'application/pdf'
     assert response.headers['Content-Disposition'].startswith('attachment')
@@ -52,13 +62,13 @@ def test_pdf_document_save_private_download_replace_and_staged_remove(admin_clie
     assert 'sandbox' in response.headers['Content-Security-Policy']
     assert len(PdfReader(io.BytesIO(response.data)).pages) == 1
     uploaded = admin_client.post(f"/admin/consignments/{row['id']}/{kind}", data={'file': (io.BytesIO(image_bytes()), 'new.png')})
-    assert uploaded.status_code == 200 and not old.exists()
+    assert uploaded.status_code == 200 and object_key(old) not in isolated_storage.objects
     preview = admin_client.get(f"/admin/consignments/{row['id']}/{kind}?preview=1")
     assert preview.mimetype == 'image/png' and preview.headers['Content-Disposition'].startswith('inline')
     row = admin_client.get('/admin/consignments/list').get_json()['rows'][0]
-    current = Path(app.instance_path, 'uploads', row[field])
+    current = row[field]
     response = admin_client.post('/admin/consignments/save', json={'rows': [{'id': row['id'], 'consignment_number': row['consignment_number'], kind + '_remove': True}]})
-    assert response.status_code == 200 and not current.exists()
+    assert response.status_code == 200 and object_key(current) not in isolated_storage.objects
     assert admin_client.get(f"/admin/consignments/{row['id']}/{kind}").status_code == 404
 
 
@@ -71,58 +81,49 @@ def test_image_formats_are_detected_and_reencoded(admin_client, kind, ext, mime)
 
 
 @pytest.mark.parametrize('content,name', [(b'<svg onload="alert(1)"/>', 'proof.svg'), (b'<html>bad</html>', 'proof.png'), (image_bytes(), 'wrong.pdf'), (image_bytes(), 'wrong.jpg'), (b'%PDF-broken', 'broken.pdf'), (pdf_bytes(script=True), 'active.pdf'), (pdf_bytes(encrypted=True), 'locked.pdf'), (b'', 'empty.pdf'), (b'x' * (5 * 1024 * 1024+1), 'large.png')])
-def test_invalid_document_never_replaces_saved_file(admin_client, app, content, name):
+def test_invalid_document_never_replaces_saved_file(admin_client, app, isolated_storage, content, name):
     row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'good.png'))
-    old = Path(app.instance_path, 'uploads', row['pod_image'])
-    before = old.read_bytes()
+    before = dict(isolated_storage.objects)
     response = admin_client.post(f"/admin/consignments/{row['id']}/pod", data={'file': (io.BytesIO(content), name)})
     assert response.status_code == 400, response.get_json()
-    assert old.read_bytes() == before
-    assert list(old.parent.iterdir()) == [old]
+    assert isolated_storage.objects == before
 
 
-def test_bad_later_row_does_not_delete_or_replace_earlier_documents(admin_client, app):
+def test_bad_later_row_does_not_delete_or_replace_earlier_documents(admin_client, app, isolated_storage):
     row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'good.png'))
-    old = Path(app.instance_path, 'uploads', row['pod_image'])
+    before = dict(isolated_storage.objects)
     response = admin_client.post('/admin/consignments/save', json={'rows': [
         {'id': row['id'], 'consignment_number': row['consignment_number'], **attachment('pod', pdf_bytes(), 'replacement.pdf')},
         {'consignment_number': 'BAD002', **attachment('invoice', b'not a PDF', 'bad.pdf')},
     ]})
     assert response.status_code == 400
-    assert old.exists() and list(old.parent.iterdir()) == [old]
+    assert isolated_storage.objects == before
     assert admin_client.get('/admin/consignments/list').get_json()['total'] == 1
 
 
-def test_storage_failure_cleans_new_files_and_preserves_previous_documents(admin_client, app, monkeypatch):
+def test_storage_failure_cleans_new_files_and_preserves_previous_documents(admin_client, app, isolated_storage, monkeypatch):
     row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'old.png'))
-    old = Path(app.instance_path, 'uploads', row['pod_image'])
+    before = dict(isolated_storage.objects)
     from app.admin import consignment_controller
     original = consignment_controller._store_pod_bytes
     def failing_store(filename, *args):
-        if Path(filename).stem.endswith('_invoice'):
+        if PurePosixPath(filename).stem.endswith('_invoice'):
             raise RuntimeError('simulated storage failure')
         return original(filename, *args)
     monkeypatch.setattr(consignment_controller, '_store_pod_bytes', failing_store)
     response = admin_client.post('/admin/consignments/save', json={'rows': [{'id': row['id'], 'consignment_number': row['consignment_number'], **attachment('pod', pdf_bytes(), 'new.pdf'), **attachment('invoice', pdf_bytes(), 'invoice.pdf')}]})
     assert response.status_code == 500
-    assert old.exists() and list(old.parent.iterdir()) == [old]
+    assert isolated_storage.objects == before
     assert admin_client.get('/admin/consignments/list').get_json()['rows'][0]['pod_image'] == row['pod_image']
 
 
-def test_document_reference_injection_and_path_escape_are_rejected(admin_client, app):
+def test_document_reference_injection_and_non_supabase_paths_are_rejected(admin_client, app):
     row = create_shipment(admin_client)
     for field in ('pod_image', 'invoice_file'):
         response = admin_client.post('/admin/consignments/save', json={'rows': [{'id': row['id'], 'consignment_number': row['consignment_number'], field: 'https://example.test/file.pdf'}]})
         assert response.status_code == 400
-    outside = Path(app.instance_path, 'uploads-other')
-    outside.mkdir()
-    (outside/'private.pdf').write_bytes(pdf_bytes())
-    with app.app_context():
-        db.session.get(Consignment, row['id']).invoice_file = '../uploads-other/private.pdf'
-        db.session.commit()
-    assert admin_client.get(f"/admin/consignments/{row['id']}/invoice").status_code == 400
-    assert admin_client.delete(f"/admin/consignments/{row['id']}/invoice").status_code == 200
-    assert (outside/'private.pdf').exists()
+    with pytest.raises(ValueError, match='not stored in Supabase'):
+        consignment_controller._parse_supabase_pod_value('../outside/private.pdf')
 
 
 @pytest.mark.parametrize('kind', ['pod', 'invoice'])
@@ -146,15 +147,15 @@ def test_documents_are_only_in_form_not_table(admin_client):
     assert 'image/*' not in html
 
 
-def test_database_commit_failure_preserves_old_file(admin_client, app, monkeypatch):
+def test_database_commit_failure_preserves_old_file(admin_client, app, isolated_storage, monkeypatch):
     row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'old.png'))
-    old = Path(app.instance_path, 'uploads', row['pod_image'])
+    before = dict(isolated_storage.objects)
     def fail():
         raise RuntimeError('simulated database commit failure')
     monkeypatch.setattr(db.session, 'commit', fail)
     response = admin_client.post(f"/admin/consignments/{row['id']}/pod", data={'file': (io.BytesIO(pdf_bytes()), 'new.pdf')})
     assert response.status_code == 500
-    assert old.exists() and list(old.parent.iterdir()) == [old]
+    assert isolated_storage.objects == before
     assert admin_client.get('/admin/consignments/list').get_json()['rows'][0]['pod_image'] == row['pod_image']
 
 
@@ -198,21 +199,20 @@ def test_private_supabase_document_roundtrip(admin_client, monkeypatch):
     monkeypatch.setattr(consignment_controller, '_get_supabase_client', lambda: Client())
     row = create_shipment(admin_client, **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
     assert row['invoice_file'].startswith('supabase:private-documents/consignments/')
-    assert Path(row['invoice_file']).name == f"{row['consignment_number']}_invoice.pdf"
+    assert PurePosixPath(row['invoice_file']).name == f"{row['consignment_number']}_invoice.pdf"
     response = admin_client.get(f"/admin/consignments/{row['id']}/invoice")
     assert response.status_code == 200 and len(PdfReader(io.BytesIO(response.data)).pages) == 1
     assert admin_client.delete(f"/admin/consignments/{row['id']}/invoice").status_code == 200
     assert not objects
 
 
-def test_shipment_deletion_only_removes_documents_after_successful_save(admin_client, app):
+def test_shipment_deletion_only_removes_documents_after_successful_save(admin_client, app, isolated_storage):
     row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'proof.png'), **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
-    folder = Path(app.instance_path, 'uploads')
-    assert len(list(folder.iterdir())) == 2
+    assert len(isolated_storage.objects) == 2
     invalid = admin_client.post('/admin/consignments/save', json={'deleted_ids': [row['id']], 'rows': [{'consignment_number': ''}]})
     assert invalid.status_code == 400
-    assert len(list(folder.iterdir())) == 2
+    assert len(isolated_storage.objects) == 2
     assert admin_client.get('/admin/consignments/list').get_json()['total'] == 1
     deleted = admin_client.post('/admin/consignments/save', json={'deleted_ids': [row['id']], 'rows': []})
     assert deleted.status_code == 200 and deleted.get_json()['deleted_count'] == 1
-    assert not list(folder.iterdir())
+    assert not isolated_storage.objects

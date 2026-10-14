@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, inspect, insert, null, select, update
+from sqlalchemy import create_engine, inspect, insert, null, select, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
@@ -21,35 +21,28 @@ from database.models import (
 from database.schema import postgresql_ddl
 
 
-@pytest.fixture(params=["sqlite"] + (["postgresql"] if os.getenv("ER_TEST_DATABASE_URL") else []))
-def er_engine(request):
-    if request.param == "sqlite":
-        engine = create_engine("sqlite://")
-
-        @event.listens_for(engine, "connect")
-        def foreign_keys(dbapi_connection, connection_record):
-            dbapi_connection.execute("PRAGMA foreign_keys=ON")
-
-        cleanup_engine = None
-    else:
-        url = make_url(os.environ["ER_TEST_DATABASE_URL"])
-        if (url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost"}
-                or url.database != "gram_admin_er_test"):
-            pytest.fail("ER tests require the disposable loopback database gram_admin_er_test.")
-        schema = "er_test_" + uuid4().hex
-        cleanup_engine = create_engine(url)
-        with cleanup_engine.begin() as connection:
-            connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+@pytest.fixture
+def er_engine():
+    setting = os.getenv("ER_TEST_DATABASE_URL", "").strip()
+    if not setting:
+        pytest.fail("Set ER_TEST_DATABASE_URL to a dedicated PostgreSQL test database.")
+    url = make_url(setting)
+    if (url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost"}
+            or url.database != "gram_admin_er_test"):
+        pytest.fail("ER tests require the disposable loopback database gram_admin_er_test.")
+    schema = "er_test_" + uuid4().hex
+    cleanup_engine = create_engine(url)
+    with cleanup_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema},public"})
     try:
         Base.metadata.create_all(engine)
         yield engine
     finally:
         engine.dispose()
-        if cleanup_engine is not None:
-            with cleanup_engine.begin() as connection:
-                connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-            cleanup_engine.dispose()
+        with cleanup_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        cleanup_engine.dispose()
 
 
 @pytest.fixture
@@ -99,7 +92,7 @@ def test_all_relationships_and_uuid_round_trip(er_engine, er_session):
     company, pickup, drop = presets(er_session)
     row = shipment(er_session, company=company, pickup_location=pickup, drop_location=drop,
                    pickup_address_snapshot=pickup.address, drop_address_snapshot=drop.address,
-                   chargeable_weight=Decimal("12.345"), chargeable_volume=Decimal("0.125"))
+                   weight=Decimal("12.345"), volume=Decimal("0.125"))
     file = stored_file(er_session)
     file.uploaded_by_user = user
     doc = ShipmentDocument(consignment=row, file=file, document_type="POD")
@@ -118,7 +111,7 @@ def test_all_relationships_and_uuid_round_trip(er_engine, er_session):
     assert file.shipment_documents == [doc] and report_file.mis_report is generated
     assert user.shipment_events == [history] and user.audit_logs == [audit]
     assert user.files == [file] and user.mis_views == [view] and user.mis_reports == [generated]
-    assert row.chargeable_weight == Decimal("12.345") and row.chargeable_volume == Decimal("0.125")
+    assert row.weight == Decimal("12.345") and row.volume == Decimal("0.125")
     columns = {column["name"] for column in inspect(er_engine).get_columns("consignments")}
     assert {"weight", "volume"} <= columns
     assert not {"chargeable_weight", "chargeable_volume"} & columns
@@ -162,7 +155,7 @@ def test_dangling_foreign_keys_are_rejected(er_session):
 
 def test_unknown_historical_file_time_can_remain_null(er_session):
     result = er_session.execute(insert(File).values(
-        storage_bucket="local", storage_path="historical.pdf", original_filename="historical.pdf",
+        storage_bucket="pod-uploads", storage_path="historical.pdf", original_filename="historical.pdf",
         mime_type="application/pdf", size_bytes=2048, uploaded_at=null(),
     ).returning(File.id))
     row = er_session.get(File, result.scalar_one())
@@ -209,7 +202,7 @@ def test_only_one_default_of_each_location_kind(er_session):
 
 
 @pytest.mark.parametrize("values", [
-    {"pieces": 0}, {"pieces": -1}, {"chargeable_weight": -1}, {"chargeable_volume": -1},
+    {"pieces": 0}, {"pieces": -1}, {"weight": -1}, {"volume": -1},
     {"identifier_type": "invalid"}, {"current_status": " "},
     {"actual_pickup_at": datetime(2026, 10, 10, tzinfo=UTC), "actual_delivery_at": datetime(2026, 10, 9, tzinfo=UTC)},
 ])

@@ -233,7 +233,7 @@ def _pdf_register(story, report, columns, p):
             values = []
             for key in keys:
                 value = row[key]
-                if key in ('chargeable_weight', 'chargeable_volume') and value != '':
+                if key in ('weight', 'volume') and value != '':
                     value = f'{value:,.3f}'
                 elif key == 'pieces':
                     value = f'{value:,}'

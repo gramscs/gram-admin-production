@@ -55,7 +55,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
         assert.equal(row.package_contents.boxes['2'].pieces, 8);
         assert.equal(row.package_contents.boxes['2'].weight, '3.250');
         assert.equal(row.package_contents.boxes['99'].pieces, 4);
-        assert.equal(row.volume_unit, 'ft3'); assert.equal(row.chargeable_volume, '250.000');
+        assert.equal(row.volume_unit, 'ft3'); assert.equal(row.volume, '250.000');
         console.log('PASS: 100 boxes, defaults, exceptions across pages, modal validation and SQL persistence.');
         await page.reload(); await page.locator('#search-input').fill(prefix);
         await page.waitForFunction(() => document.querySelector('#total-count').textContent === '1');

@@ -2,7 +2,6 @@
 import base64
 import io
 import json
-from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
@@ -25,8 +24,10 @@ def migrated_admin(populated, tmp_path, monkeypatch):
         monkeypatch.setenv('FLASK_ENV', 'development')
         monkeypatch.setenv('DATABASE_URL', destination.url.render_as_string(hide_password=False))
         monkeypatch.setenv('ADMIN_USERNAME', 'admin')
-        monkeypatch.setenv('SUPABASE_URL', '')
-        monkeypatch.setenv('SUPABASE_KEY', '')
+        monkeypatch.setenv('SUPABASE_URL', 'https://storage-test.supabase.co')
+        monkeypatch.setenv('SUPABASE_KEY', 'test-service-key')
+        import supabase
+        monkeypatch.setattr(supabase, 'create_client', lambda url, key: storage.client)
         application = create_app({'TESTING': True, 'SECRET_KEY': 'er-test-key',
             'INSTANCE_PATH': str(storage.root.parent), 'AUTO_CREATE_TABLES': False,
             'RATELIMIT_ENABLED': False, 'ADMIN_DATABASE_MODEL': 'auto'})
@@ -55,7 +56,7 @@ def test_pages_use_the_migrated_model(migrated_admin, path):
         assert len(rows) == 2
         row = next(row for row in rows if row['consignment_number'] == 'LRN-001')
         assert row['pickup_pincode'] == '110001' and row['pickup_tag'] == 'Warehouse A'
-        assert row['pod_image'] == 'local:pod.png'
+        assert row['pod_image'] == 'supabase:pod-uploads/consignments/pod.png'
         assert row['company_id'] and '-' in row['id']
         assert next(row for row in rows if row['consignment_number'] == 'AWB-002')['pickup_date'] == 'next Tuesday'
 
@@ -112,7 +113,7 @@ def test_uuid_documents_and_saved_mis(migrated_admin):
         documents = connection.execute(select(Base.metadata.tables['shipment_documents']).where(Base.metadata.tables['shipment_documents'].c.document_type == 'POD')).mappings().all()
         assert len(documents) == 3
         assert sum(doc['is_current'] for doc in documents) == 2
-    assert (storage.root / 'pod.png').exists()
+    assert storage.client.storage.from_('pod-uploads').download('consignments/pod.png')
     view = client.post('/admin/mis/views', json={'name': 'Fresh view', 'format': 'csv', 'filters': {'period': 'all', 'company': shipment['company_id']}, 'columns': ['consignment_number', 'pickup_tag']})
     assert view.status_code == 200, view.get_json()
     generated = client.post('/admin/mis/reports', json={'view_id': view.get_json()['view']['id'], 'name': 'Fresh report', 'format': 'pdf', 'filters': {'period': 'all', 'company': shipment['company_id']}, 'columns': ['consignment_number', 'pickup_tag']})
@@ -185,11 +186,12 @@ def test_er_report_rename_preserves_snapshot_and_delete_cleans_its_file(migrated
         assert after == {**original, 'name': 'Renamed report'}
         files = Base.metadata.tables['files']
         file = connection.execute(select(files).where(files.c.id == original['file_id'])).mappings().one()
-        path = storage.root / file['storage_path'].removeprefix('local:')
-        assert path.exists()
+        path = file['storage_bucket'], file['storage_path'].removeprefix(f"supabase:{file['storage_bucket']}/")
+        assert storage.client.storage.from_(path[0]).download(path[1])
     removed = client.delete('/admin/mis/reports/' + id, json={})
     assert removed.status_code == 200, removed.get_json()
-    assert not path.exists()
+    with pytest.raises(FileNotFoundError):
+        storage.client.storage.from_(path[0]).download(path[1])
     assert client.get(generated.get_json()['download_url']).status_code == 404
 
 
@@ -236,18 +238,6 @@ def test_er_reimport_restores_latest_extras_without_mutating_archives(migrated_a
             extra = connection.execute(select(RecordExtras.__table__).where(
                 RecordExtras.entity_type == 'consignments', RecordExtras.entity_id == UUID(row['id']))).mappings().one()
             assert extra['data']['pickup_tag'] == 'Edited after first migration'
-
-
-def test_er_demo_seed_does_not_recreate_legacy_tables(migrated_admin):
-    app, client, storage, destination = migrated_admin
-    if destination.dialect.name != 'sqlite':
-        pytest.skip('Demo seeding intentionally supports local SQLite only.')
-    result = app.test_cli_runner().invoke(args=['seed-demo'])
-    assert result.exit_code == 0, result.output
-    assert 'consignment' not in inspect(destination).get_table_names()
-    result = app.test_cli_runner().invoke(args=['seed-demo'])
-    assert result.exit_code == 0 and 'Added 0 demo' in result.output
-    assert client.get('/admin/consignments/list').get_json()['total'] == 27
 
 
 def test_er_excel_import_keeps_typed_dates_and_skips_duplicates(migrated_admin):

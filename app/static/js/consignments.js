@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var statusTimeoutId = null;
     var listRequest = 0;
     var packageEditor = new PackageContentsEditor(document.getElementById('package-contents-editor'));
-    document.getElementById('modal-chargeable-weight').addEventListener('input', function () {
+    document.getElementById('modal-weight').addEventListener('input', function () {
         packageEditor.setDefaultWeight(this.value);
     });
     function packageStep(open) {
@@ -95,12 +95,12 @@ document.addEventListener("DOMContentLoaded", function () {
         }).join('') + '</select>';
     }
     function buildNumberInput(name, value, min, step) {
-        var title = {pieces: 'Boxes / pallets', chargeable_weight: 'Weight (kg)', chargeable_volume: 'Volume (ft³)'}[name] || name.replaceAll('_', ' ');
+        var title = {pieces: 'Boxes / pallets', weight: 'Weight (kg)', volume: 'Volume (ft³)'}[name] || name.replaceAll('_', ' ');
         return '<input type="number" aria-label="' + title + '" class="form-control form-control-sm ' + name + '" min="' + min + '" step="' + step + '" value="' + escapeHtml(String(value)) + '" />';
     }
 
     function measurementMode(row) {
-        return row.measurement_mode || (row.chargeable_volume != null && row.chargeable_volume !== '' && (row.chargeable_weight == null || row.chargeable_weight === '') ? 'volume' : 'weight');
+        return row.measurement_mode || (row.volume != null && row.volume !== '' && (row.weight == null || row.weight === '') ? 'volume' : 'weight');
     }
     function updateMeasurementControls(root, mode) {
         root.querySelectorAll('[data-measurement]').forEach(function (group) {
@@ -112,7 +112,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var mode = document.getElementById('modal-measurement-mode').value;
         ['weight', 'volume'].forEach(function (kind) {
             document.getElementById('modal-' + kind + '-group').hidden = kind !== mode;
-            document.getElementById('modal-chargeable-' + kind).disabled = kind !== mode;
+            document.getElementById('modal-' + kind).disabled = kind !== mode;
         });
     }
     document.getElementById('modal-measurement-mode').addEventListener('change', updateModalMeasurement);
@@ -134,8 +134,8 @@ document.addEventListener("DOMContentLoaded", function () {
             consignment_number: tr.querySelector('.consignment_number') ? tr.querySelector('.consignment_number').value.trim() : (baseRow.consignment_number || ''),
             identifier_type: tr.querySelector('.identifier_type') ? tr.querySelector('.identifier_type').value : (baseRow.identifier_type || 'LRN'),
             pieces: tr.querySelector('.pieces') ? tr.querySelector('.pieces').value : (baseRow.pieces || 1),
-            chargeable_weight: tr.querySelector('.chargeable_weight') ? tr.querySelector('.chargeable_weight').value : (baseRow.chargeable_weight ?? ''),
-            chargeable_volume: tr.querySelector('.chargeable_volume') ? tr.querySelector('.chargeable_volume').value : (baseRow.chargeable_volume ?? ''),
+            weight: tr.querySelector('.weight') ? tr.querySelector('.weight').value : (baseRow.weight ?? ''),
+            volume: tr.querySelector('.volume') ? tr.querySelector('.volume').value : (baseRow.volume ?? ''),
             measurement_mode: tr.querySelector('.measurement_mode') ? tr.querySelector('.measurement_mode').value : measurementMode(baseRow),
             status: tr.querySelector('.status') ? tr.querySelector('.status').value.trim() : (baseRow.status || ''),
             pickup_address: tr.querySelector('.pickup_address') ? tr.querySelector('.pickup_address').value.trim() : (baseRow.pickup_address || ''),
@@ -223,11 +223,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function populateModal(row) {
         clearModalValidation();
-        packageEditor.set(row.package_contents, row.pieces || 1, row.chargeable_weight);
+        packageEditor.set(row.package_contents, row.pieces || 1, row.weight);
         packageStep(false);
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
-        ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
+        ['identifier_type', 'pieces', 'weight', 'volume'].forEach(function (name) {
             document.getElementById('modal-' + name.replaceAll('_', '-')).value = row[name] ?? (name === 'identifier_type' ? 'LRN' : name === 'pieces' ? 1 : '');
         });
         document.getElementById('modal-measurement-mode').value = measurementMode(row);
@@ -280,7 +280,7 @@ document.addEventListener("DOMContentLoaded", function () {
             company_id: data.company_id ?? null, company_name: data.company_name || '',
             consignment_number: data.consignment_number || "",
             identifier_type: data.identifier_type || "LRN", pieces: data.pieces ?? 1,
-            chargeable_weight: data.chargeable_weight ?? "", chargeable_volume: data.chargeable_volume ?? "",
+            weight: data.weight ?? "", volume: data.volume ?? "",
             measurement_mode: measurementMode(data),
             volume_unit: 'ft3', package_contents: data.package_contents ?? null,
             status: data.status || "",
@@ -336,8 +336,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
             '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBFT)</option></select>' +
-                '<label class="unit-field" data-measurement="weight">' + buildNumberInput('chargeable_weight', source.chargeable_weight ?? '', 0, '0.001') + '<span>kg</span></label>' +
-                '<label class="unit-field" data-measurement="volume">' + buildNumberInput('chargeable_volume', source.chargeable_volume ?? '', 0, '0.001') + '<span>ft³</span></label></div></td>' +
+                '<label class="unit-field" data-measurement="weight">' + buildNumberInput('weight', source.weight ?? '', 0, '0.001') + '<span>kg</span></label>' +
+                '<label class="unit-field" data-measurement="volume">' + buildNumberInput('volume', source.volume ?? '', 0, '0.001') + '<span>ft³</span></label></div></td>' +
             "<td>" + buildStatusSelect(source.status || "") + "</td>" +
             '<td><div class="cell-stack">' + buildTextInput("pickup_tag", source.pickup_tag || "", "Pickup tag") +
                 buildTextInput("pickup_date", source.pickup_date || "", "Pickup date") + '</div></td>' +
@@ -441,7 +441,7 @@ document.addEventListener("DOMContentLoaded", function () {
             source.package_contents = packageEditor.read();
         } catch (error) { packageStep(true); showModalError(error.message); return false; }
         source.company_name = window.companyPresets.companyName(source.company_id);
-        ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
+        ['identifier_type', 'pieces', 'weight', 'volume'].forEach(function (name) {
             source[name] = document.getElementById('modal-' + name.replaceAll('_', '-')).value;
         });
         source.status = status;
@@ -458,7 +458,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (tr) {
             tr.querySelector('.measurement_mode').value = source.measurement_mode;
             updateMeasurementControls(tr, source.measurement_mode);
-            ['identifier_type', 'pieces', 'chargeable_weight', 'chargeable_volume'].forEach(function (name) {
+            ['identifier_type', 'pieces', 'weight', 'volume'].forEach(function (name) {
                 var input = tr.querySelector('.' + name);
                 if (input) input.value = source[name];
             });

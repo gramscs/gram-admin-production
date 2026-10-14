@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from openpyxl import Workbook, load_workbook
@@ -29,7 +28,7 @@ def _get_supabase_client():
     url = os.getenv("SUPABASE_URL", "").strip()
     key = os.getenv("SUPABASE_KEY", "").strip()
     if not url and not key:
-        return None
+        raise RuntimeError('Set SUPABASE_URL and SUPABASE_KEY. Local file storage is disabled.')
     if not url or not key:
         raise RuntimeError('Set both SUPABASE_URL and SUPABASE_KEY to use Supabase Storage.')
     try:
@@ -42,35 +41,8 @@ def _get_supabase_client():
         raise RuntimeError('Supabase Storage could not initialize. Check SUPABASE_URL and use the legacy service_role key for SUPABASE_KEY.') from None
 
 
-def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None, *, remote_prefix='consignments', require_remote=False):
+def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None, *, remote_prefix='consignments'):
     supa = _get_supabase_client()
-    if supa:
-        bucket = bucket_name or os.getenv("SUPABASE_BUCKET", '').strip() or 'pod-uploads'
-        object_path = f"{remote_prefix}/{filename}"
-        payload = file_bytes
-        if hasattr(payload, "read"):
-            payload = payload.read()
-        if isinstance(payload, bytearray):
-            payload = bytes(payload)
-        if not isinstance(payload, (bytes, bytearray)):
-            raise TypeError("POD upload payload must be bytes-like.")
-        try:
-            supa.storage.from_(bucket).upload(object_path, payload, {"content-type": content_type or "application/octet-stream"})
-        except Exception:
-            try:
-                supa.storage.from_(bucket).remove([object_path])
-            except Exception:
-                logger.exception("Failed to clean incomplete document upload")
-            raise
-        return f"supabase:{bucket}/{object_path}"
-
-    if require_remote:
-        raise RuntimeError('Set SUPABASE_URL and SUPABASE_KEY to use the configured report bucket.')
-    return _store_local_bytes(filename, file_bytes)
-
-
-def _store_local_bytes(filename, file_bytes):
-    """Write a private upload without consulting remote storage settings."""
     payload = file_bytes
     if hasattr(payload, "read"):
         payload = payload.read()
@@ -79,45 +51,27 @@ def _store_local_bytes(filename, file_bytes):
     if not isinstance(payload, (bytes, bytearray)):
         raise TypeError("POD upload payload must be bytes-like.")
 
-    upload_folder = os.path.join(current_app.instance_path, "uploads")
-    os.makedirs(upload_folder, exist_ok=True)
-    root = Path(upload_folder).resolve()
-    target = (root / filename).resolve()
-    if not target.is_relative_to(root):
-        raise ValueError('Invalid document storage path.')
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    dest_path = str(target)
-    opened = False
+    bucket = bucket_name or os.getenv("SUPABASE_BUCKET", '').strip() or 'pod-uploads'
+    object_path = f"{remote_prefix}/{filename}"
     try:
-        with open(dest_path, "xb") as handle:
-            opened = True
-            handle.write(payload)
+        supa.storage.from_(bucket).upload(object_path, payload, {"content-type": content_type or "application/octet-stream"})
     except Exception:
-        if opened and os.path.isfile(dest_path):
-            os.remove(dest_path)
-        _remove_empty_upload_directory(target, root)
+        try:
+            supa.storage.from_(bucket).remove([object_path])
+        except Exception:
+            logger.exception("Failed to clean incomplete document upload")
         raise
-    return filename
+    return f"supabase:{bucket}/{object_path}"
 
 
 def _store_mis_bytes(filename, content, mime):
-    bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip()
-    if not bucket:
-        return _store_local_bytes('mis_reports/' + filename, content)
+    bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     document_buckets = {os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
                         os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads'}
     if bucket in document_buckets:
         raise ValueError('Use a separate MIS bucket, rather than the POD or invoice bucket.')
     return _store_pod_bytes(filename, content, mime, bucket_name=bucket,
-                            remote_prefix='mis_reports', require_remote=True)
-
-
-def _remove_empty_upload_directory(path, root):
-    if path.parent != root:
-        try:
-            path.parent.rmdir()
-        except OSError:
-            pass  # Other files/history in the directory must remain untouched.
+                            remote_prefix='mis_reports')
 
 
 def _parse_supabase_pod_value(pod_value):
@@ -176,12 +130,7 @@ def _delete_pod_file(pod_value):
             raise RuntimeError('Storage did not remove the requested document.')
         return
 
-    upload_folder = os.path.join(current_app.instance_path, "uploads")
-    pod_value = pod_value.removeprefix('local:')
-    pod_path = os.path.normpath(os.path.join(upload_folder, pod_value))
-    if Path(pod_path).resolve().is_relative_to(Path(upload_folder).resolve()) and os.path.isfile(pod_path):
-        os.remove(pod_path)
-        _remove_empty_upload_directory(Path(pod_path).resolve(), Path(upload_folder).resolve())
+    raise ValueError('This file is not stored in Supabase. Local file storage is disabled.')
 
 
 def _is_external_pod_url(value):
@@ -201,11 +150,11 @@ def _serialize_consignment(consignment):
         "consignment_number": getattr(consignment, "consignment_number", None),
         "identifier_type": consignment.identifier_type or "LRN",
         "pieces": consignment.pieces or 1,
-        "chargeable_weight": str(consignment.chargeable_weight) if consignment.chargeable_weight is not None else None,
-        "chargeable_volume": str(volume_ft3(consignment)) if consignment.chargeable_volume is not None else None,
+        "weight": str(consignment.weight) if consignment.weight is not None else None,
+        "volume": str(volume_ft3(consignment)) if consignment.volume is not None else None,
         "volume_unit": "ft3",
         "package_contents": consignment.package_contents,
-        "measurement_mode": consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
+        "measurement_mode": consignment.measurement_mode or ('volume' if consignment.volume is not None and consignment.weight is None else 'weight'),
         "company_id": consignment.company_id,
         "company_name": consignment.company.name if consignment.company else None,
         "status": getattr(consignment, "status", None),
@@ -265,7 +214,7 @@ def consignments_list_api():
         sort_order = request.args.get("sort_order", "asc", type=str)
 
         allowed_sort_columns = {
-            "id", "consignment_number", "identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "status", "pickup_pincode", "drop_pincode",
+            "id", "consignment_number", "identifier_type", "pieces", "weight", "volume", "status", "pickup_pincode", "drop_pincode",
             "pickup_tag", "drop_tag", "pickup_date", "drop_date",
         }
         if sort_by not in allowed_sort_columns:
@@ -350,7 +299,9 @@ def consignments_import_excel():
 
     workbook = load_workbook(uploaded_file, data_only=True)
     sheet = workbook.active
-    measurement_headers = {"weight": "chargeable_weight", "volume": "chargeable_volume", "boxes_pallets": "pieces"}
+    measurement_headers = {
+        "weight": "weight", "volume": "volume", "boxes_pallets": "pieces",
+    }
     headers = [measurement_headers.get(_normalize_header(cell), _normalize_header(cell)) for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
 
     existing_numbers = {
@@ -443,9 +394,9 @@ def consignments_export_excel():
             getattr(consignment, "pickup_address", None),
             getattr(consignment, "drop_address", None),
             consignment.identifier_type, consignment.pieces,
-            consignment.chargeable_weight, volume_ft3(consignment),
+            consignment.weight, volume_ft3(consignment),
             models.export_id(consignment.company_id), consignment.company.name if consignment.company else None,
-            consignment.measurement_mode or ('volume' if consignment.chargeable_volume is not None and consignment.chargeable_weight is None else 'weight'),
+            consignment.measurement_mode or ('volume' if consignment.volume is not None and consignment.weight is None else 'weight'),
             'ft3', json.dumps(consignment.package_contents) if consignment.package_contents else None,
         ])
 
@@ -521,12 +472,12 @@ def _normalize_shipment_fields(row, existing=None):
         except (ValueError, TypeError):
             raise ValueError('Box contents must be valid JSON in the import file.') from None
     fields['package_contents'] = normalize_contents(contents, int(pieces))
-    if 'chargeable_volume' in row:
+    if 'volume' in row:
         unit = row.get('volume_unit') or 'ft3'
         if unit not in ('ft3', 'm3'):
             raise ValueError('Volume unit must be ft3 (CBFT) or m3 (legacy CBM import).')
         fields['volume_unit'] = unit
-    mode = value('measurement_mode', None) or ('volume' if value('chargeable_volume', None) not in (None, '') and value('chargeable_weight', None) in (None, '') else 'weight')
+    mode = value('measurement_mode', None) or ('volume' if value('volume', None) not in (None, '') and value('weight', None) in (None, '') else 'weight')
     if mode not in ('weight', 'volume'):
         raise ValueError('Choose Weight (kg) or Volume (ft³).')
     fields['measurement_mode'] = mode
@@ -543,7 +494,7 @@ def _normalize_shipment_fields(row, existing=None):
     if models.using_er() and fields['company_id'] != getattr(existing, 'company_id', None):
         fields['pickup_location_id'] = None
         fields['drop_location_id'] = None
-    for name in ("chargeable_weight", "chargeable_volume"):
+    for name in ("weight", "volume"):
         raw = value(name, None)
         if raw in (None, ""):
             fields[name] = None
@@ -553,7 +504,7 @@ def _normalize_shipment_fields(row, existing=None):
             if not number.is_finite() or number < 0 or number > Decimal("999999999.999") or number != number.quantize(Decimal("0.001")):
                 raise ValueError()
         except (InvalidOperation, ValueError):
-            title = "Weight" if name == "chargeable_weight" else "Volume"
+            title = "Weight" if name == "weight" else "Volume"
             raise ValueError(f"{title} must be non-negative with up to 3 decimal places.") from None
         fields[name] = number
     return fields

@@ -1,124 +1,106 @@
-"""Storage checks are read-only; broken remote settings never redirect uploads."""
-import io
+"""Storage diagnostics fail explicitly instead of falling back to local files."""
 import sys
-from pathlib import Path
 
 import pytest
 
 from app.admin import consignment_controller as controller
-from test_shipment_documents import create_shipment, attachment, image_bytes
-from test_complete_backup import unpack
+from test_shipment_documents import attachment, image_bytes
 
 
-@pytest.mark.parametrize('url,key', [('https://test.supabase.co', ''), ('', 'private-test-key')])
-@pytest.mark.parametrize('kind', ['pod', 'invoice'])
-def test_incomplete_settings_reject_upload_and_preserve_existing_file(app, admin_client, monkeypatch, url, key, kind):
-    field = 'pod_image' if kind == 'pod' else 'invoice_file'
-    row = create_shipment(admin_client, **attachment(kind, image_bytes(), 'old.png'))
-    old = Path(app.instance_path, 'uploads', row[field])
-    before = old.read_bytes()
-    monkeypatch.setenv('SUPABASE_URL', url)
-    monkeypatch.setenv('SUPABASE_KEY', key)
-    with pytest.raises(RuntimeError, match='Set both SUPABASE_URL and SUPABASE_KEY'):
+@pytest.mark.parametrize("url,key", [("https://test.supabase.co", ""), ("", "test-key")])
+@pytest.mark.parametrize("kind", ["pod", "invoice"])
+def test_incomplete_settings_reject_upload_without_local_fallback(
+        app, admin_client, monkeypatch, url, key, kind):
+    monkeypatch.setenv("SUPABASE_URL", url)
+    monkeypatch.setenv("SUPABASE_KEY", key)
+    with pytest.raises(RuntimeError, match="SUPABASE_URL and SUPABASE_KEY"):
         controller._get_supabase_client()
-    result = admin_client.post('/admin/consignments/' + str(row['id']) + '/' + kind,
-                               data={'file': (io.BytesIO(image_bytes()), 'new.png')})
+    result = admin_client.post(
+        "/admin/consignments/save",
+        json={"rows": [{"consignment_number": "NO-LOCAL-" + kind,
+                        **attachment(kind, image_bytes(), "proof.png")}]},
+    )
     assert result.status_code == 500
-    assert old.read_bytes() == before and list(old.parent.iterdir()) == [old]
-    assert admin_client.get('/admin/consignments/list').json['rows'][0][field] == row[field]
-    checked = app.test_cli_runner().invoke(args=['check-storage'])
-    assert checked.exit_code != 0 and 'Set both' in checked.output and 'private-test-key' not in checked.output
+    from app import orm as models
+    with app.app_context():
+        assert models.Consignment.query.filter_by(consignment_number="NO-LOCAL-" + kind).first() is None
 
 
-@pytest.mark.parametrize('failure', ['missing_sdk', 'invalid_client'])
-def test_remote_initialization_failure_does_not_fall_back_or_expose_keys(app, monkeypatch, failure):
-    secret = 'PRIVATE-TEST-KEY-DO-NOT-PRINT'
-    monkeypatch.setenv('SUPABASE_URL', 'https://test.supabase.co')
-    monkeypatch.setenv('SUPABASE_KEY', secret)
-    if failure == 'missing_sdk':
-        monkeypatch.setitem(sys.modules, 'supabase', None)
+@pytest.mark.parametrize("failure", ["missing_sdk", "invalid_client"])
+def test_remote_initialization_failure_does_not_expose_keys_or_write_files(
+        app, monkeypatch, failure):
+    secret = "PRIVATE-TEST-KEY-DO-NOT-PRINT"
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", secret)
+    if failure == "missing_sdk":
+        monkeypatch.setitem(sys.modules, "supabase", None)
     else:
         import supabase
-        def invalid(*args):
-            raise ValueError(secret)
-        monkeypatch.setattr(supabase, 'create_client', invalid)
+        monkeypatch.setattr(supabase, "create_client", lambda *_: (_ for _ in ()).throw(ValueError(secret)))
     with app.app_context(), pytest.raises(RuntimeError):
-        controller._store_pod_bytes('never-created.png', image_bytes(), 'image/png')
-    assert not list(Path(app.instance_path, 'uploads').glob('*'))
-    result = app.test_cli_runner().invoke(args=['check-storage'])
-    assert result.exit_code != 0 and secret not in result.output
+        controller._store_pod_bytes("never-created.png", image_bytes(), "image/png")
+    checked = app.test_cli_runner().invoke(args=["check-storage"])
+    assert checked.exit_code != 0 and secret not in checked.output
 
 
-def test_local_check_explains_database_and_storage_are_separate(app, monkeypatch):
-    monkeypatch.setenv('SUPABASE_URL', '')
-    monkeypatch.setenv('SUPABASE_KEY', '')
-    root = Path(app.instance_path, 'uploads')
-    root.mkdir(exist_ok=True)
-    original = root / 'existing.png'; original.write_bytes(image_bytes())
-    before = original.read_bytes()
-    result = app.test_cli_runner().invoke(args=['check-storage'])
-    assert result.exit_code == 0 and 'Storage: local.' in result.output
-    assert 'does not enable Supabase Storage' in result.output
-    assert 'No files or database records were changed' in result.output
-    assert original.read_bytes() == before and list(root.iterdir()) == [original]
+def test_check_storage_requires_supabase_credentials(app, monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_KEY", "")
+    result = app.test_cli_runner().invoke(args=["check-storage"])
+    assert result.exit_code != 0
+    assert "Local file storage is disabled" in result.output
 
 
-def test_broken_remote_settings_still_allow_backup_of_local_files(app, admin_client, monkeypatch):
-    row = create_shipment(admin_client, **attachment('pod', image_bytes(), 'existing.png'))
-    original = Path(app.instance_path, 'uploads', row['pod_image']).read_bytes()
-    monkeypatch.setenv('SUPABASE_URL', 'https://test.supabase.co')
-    monkeypatch.setenv('SUPABASE_KEY', 'PRIVATE-TEST-KEY')
-    def broken():
-        raise RuntimeError('Invalid storage configuration')
-    monkeypatch.setattr(controller, '_get_supabase_client', broken)
-    response = admin_client.get('/admin/generate-backup')
-    archive, data, report = unpack(response)
-    assert response.headers['X-Backup-Status'] == 'incomplete'
-    assert archive.read(data['consignments'][0]['pod_backup_path']) == original
-    assert {item['bucket'] for item in report['inventory_errors']} == {'pod-uploads', 'invoice-uploads'}
-    assert 'PRIVATE-TEST-KEY' not in str(report)
-
-
-@pytest.mark.parametrize('report_bucket', ['', 'mis-reports'])
-@pytest.mark.parametrize('fail_bucket', [None, 'invoice-uploads'])
-def test_remote_checks_both_buckets_without_writing(app, monkeypatch, fail_bucket, report_bucket):
+@pytest.mark.parametrize("fail_bucket", [None, "invoice-uploads"])
+def test_storage_check_reads_buckets_without_mutating_them(app, monkeypatch, fail_bucket):
     reads = []
+
     class Bucket:
-        def __init__(self, name): self.name = name
+        def __init__(self, name):
+            self.name = name
+
         def list(self, path, options):
-            reads.append(('list', self.name, path, options))
-            if self.name == fail_bucket: raise RuntimeError('PRIVATE-KEY-IN-REMOTE-ERROR')
+            reads.append(("list", self.name, path, options))
+            if self.name == fail_bucket:
+                raise RuntimeError("PRIVATE-KEY-IN-REMOTE-ERROR")
             return []
-        def upload(self, *args): raise AssertionError('Read-only command uploaded a file')
-        def remove(self, *args): raise AssertionError('Read-only command removed a file')
+
+        def upload(self, *args):
+            raise AssertionError("Read-only check uploaded a file")
+
+        def remove(self, *args):
+            raise AssertionError("Read-only check removed a file")
+
     class Storage:
-        def get_bucket(self, name): reads.append(('bucket', name))
-        def from_(self, name): return Bucket(name)
+        def get_bucket(self, name):
+            reads.append(("bucket", name))
+
+        def from_(self, name):
+            return Bucket(name)
+
     class Client:
         storage = Storage()
-    monkeypatch.setattr(controller, '_get_supabase_client', lambda: Client())
-    monkeypatch.setenv('SUPABASE_BUCKET', 'pod-uploads')
-    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'invoice-uploads')
-    monkeypatch.setenv('SUPABASE_MIS_BUCKET', report_bucket)
-    result = app.test_cli_runner().invoke(args=['check-storage'])
+
+    import supabase
+    monkeypatch.setattr(supabase, "create_client", lambda *_: Client())
+    monkeypatch.setenv("SUPABASE_BUCKET", "pod-uploads")
+    monkeypatch.setenv("SUPABASE_INVOICE_BUCKET", "invoice-uploads")
+    monkeypatch.setenv("SUPABASE_MIS_BUCKET", "mis-reports")
+    result = app.test_cli_runner().invoke(args=["check-storage"])
     assert result.exit_code == (1 if fail_bucket else 0)
-    assert ('list', 'pod-uploads', 'consignments', {'limit': 1}) in reads
-    assert ('list', 'invoice-uploads', 'consignments', {'limit': 1}) in reads
-    assert 'Upload permissions were not tested' in result.output
-    assert 'PRIVATE-KEY-IN-REMOTE-ERROR' not in result.output
-    assert 'POD: readable at pod-uploads/consignments' in result.output
-    if report_bucket:
-        assert ('list', 'mis-reports', 'mis_reports', {'limit': 1}) in reads
-        assert 'MIS: readable at mis-reports/mis_reports' in result.output
-    else:
-        assert 'MIS: private local report storage' in result.output
+    assert ("list", "pod-uploads", "consignments", {"limit": 1}) in reads
+    assert ("list", "invoice-uploads", "consignments", {"limit": 1}) in reads
+    assert ("list", "mis-reports", "mis_reports", {"limit": 1}) in reads
+    assert "Upload permissions were not tested" in result.output
+    assert "PRIVATE-KEY-IN-REMOTE-ERROR" not in result.output
 
 
-@pytest.mark.parametrize('bucket', ['pod-uploads', 'invoice-uploads'])
-def test_storage_check_rejects_reusing_a_document_bucket_for_reports(app, monkeypatch, bucket):
-    monkeypatch.setattr(controller, '_get_supabase_client', lambda: object())
-    monkeypatch.setenv('SUPABASE_BUCKET', 'pod-uploads')
-    monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'invoice-uploads')
-    monkeypatch.setenv('SUPABASE_MIS_BUCKET', bucket)
-    checked = app.test_cli_runner().invoke(args=['check-storage'])
-    assert checked.exit_code != 0 and 'must be separate' in checked.output
+@pytest.mark.parametrize("bucket", ["pod-uploads", "invoice-uploads"])
+def test_storage_check_rejects_shared_report_bucket(app, monkeypatch, bucket):
+    import supabase
+    monkeypatch.setattr(supabase, "create_client", lambda *_: object())
+    monkeypatch.setenv("SUPABASE_BUCKET", "pod-uploads")
+    monkeypatch.setenv("SUPABASE_INVOICE_BUCKET", "invoice-uploads")
+    monkeypatch.setenv("SUPABASE_MIS_BUCKET", bucket)
+    result = app.test_cli_runner().invoke(args=["check-storage"])
+    assert result.exit_code != 0 and "must be separate" in result.output

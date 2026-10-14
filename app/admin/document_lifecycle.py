@@ -1,12 +1,9 @@
 """Coordinate explicit document deletion with private storage and SQL rollback."""
 from contextlib import ExitStack
 import hashlib
-import json
 import mimetypes
-from pathlib import Path
 import shutil
 from tempfile import SpooledTemporaryFile
-from uuid import uuid4
 
 import click
 from flask import current_app
@@ -38,26 +35,18 @@ def storage_object_missing(error):
 
 
 def _managed_reference(value):
-    if not isinstance(value, str) or not value or value.lower().startswith(('http:', 'https:', 'data:')):
-        return False
-    if value.startswith('supabase:'):
-        return True
-    root = Path(current_app.instance_path, 'uploads').resolve()
-    return (root / value.removeprefix('local:')).resolve().is_relative_to(root)
+    return isinstance(value, str) and value.startswith('supabase:')
 
 
 def document_is_retained(value):
     """Protect shared attachments, retained versions and report files."""
-    canonical = value if value.startswith(('local:', 'supabase:')) else 'local:' + value
+    canonical = value
     if models.using_er():
         from app.er_adapter import File
         return db.session.query(File).filter_by(storage_path=canonical).first() is not None
-    variants = {value, canonical}
-    if canonical.startswith('local:'):
-        variants.add(canonical.removeprefix('local:'))
-    return (models.Consignment.query.filter(or_(models.Consignment.pod_image.in_(variants),
-                                              models.Consignment.invoice_file.in_(variants))).first() is not None
-            or models.MisReport.query.filter(models.MisReport.file_ref.in_(variants)).first() is not None)
+    return (models.Consignment.query.filter(or_(models.Consignment.pod_image == canonical,
+                                              models.Consignment.invoice_file == canonical)).first() is not None
+            or models.MisReport.query.filter(models.MisReport.file_ref == canonical).first() is not None)
 
 
 def purge_shipment_documents(row, obsolete, kind=None):
@@ -113,34 +102,10 @@ def _restore_document(value, backup):
         mime = mimetypes.guess_type(path)[0] or 'application/octet-stream'
         client.storage.from_(bucket).upload(path, backup.read(), {'content-type': mime, 'upsert': 'true'})
     else:
-        path = Path(current_app.instance_path, 'uploads', value.removeprefix('local:')).resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('xb') as target:
-            shutil.copyfileobj(backup, target)
+        raise RuntimeError('Cannot restore a document that is not stored in Supabase.')
     with open_stored_document(value) as (source, _):
         if hashlib.file_digest(source, 'sha256').digest() != digest:
             raise RuntimeError('Storage did not restore the original document.')
-
-
-def _save_recovery_copy(value, backup):
-    """Keep bytes available for manual recovery if the provider stays unavailable.
-
-    This private folder is included in the existing complete upload backup and
-    is never exposed as a static directory or attached to another shipment.
-    """
-    root = Path(current_app.instance_path, 'uploads', '.document-recovery', uuid4().hex)
-    root.mkdir(parents=True, mode=0o700)
-    suffix = Path(value).suffix or '.bin'
-    target = root / ('document' + suffix)
-    backup.seek(0)
-    with target.open('xb') as output:
-        target.chmod(0o600)
-        shutil.copyfileobj(backup, output)
-    manifest = root / 'reference.json'
-    with manifest.open('x') as output:
-        manifest.chmod(0o600)
-        json.dump({'storage_reference': value, 'recovery_file': target.name}, output)
-    current_app.logger.error('Manual document recovery copy saved at %s.', root)
 
 
 def commit_document_cleanup(obsolete):
@@ -182,10 +147,6 @@ def commit_document_cleanup(obsolete):
                 except Exception:
                     restoration_failed = True
                     current_app.logger.error('Document storage restoration failed; manual recovery is required.')
-                    try:
-                        _save_recovery_copy(value, backups[value])
-                    except Exception:
-                        current_app.logger.error('Unable to save a local document recovery copy.')
             if restoration_failed:
                 raise StorageSyncError('Save failed and a stored file could not be restored. Database changes were rolled back. Check storage before retrying.') from None
             raise StorageSyncError('Save failed. Your previous documents were preserved. Check database and Storage delete permissions, then try again.') from None

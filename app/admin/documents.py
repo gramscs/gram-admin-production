@@ -64,17 +64,7 @@ def open_stored_document(value):
         with io.BytesIO(content) as source:
             yield source, name
     else:
-        value = value.removeprefix('local:')
-        root = Path(current_app.instance_path, 'uploads').resolve()
-        path = (root / value).resolve()
-        if not path.is_relative_to(root):
-            raise ValueError('Invalid document path.')
-        if not path.exists():
-            raise FileNotFoundError('Document file missing.')
-        if not path.is_file():
-            raise ValueError('Document reference is not a regular file.')
-        with path.open('rb') as source:
-            yield source, path.name
+        raise ValueError('This file is not stored in Supabase. Local file storage is disabled.')
 
 
 def _check_pdf_tree(root):

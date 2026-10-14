@@ -1,6 +1,5 @@
 import base64
 import io
-from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
@@ -83,18 +82,18 @@ def test_invalid_shipment_is_not_saved(admin_client):
     assert admin_client.get("/admin/consignments/list").get_json()["total"] == 0
 
 
-def test_delivery_proof_save_download_and_remove(admin_client, app):
+def test_delivery_proof_save_download_and_remove(admin_client, app, isolated_storage):
     image = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZQAAAABJRU5ErkJggg==")
     row = save(admin_client, pod_file_data="data:image/png;base64," + base64.b64encode(image).decode(), pod_file_name="proof.png", pod_file_type="image/png")
-    pod_path = Path(app.instance_path) / "uploads" / row["pod_image"]
+    bucket, object_path = row["pod_image"].removeprefix("supabase:").split("/", 1)
+    assert isolated_storage.storage.from_(bucket).download(object_path)
     from PIL import Image
-    assert Image.open(pod_path).size == (1, 1)
     response = admin_client.get(f"/admin/consignments/{row['id']}/pod")
     assert response.status_code == 200
     assert Image.open(io.BytesIO(response.data)).size == (1, 1)
     response = admin_client.delete(f"/admin/consignments/{row['id']}/pod")
     assert response.get_json()["success"]
-    assert not pod_path.exists()
+    assert (bucket, object_path) not in isolated_storage.storage.objects
     assert admin_client.get(f"/admin/consignments/{row['id']}/pod").status_code == 404
 
 
@@ -148,10 +147,10 @@ def test_removed_leads_preserves_legacy_data_in_backup(admin_client, app):
 
 def test_health_and_init_db_command(client, app):
     assert client.get("/health").get_json()["status"] == "ok"
-    assert client.get("/health/db").get_json() == {"status": "ok", "database": "sqlite"}
+    assert client.get("/health/db").get_json() == {"status": "ok", "database": "postgresql"}
     result = app.test_cli_runner().invoke(args=["init-db"])
     assert result.exit_code == 0
-    assert "Database tables created" in result.output
+    assert "ER backend ready" in result.output
     checked = app.test_cli_runner().invoke(args=["check-db"])
     assert checked.exit_code == 0
     assert "All required admin tables and columns are present" in checked.output
@@ -176,7 +175,7 @@ def test_production_requires_configuration(app, monkeypatch, tmp_path, missing):
     monkeypatch.setenv("FLASK_ENV", "production")
     monkeypatch.setenv("SECRET_KEY", "test-only-key")
     monkeypatch.setenv("ADMIN_PASSWORD_HASH", "test-only-hash")
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'production.db'}")
+    monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.delenv(missing)
     with pytest.raises(RuntimeError, match=missing):
         create_app({"INSTANCE_PATH": str(tmp_path / "production-instance")})
@@ -210,14 +209,9 @@ def test_supabase_preserves_certificate_verification_settings(app, monkeypatch, 
         db.engine.dispose()
 
 
-def test_supabase_falls_back_to_sqlite_when_placeholder_is_left_in_local_dev(monkeypatch, tmp_path):
-    monkeypatch.setenv("FLASK_ENV", "development")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres.example:[YOUR-PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres")
-    application = create_app({"INSTANCE_PATH": str(tmp_path / "placeholder-instance")})
-    assert application.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:///")
-    assert application.config["SQLALCHEMY_DATABASE_URI"].endswith("admin.db")
-    with application.app_context():
-        db.engine.dispose()
+def test_local_database_urls_are_rejected():
+    with pytest.raises(RuntimeError, match="Only PostgreSQL"):
+        create_app({"SQLALCHEMY_DATABASE_URI": "mysql://user:password@localhost/database"})
 
 
 def test_supabase_rejects_unfilled_password_placeholder(app, monkeypatch, tmp_path):

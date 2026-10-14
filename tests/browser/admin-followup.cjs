@@ -53,7 +53,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
 
         const saved = await page.request.post(base + '/admin/consignments/save', {data: {rows: ['weight', 'volume'].map((mode, index) => ({
             consignment_number: prefix + '-' + index, company_id: company.id, measurement_mode: mode,
-            chargeable_weight: '10.123', chargeable_volume: '9.876', pieces: 1, pickup_date: '2026-10-12',
+            weight: '10.123', volume: '9.876', pieces: 1, pickup_date: '2026-10-12',
             pickup_address: '429 Jagraj Gram, Delhi', drop_address: 'Delhi distribution centre', drop_pincode: '110037'}))}});
         assert.equal(saved.status(), 200);
         const rows = (await (await page.request.get(base + '/admin/consignments/list', {params: {search: prefix}})).json()).rows;

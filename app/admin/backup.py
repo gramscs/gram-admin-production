@@ -61,13 +61,9 @@ def _safe_name(name):
 
 
 def _reference_key(value):
-    value = value.removeprefix('local:')
     if value.startswith('supabase:'):
         return value
-    try:
-        return str((Path(current_app.instance_path, 'uploads') / value).resolve())
-    except (ValueError, OSError, RuntimeError):
-        return 'invalid:' + value
+    return 'unsupported:' + value
 
 
 def _remote_uploads(client, bucket, namespace='consignments'):
@@ -98,21 +94,11 @@ def _remote_uploads(client, bucket, namespace='consignments'):
 
 
 def _inventory(referenced, report):
-    root = Path(current_app.instance_path, 'uploads')
-    def listing_error(error):
-        report['inventory_errors'].append({'source': 'local_uploads', 'message': 'Part of the local upload folder could not be listed.'})
-    try:
-        if root.exists():
-            for directory, folders, files in os.walk(root, onerror=listing_error, followlinks=False):
-                folders.sort()
-                paths = [Path(directory, name) for name in sorted(files)]
-                paths.extend(Path(directory, name) for name in folders if Path(directory, name).is_symlink())
-                for path in paths:
-                    value = str(path.relative_to(root))
-                    if _reference_key(value) not in referenced:
-                        yield value, 'local_uploads'
-    except Exception:
-        report['inventory_errors'].append({'source': 'local_uploads', 'message': 'The local upload folder could not be fully listed.'})
+    if any(value.startswith('unsupported:') for value in referenced):
+        report['inventory_errors'].append({
+            'source': 'unsupported_storage',
+            'message': 'Some database file references are not stored in Supabase and were not included.',
+        })
     from app.admin.consignment_controller import _get_supabase_client, _parse_supabase_pod_value
     buckets, report_buckets = set(), set()
     for value in referenced:
@@ -124,24 +110,20 @@ def _inventory(referenced, report):
                     report_buckets.add(bucket)
             except ValueError:
                 report['inventory_errors'].append({'source': 'supabase_uploads', 'message': 'A legacy storage reference is invalid.'})
-    configured = bool(os.getenv('SUPABASE_URL', '').strip() and os.getenv('SUPABASE_KEY', '').strip())
-    if configured:
-        buckets.add(os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads')
-        buckets.add(os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads')
-        if bucket := os.getenv('SUPABASE_MIS_BUCKET', '').strip():
-            buckets.add(bucket)
-            report_buckets.add(bucket)
+    buckets.update((os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
+                    os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads'))
+    report_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
+    buckets.add(report_bucket)
+    report_buckets.add(report_bucket)
     if not buckets:
         return
     try:
         client = _get_supabase_client()
     except RuntimeError:
-        client = None
+        raise
     for bucket in sorted(buckets):
         namespace = 'consignments'
         try:
-            if client is None:
-                raise RuntimeError('Storage is unavailable.')
             namespaces = ['consignments'] + (['mis_reports'] if bucket in report_buckets else [])
             for namespace in namespaces:
                 for value in _remote_uploads(client, bucket, namespace):
@@ -195,7 +177,7 @@ def _add_document(archive, report, value, path, **details):
 
 def _sheet(workbook, title, columns, rows):
     sheet = workbook.create_sheet(title[:31])
-    measurement_headers = {"chargeable_weight": "weight", "chargeable_volume": "volume", "pieces": "boxes_pallets"}
+    measurement_headers = {"weight": "weight", "volume": "volume", "pieces": "boxes_pallets"}
     sheet.append([measurement_headers.get(name, name) for name in columns])
     for row in rows:
         cells = []
@@ -220,7 +202,7 @@ def _workbook(payload, report, table_columns):
             extras = {str(item['entity_id']): item['data'] for item in payload.get('admin_record_extras', []) if item['entity_type'] == 'consignments'}
             rows = [{**row, **{name: extras.get(str(row['id']), {}).get(name, row.get(name)) for name in ('volume_unit', 'package_contents')}} for row in rows]
             for row in rows:
-                row['chargeable_volume'] = str(volume_ft3(SimpleNamespace(**row))) if row.get('chargeable_volume') is not None else None
+                row['volume'] = str(volume_ft3(SimpleNamespace(**row))) if row.get('volume') is not None else None
                 row['volume_unit'] = 'ft3'
             columns += [name for name in ('volume_unit', 'package_contents') if name not in columns]
             columns = ['backup_order'] + columns + ['pod_backup_path', 'pod_backup_status', 'invoice_backup_path', 'invoice_backup_status']
@@ -236,7 +218,7 @@ def _workbook(payload, report, table_columns):
 def build_complete_backup(payload):
     buffer = SpooledTemporaryFile(max_size=8*1024*1024, mode='w+b')
     report = {'format_version': 2, 'generated_at': payload['metadata']['generated_at'], 'ordering': 'Consignments ordered by database ID ascending; numeric folder prefixes match backup_order in data and Excel.',
-              'documents': [], 'inventory_errors': [], 'storage_scope': ['instance/uploads/', 'configured/referenced Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
+              'documents': [], 'inventory_errors': [], 'storage_scope': ['Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
     table_columns = {TABLE_KEYS.get(table.name, table.name): [column.key for column in table.columns] for table in models.tables()}
     referenced = set()
     er = models.using_er()

@@ -1,8 +1,7 @@
-"""SQLAlchemy implementation of the ten-table shipment ER diagram.
+"""SQLAlchemy implementation of the shipment ER model.
 
 Importing this module never connects to a database or registers tables with
-the legacy Flask application. PostgreSQL is the production target; SQLite is
-supported for isolated tests. See docs/database-model.md before any migration.
+the Flask application. PostgreSQL is the supported database.
 """
 
 from datetime import UTC, date, datetime
@@ -31,12 +30,6 @@ def _postgres_uuid(element, compiler, **kw):
     return "gen_random_uuid()"
 
 
-@compiles(RandomUUID, "sqlite")
-def _sqlite_uuid(element, compiler, **kw):
-    # The ORM uses uuid4(); this fallback also supports raw SQL inserts.
-    return "(lower(hex(randomblob(16))))"
-
-
 class JsonKind(FunctionElement):
     type = String()
     inherit_cache = True
@@ -47,13 +40,8 @@ def _postgres_json_kind(element, compiler, **kw):
     return "jsonb_typeof(%s)" % compiler.process(element.clauses, **kw)
 
 
-@compiles(JsonKind, "sqlite")
-def _sqlite_json_kind(element, compiler, **kw):
-    return "json_type(%s)" % compiler.process(element.clauses, **kw)
-
-
 class UTCDateTime(TypeDecorator):
-    """Reject ambiguous naive dates; restore UTC on SQLite round trips."""
+    """Reject ambiguous naive dates and normalize persisted timestamps to UTC."""
 
     impl = DateTime(timezone=True)
     cache_ok = True
@@ -132,7 +120,7 @@ class CompanyLocation(UUIDRecord, Base):
         CheckConstraint("trim(label) <> ''", name="label_not_blank"),
         CheckConstraint("trim(address) <> ''", name="address_not_blank"),
         Index("uq_company_locations_default", "company_id", "kind", unique=True,
-              postgresql_where=text("is_default"), sqlite_where=text("is_default")),
+              postgresql_where=text("is_default")),
     )
 
     company_id: Mapped[UUID] = mapped_column(ForeignKey("companies.id", ondelete="RESTRICT"), index=True)
@@ -169,8 +157,8 @@ class Consignment(UUIDRecord, Base):
     identifier_value: Mapped[str] = mapped_column(String(64), unique=True)
     current_status: Mapped[str] = mapped_column(String(200), default="Pickup Scheduled", server_default="Pickup Scheduled")
     pieces: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    chargeable_weight: Mapped[Decimal | None] = mapped_column("weight", Numeric(12, 3), key="chargeable_weight")
-    chargeable_volume: Mapped[Decimal | None] = mapped_column("volume", Numeric(12, 3), key="chargeable_volume")
+    weight: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    volume: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
     pickup_address_snapshot: Mapped[str | None] = mapped_column(Text)
     drop_address_snapshot: Mapped[str | None] = mapped_column(Text)
     planned_pickup_date: Mapped[date | None] = mapped_column(Date, index=True)
@@ -230,7 +218,7 @@ class ShipmentDocument(UUIDRecord, Base):
         CheckConstraint("version >= 1", name="positive_version"),
         UniqueConstraint("consignment_id", "document_type", "version", name="uq_shipment_documents_version"),
         Index("uq_shipment_documents_current", "consignment_id", "document_type", unique=True,
-              postgresql_where=text("is_current"), sqlite_where=text("is_current")),
+              postgresql_where=text("is_current")),
     )
 
     consignment_id: Mapped[UUID] = mapped_column(ForeignKey("consignments.id", ondelete="CASCADE"))
@@ -280,6 +268,27 @@ class MisReport(UUIDRecord, Base):
     view: Mapped[MisView | None] = relationship(back_populates="reports")
     generated_by_user: Mapped[AdminUser | None] = relationship(back_populates="mis_reports")
     file: Mapped[File] = relationship(back_populates="mis_report")
+
+
+class LabelRun(UUIDRecord, Base):
+    __tablename__ = "label_runs"
+    __table_args__ = (
+        CheckConstraint("shipment_count > 0", name="positive_shipment_count"),
+        CheckConstraint("order_sequence_start > 0", name="positive_order_sequence"),
+        CheckConstraint("invoice_sequence_start > 0", name="positive_invoice_sequence"),
+        Index("ix_label_runs_order_date", "order_date"),
+        Index("ix_label_runs_financial_year", "financial_year"),
+    )
+
+    owner: Mapped[str] = mapped_column(String(120))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    order_date: Mapped[date] = mapped_column(Date)
+    financial_year: Mapped[str] = mapped_column(String(7))
+    shipment_count: Mapped[int] = mapped_column(Integer)
+    order_sequence_start: Mapped[int] = mapped_column(Integer)
+    invoice_sequence_start: Mapped[int] = mapped_column(Integer)
+    assignments: Mapped[list] = mapped_column(JSON_DATA)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, server_default=func.current_timestamp())
 
 
 class AuditLog(UUIDRecord, Base):

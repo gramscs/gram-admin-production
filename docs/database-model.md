@@ -1,230 +1,90 @@
 # Shipment database model
 
-This implements the supplied **ten-table ER diagram** as a next database
-version. It is a concrete SQLAlchemy model and a tested PostgreSQL schema.
-The running dashboard still uses `app/models.py`; its database and uploads
-have not been migrated or changed.
+The dashboard stores application records in PostgreSQL and uploaded document
+bytes in private Supabase Storage buckets. It does not use a local database or
+persistent local upload storage.
 
-A [single-run migration](database-migration.md) now creates this model in a
-fresh destination and copies legacy or full-model data, including every source
-table/column in a complete original-row archive. It preserves existing full-model
-UUIDs, history, document versions and relationships. It is run
-explicitly and is not part of app startup or `upgrade-db`.
+The [SQLAlchemy ER model](../database/models.py) implements these ten business
+tables:
 
-## In simple language
+| Table | Purpose |
+| --- | --- |
+| `admin_users` | Dashboard usernames, roles, and active state |
+| `companies` | Client names, contact details, and registered address |
+| `company_locations` | Saved pickup/drop addresses and defaults |
+| `consignments` | Shipment identifiers, status, pieces, weight, volume, dates, and address snapshots |
+| `shipment_events` | Shipment status history and event attribution |
+| `files` | Supabase bucket/path, filename, MIME type, byte size, checksum, and upload time |
+| `shipment_documents` | Versioned POD and invoice references |
+| `mis_views` | Saved report filters, columns, format, and notes |
+| `mis_reports` | Generated report metadata and immutable snapshots |
+| `audit_logs` | Change actor, entity, action, before/after values, and time |
 
-The frontend is the screen you operate. Flask is the backend that receives
-your actions. SQLAlchemy describes how backend objects map to database
-tables. PostgreSQL stores the records. Private file storage holds the actual
-PDF/image/report bytes; the `files` table stores their details and location.
+All primary keys are UUIDs. Database foreign keys protect relationships, except
+`audit_logs.entity_id`, which is a logical reference so audit history survives
+deletion. Physical shipment measurement columns, model attributes, and API
+fields are `weight` and `volume`; aliases for the previous column names are not
+supported.
 
-| Table | What it stores | How it connects |
-| --- | --- | --- |
-| `admin_users` | Internal team usernames, roles, active/inactive state | Identifies who entered events, uploaded files, created views/reports, and made changes |
-| `companies` | Client name, registered address, contact details, active state | One client can have many locations and shipments |
-| `company_locations` | Saved pickup/drop addresses and the default of each kind | Belongs to one company; may be selected as a shipment preset |
-| `consignments` | Shipment identifier, client, current status, boxes/pallets, weight/volume, copied addresses and dates | Links to its client and optional pickup/drop presets |
-| `shipment_events` | Shipment status history, when each event happened, and when it was entered | Many events belong to one shipment; the recording user is optional for historical imports |
-| `files` | Storage bucket/path, filename, MIME type, bytes, checksum, upload time | Shared metadata for documents and generated reports |
-| `shipment_documents` | POD/invoice attachments, their version and current/old state | Links a shipment to a file; retains earlier versions |
-| `mis_views` | Reusable report filters, selected columns, preferred format and notes | Belongs to its creator; can generate many reports |
-| `mis_reports` | Generated report details, fixed filters/columns/metrics, shipment count | Links to its generating user, optional saved view, and one unique report file |
-| `audit_logs` | Who changed which record, action, before/after values, and time | References the actor; keeps the changed record's UUID even if that record is deleted |
+## Integrity rules
 
-All primary keys are UUIDs. All relationships in the diagram have SQLAlchemy
-relationships and database foreign keys, except `audit_logs.entity_id`: that
-is deliberately a logical reference so deletion does not erase the audit trail.
-The physical shipment columns are named `weight` and `volume`; the current
-dashboard's Python properties and API keys retain their existing
-`chargeable_weight` and `chargeable_volume` names for compatibility. The app
-renames the old columns idempotently before serving requests and preserves
-their values.
+- Usernames and company names are unique. Roles are `administrator`,
+  `operator`, or `viewer`.
+- Shipment identifiers use `LRN`, `Order ID`, or `AWB`; identifier values are
+  globally unique.
+- Pieces must be at least one. Weight (kg) and volume (ft³ / CBFT) use
+  `NUMERIC(12,3)` and cannot be negative. Both may be unknown.
+- A selected pickup/drop preset must belong to the shipment's company and have
+  the matching location kind. A company can have at most one default of each
+  kind.
+- Shipment address snapshots are independent from company preset addresses.
+- Planned/expected dates use `DATE`; actual pickup/delivery, event, upload,
+  report, and audit times are timezone-aware UTC timestamps. Unknown physical
+  times are not inferred from expected dates.
+- Supabase storage paths are unique. Every upload gets a distinct object path;
+  replacement creates a new document version rather than overwriting a prior
+  object's bytes.
+- Each shipment/document kind has unique version numbers and at most one current
+  version. Prior versions remain available unless explicitly removed.
+- Report snapshots are immutable after creation except for the display name.
+- Database cascades do not delete Supabase objects. Application deletion
+  coordinates document/reference removal with object cleanup and rolls back
+  database changes if storage cleanup fails.
 
-## Files you can review
-
-- [`database/models.py`](../database/models.py): every table and relationship.
-- [`app/schema_upgrade.py`](../app/schema_upgrade.py): idempotent startup
-  migration that renames existing measurement columns in both schema versions.
-- [`database/integrity.py`](../database/integrity.py): cross-table integrity triggers.
-- [`database/schema.py`](../database/schema.py): generates PostgreSQL SQL without a connection.
-- [`database-schema.sql`](database-schema.sql): the generated schema, including constraints,
-  indexes, defaults and triggers. This is for an **empty staging database**;
-  it is not an upgrade script for the running dashboard.
-- [`tests/test_database_model.py`](../tests/test_database_model.py): actual ORM and raw-SQL
-  checks against SQLite and optionally isolated PostgreSQL.
-
-To regenerate/review SQL, from the repository with the Python environment activated:
+The standalone schema generator can inspect the model without connecting to a
+database:
 
 ```bash
 python -m database.schema
 ```
 
-This command does not load `.env`, read `DATABASE_URL`, connect to Supabase,
-or change any database. The model has separate SQLAlchemy metadata, so
-importing the package alone does not create tables. The dashboard selects these
-models when it detects a migrated target, with separate support metadata for
-existing screen fields.
+The generated [`database-schema.sql`](database-schema.sql) is for an empty
+staging database, not a routine upgrade. For an existing ER database,
+`upgrade-db` only creates missing application support tables; it does not
+recreate business tables or rename/drop columns. See the
+[database upgrade and import guide](database-migration.md).
 
-## Rules built into the database
+## Application support data
 
-- Usernames and client names are unique, following the current app's client rule.
-  Roles are `administrator`, `operator`, or `viewer`.
-- Shipment identifiers are `LRN`, `Order ID`, or `AWB`. The identifier value
-  remains globally unique, matching today's app; introducing per-client Order ID
-  reuse would require a separate business-rule change.
-- Outer boxes/pallets (`pieces` for compatibility) must be at least one. Weight (kg) and volume (ft³ / CBFT) use exact decimal
-  `NUMERIC(12,3)` values and cannot be negative. Both are optional.
-- A shipment may have no assigned company or presets. A selected preset must
-  belong to that shipment's company and have the correct pickup/drop kind.
-  Composite foreign keys enforce ownership; triggers enforce kind, including
-  changes made using raw SQL. A referenced preset's kind cannot be changed.
-- A company can have at most one default pickup and one default drop location.
-  Other presets remain available. Zero defaults is also allowed.
-- Copied shipment addresses are independent strings. Editing the company's
-  preset address does not rewrite existing shipments; the backend must copy
-  or edit the snapshot when saving the shipment form.
-- Planned/expected dates are `DATE`. Actual pickup/delivery, event, upload,
-  report and audit times are timezone-aware timestamps, normalized to UTC
-  by the ORM. Naive Python datetimes are rejected. Actual delivery cannot
-  precede actual pickup when both are known.
-- `occurred_at` and `recorded_at` are separate: an event may be entered later
-  than it happened. Unknown actual times must remain unknown.
-- Storage paths are unique, as shown in the diagram. Generate a fresh object
-  path for every upload, including across buckets. Replacing bytes at an
-  existing path would defeat document versioning and report preservation.
-- File sizes cannot be negative. A known SHA-256 checksum has 64 characters.
-  Historical checksums and upload times may be null when unknown; new uploads
-  should compute checksums from the validated bytes and record the real time.
-  Stored MIME/size/checksum values do not replace
-  the backend's existing PDF/image content-validation checks.
-- Each shipment/document kind has unique version numbers starting at one,
-  and at most one current version. To replace a POD or invoice, retire the
-  current row and add the next version **in one transaction**, locking the
-  shipment to serialize simultaneous replacements. Keep the old file.
-- Multiple shipment documents may reference the same file, supporting
-  existing shared-file cases. Each generated report has a unique file reference.
-- MIS formats are `pdf`, `xlsx`, and `csv`. Filters/metrics are JSON objects;
-  selected columns are JSON arrays. PostgreSQL uses native `JSONB`.
-  Assign replacement objects/lists when editing these ORM fields; in-place
-  nested JSON mutations are not automatically tracked.
-- Report snapshot fields, format, file, generator, shipment count and generation
-  time cannot be edited after insertion. The display name can change.
-  Deleting a saved view clears `view_id` while preserving the report and file.
+The dashboard adapter preserves editable screen fields that are not part of the
+ten-table ER diagram in `admin_record_extras`. Database-backed label numbering
+is stored in `label_runs`. These are additive support tables; the original
+migration archive remains unchanged.
 
-## Deletion and attribution
+## Historical local file references
 
-Referenced companies, presets, files and users cannot be deleted while links
-exist. Deactivate a company/user instead, or explicitly remove a preset link
-without changing the shipment's copied address. These restrictions apply
-to ORM deletion as well as raw SQL; relationships do not silently clear links.
+Existing records that refer to files stored on local disk are left untouched.
+The application does not read or write those paths, so the files are not
+retrievable through the dashboard until separately moved to Supabase and their
+references are migrated with authorization.
 
-At the SQL level, deleting a shipment cascades to its events and document links;
-stored file records/bytes and audit entries remain. Database cascades never
-delete objects from Supabase or local storage automatically.
+## Tests
 
-The portal coordinates explicit removal with storage cleanup: removing a POD or
-invoice purges that shipment's selected document versions, and deleting a
-shipment purges both types. It deletes only file records/bytes with no remaining
-document or MIS report references. Storage failure rolls back SQL changes and
-restores files already deleted; failed restoration is explicitly reported.
-Replacements still retain ER history. Audit records and migration archives remain.
-This coordinated cleanup does not change the underlying FK/cascade rules.
-
-Actor fields are nullable for legacy/system records where attribution is
-unknown. New authenticated actions should populate the real user ID. The
-diagram has no password/auth-provider fields: `admin_users` does not itself
-implement login. No password is stored in this model.
-
-## Dashboard backend
-
-The dashboard supports both legacy local tables and the migrated UUID model.
-See [dashboard cutover](database-migration.md#dashboard-cutover) for the one-time
-`upgrade-db` preparation after importing. Its adapter preserves existing screen
-fields, including the weight/volume measurement choice, in `admin_record_extras`
-and leaves the original-row archive unchanged. Volumes use ft³ after the CBM upgrade; the measurement choice
-does not calculate carrier-specific volumetric weight.
-
-Flask writes shipment status changes, their events and audit entries in one
-transaction. These hooks apply to dashboard ORM writes; raw SQL and other apps
-must record their own history. Event timestamps reflect when the dashboard
-observed the status change, without inventing physical pickup/delivery times.
-Validated uploads link canonical `files` records and versioned documents;
-failed saves clean up staged uploads. Complete backups include historical
-versions, reports, unlinked files, business tables and migration bookkeeping.
-
-Authentication uses the configured environment login/password. In ER mode the
-identity must match an active `admin_users` row; a viewer is denied write requests.
-The model itself stores no password or auth-provider credentials. The importer
-and backend preparation enable PostgreSQL RLS with no browser policies. Backend
-connections need owner privileges or an appropriate privileged role; the schema
-SQL alone does not create policies, grants, buckets or Supabase Auth accounts.
-
-## Existing-data migration plan
-
-Do this on a copy first, retaining the original database and a complete upload
-backup until reconciliation and rollback have been tested.
-
-| Current data | Target mapping |
-| --- | --- |
-| `company.id` / `company.address` | Generate stable UUID mappings; `companies.id` / `registered_address` |
-| `company_location` | `company_locations`; remap its client ID, preserve kind/address/default |
-| `consignment.consignment_number` / `status` | `identifier_value` / `current_status` |
-| Shipment client/boxes/weight/volume | Same meaning; map `company_id` through the UUID map |
-| Shipment pickup/drop addresses | Copy into `pickup_address_snapshot` / `drop_address_snapshot` |
-| String pickup and expected-delivery dates | Parse only recognized formats into typed dates; flag ambiguous values for review |
-| `pod_image` / `invoice_file` | Inventory real files; create deduplicated `files` rows and current version-1 document links |
-| `mis_view` settings and creator strings | Decode JSON text; remap client IDs and renamed column keys; link known creators |
-| `mis_report` files/settings/summary/count | `files` + `mis_reports`; populate fixed snapshots, preserve real generation times |
-| Existing leads/newsletter records | Keep archived in the old schema and complete backup; do not discard or re-enable their UI |
-
-Keep a persisted old-ID → UUID mapping and migration ledger outside the ten
-business tables, so restarts/retries do not invent new identities. Validate
-unique values, defaults, foreign keys, numeric ranges and file checksums
-before importing. Flag missing/unreadable files rather than inventing bytes,
-sizes, MIME types or timestamps. Do not infer preset IDs from similar-looking
-addresses, historical status events from today's current status, or actual
-delivery times from planned dates. Unproven links/times remain null.
-
-**The diagram omits some fields used by today's app:** shipment PIN/tag
-snapshots, the separate drop-date/ETA/debug values, report notes, and saved-view
-update times. The migration retains these in the target original-row archive
-and leaves the original source tables intact. The dashboard restores these
-editable screen values into its separate `admin_record_extras` support table. Saved-view links for old reports also cannot be
-reconstructed reliably, so leave `view_id` null when unknown.
-
-Before switching your running app, compare every
-record count, shipment identifier/client, report snapshot and file checksum
-against the source. Test the dashboard, labels, imports, downloads and full
-backup on the migrated staging copy. Cut over during a controlled write pause,
-with the verified backup and original app/schema available for rollback.
-
-## Validation
-
-The regular test suite checks SQLite without contacting Supabase:
+Database tests require an explicitly configured, dedicated PostgreSQL database.
+Fixtures create a unique schema for each test and reject the active application
+database. Supabase Storage is mocked; tests do not contact real Supabase
+services.
 
 ```bash
-python -m pytest tests/test_database_model.py -q
+ER_TEST_DATABASE_URL=postgresql://.../gram_admin_test python -m pytest -q
 ```
-
-The optional PostgreSQL run uses `ER_TEST_DATABASE_URL`, not the app's
-`DATABASE_URL`. Its fixture rejects anything other than a loopback PostgreSQL
-database called `gram_admin_er_test`. It creates and removes a unique schema
-per test. Set that variable to your disposable test database connection, then
-run the same command. PostgreSQL tests also execute the exported SQL itself.
-
-
-### Box contents and units
-
-`pieces` counts outer boxes/pallets. `package_contents` stores package kind, a
-default number of pieces inside each package and sparse numbered overrides
-(`pieces`, optional 120-character handling `note`). Counts are optional when
-unknown; entered counts must be integers from 1 to 1,000,000. Overrides must
-reference an existing outer package. Application validation rejects reductions
-that would orphan recorded exceptions. Labels read these saved values.
-
-Legacy SQL uses a JSON column and `volume_unit VARCHAR(3)`. ER runtime uses
-`admin_record_extras` for both fields. They are retained in backups and migration
-archives, including ER-to-ER copies. `upgrade-db` converts historical CBM values
-once and records `ft3`, with all numeric changes and unit markers in one transaction.
-Rows without a marker are historical CBM; newly entered values use ft³. Old MIS
-files and archive snapshots preserve their original units and values.

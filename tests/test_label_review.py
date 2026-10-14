@@ -3,20 +3,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 import io
 import json
-from pathlib import Path
-import subprocess
-import sys
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pypdf import PdfReader
 from sqlalchemy import inspect, text
 
-from app import orm as models
 from app.models import db
 from app.admin import label_runs, labels
 from test_er_dashboard import migrated_admin, populated, legacy_engine, disposable_engine
-from test_complete_backup import unpack
 from label_helpers import label_form
 
 
@@ -32,7 +27,7 @@ def create(client, count=1):
     rows = [{'consignment_number': f'LABEL-{index:03d}', 'identifier_type': 'AWB', 'pieces': 2,
         'pickup_date': '2026-10-09', 'pickup_address': '429 Jagraj Gram, Delhi',
         'drop_address': 'Ms Ashiya, Delhi', 'pickup_pincode': '110001', 'drop_pincode': '110037',
-        'chargeable_weight': '100', 'chargeable_volume': '1.5',
+        'weight': '100', 'volume': '1.5',
         'measurement_mode': 'volume' if index % 2 else 'weight'} for index in range(count)]
     saved = client.post('/admin/consignments/save', json={'rows': rows})
     assert saved.status_code == 200, saved.json
@@ -91,9 +86,10 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
             assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
             assert 'EWBN' not in extracted and 'ignore unchecked' not in extracted
     assert snapshot(app) == before
-    archive, _, report = unpack(client.get('/admin/generate-backup'))
-    counter = next(item for item in report['documents'] if (item.get('source_reference') or '').endswith('.label-state/counters.json'))
-    assert json.loads(archive.read(counter['archive_path']))['invoices']['2026-27'] == 2
+    from database.models import LabelRun
+    with app.app_context():
+        run = db.session.get(LabelRun, UUID(data['job_id']))
+        assert run.shipment_count == 2 and run.financial_year == '2026-27'
 
 
 def test_fifty_shipments_and_reprints_keep_one_number_per_shipment(panel, monkeypatch):
@@ -111,8 +107,10 @@ def test_fifty_shipments_and_reprints_keep_one_number_per_shipment(panel, monkey
         code = f'B2B-20261011-{index + 1:04d}'
         assert code in first[index * 2].extract_text() and code in first[index * 2 + 1].extract_text()
         assert code in second[index * 2].extract_text()
-    state = Path(app.instance_path, 'uploads', '.label-state', 'counters.json')
-    assert json.loads(state.read_text()) == {'orders': {'20261011': 50}, 'invoices': {'2026-27': 50}}
+    from database.models import LabelRun
+    with app.app_context():
+        run = db.session.get(LabelRun, UUID(data['job_id']))
+        assert run.shipment_count == 50 and run.financial_year == '2026-27'
     third = pages(client.post('/admin/labels/generate', data=label_form(ids[:1])))
     assert 'B2B-20261011-0051' in third[0].extract_text()
     assert 'B2B-2026-27-0051' in third[0].extract_text()
@@ -135,7 +133,6 @@ def test_invalid_label_details_do_not_allocate_or_touch_shipments(app, admin_cli
     data['label_details'] = json.dumps(details)
     rejected = admin_client.post('/admin/labels/generate', data=data)
     assert rejected.status_code == 400 and rejected.json['success'] is False
-    assert not Path(app.instance_path, 'uploads', '.label-state').exists()
     assert snapshot(app) == before
 
 
@@ -149,7 +146,6 @@ def test_invalid_per_box_invoice_values_do_not_allocate_or_touch_shipments(app, 
     data['label_details'] = json.dumps(details)
     rejected = admin_client.post('/admin/labels/generate', data=data)
     assert rejected.status_code == 400 and rejected.json['success'] is False
-    assert not Path(app.instance_path, 'uploads', '.label-state').exists()
     assert snapshot(app) == before
 
 
@@ -170,7 +166,7 @@ def test_render_failure_allocates_nothing(app, admin_client, monkeypatch):
     def fail(*args): raise RuntimeError('Simulated PDF error')
     monkeypatch.setattr(labels, 'generate_labels_pdf', fail)
     assert admin_client.post('/admin/labels/generate', data=label_form([row['id']])).status_code == 500
-    assert not Path(app.instance_path, 'uploads', '.label-state', 'counters.json').exists()
+    assert snapshot(app) == before
 
 
 def test_locked_sequences_parallel_requests_date_and_financial_year_rollovers(app, monkeypatch):
@@ -190,33 +186,14 @@ def test_locked_sequences_parallel_requests_date_and_financial_year_rollovers(ap
     assert next_day['order_id'] == 'B2B-20260402-0001' and next_day['invoice_number'] == 'B2B-2026-27-0002'
 
 
-def test_numbering_survives_process_restart_and_rejects_corrupt_state(app):
-    program = '''
-import json, sys
-from datetime import date
-from flask import Flask
-from app.admin import label_runs
-app = Flask('label-restart-test', instance_path=sys.argv[1])
-label_runs.order_date = lambda: date(2026, 10, 11)
-with app.app_context():
-    result = label_runs.render_label_run(sys.argv[2], 'admin', [{'id': 'shipment'}], lambda assignments: assignments)
-print(json.dumps(result))
-'''
-    def restarted(identifier):
-        result = subprocess.run([sys.executable, '-c', program, app.instance_path, identifier],
-                                capture_output=True, text=True, check=True)
-        return json.loads(result.stdout)[0]
+def test_numbering_survives_new_app_context_and_rejects_changed_batch(app):
     first_job = str(uuid4())
-    first = restarted(first_job)
-    assert restarted(first_job) == first
-    second = restarted(str(uuid4()))
-    assert second['order_id'] == 'B2B-20261011-0002'
-    assert second['invoice_number'] == 'B2B-2026-27-0002'
-    counters = Path(app.instance_path, 'uploads', '.label-state', 'counters.json')
-    counters.write_text('{broken state')
-    with app.app_context(), pytest.raises(json.JSONDecodeError):
-        label_runs.render_label_run(str(uuid4()), 'admin', [{'id': 'shipment'}], lambda assignments: assignments)
-    assert counters.read_text() == '{broken state', 'Corrupt numbering must never silently reset'
+    with app.app_context():
+        first = label_runs.render_label_run(first_job, 'admin', [{'id': 'shipment'}], lambda assignments: assignments)
+    with app.app_context():
+        assert label_runs.render_label_run(first_job, 'admin', [{'id': 'shipment'}], lambda assignments: assignments) == first
+        with pytest.raises(label_runs.LabelRunConflict):
+            label_runs.render_label_run(first_job, 'admin', [{'id': 'different'}], lambda assignments: assignments)
 
 
 def test_review_limits_missing_ids_validation_origin_and_login(app, admin_client, client):
@@ -232,9 +209,7 @@ def test_review_limits_missing_ids_validation_origin_and_login(app, admin_client
 def test_label_id_format_and_outdated_detail_ids_are_actionable_and_do_not_allocate(panel):
     app, client = panel
     row = create(client)[0]
-    with app.app_context():
-        expected = 'uuid' if models.using_er() else 'integer'
-    assert f'data-id-format="{expected}"' in client.get('/admin/labels').get_data(as_text=True)
+    assert 'data-id-format="uuid"' in client.get('/admin/labels').get_data(as_text=True)
     invalid = client.post('/admin/labels/review', json={'consignment_ids': ['label-card-0']})
     assert invalid.status_code == 400 and 'selection is out of date' in invalid.json['message']
     data = label_form([row['id']])
@@ -244,5 +219,4 @@ def test_label_id_format_and_outdated_detail_ids_are_actionable_and_do_not_alloc
     rejected = client.post('/admin/labels/generate', data=data)
     assert rejected.status_code == 400 and 'details are out of date' in rejected.json['message']
     assert snapshot(app) == before
-    assert not Path(app.instance_path, 'uploads', '.label-state', 'counters.json').exists()
     assert client.post('/admin/labels/generate', data=label_form([row['id']])).status_code == 200

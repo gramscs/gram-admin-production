@@ -47,10 +47,10 @@ def label_shipment(row, *, include_boxes=False):
             'pickup_address': row.pickup_address or '', 'pickup_tag': row.pickup_tag or '',
             'pickup_pincode': row.pickup_pincode or '', 'drop_address': row.drop_address or '',
             'drop_tag': row.drop_tag or '', 'drop_pincode': row.drop_pincode or '',
-            'measurement_mode': row.measurement_mode or ('volume' if row.chargeable_volume is not None and row.chargeable_weight is None else 'weight'),
+            'measurement_mode': row.measurement_mode or ('volume' if row.volume is not None and row.weight is None else 'weight'),
             'package_contents': row.package_contents, 'volume_unit': 'ft3',
-            'chargeable_weight': str(row.chargeable_weight) if row.chargeable_weight is not None else None,
-            'chargeable_volume': str(volume_ft3(row)) if row.chargeable_volume is not None else None}
+            'weight': str(row.weight) if row.weight is not None else None,
+            'volume': str(volume_ft3(row)) if row.volume is not None else None}
     if include_boxes:
         contents = row.package_contents or {}
         boxes = []
@@ -58,7 +58,7 @@ def label_shipment(row, *, include_boxes=False):
             package = package_at(contents, number)
             box_weight = package.get('weight')
             if box_weight is None:
-                box_weight = row.chargeable_weight
+                box_weight = row.weight
             boxes.append({'number': number, 'pieces': package['pieces'],
                           'weight': str(box_weight) if box_weight is not None else None,
                           'weight_exception': package.get('weight') is not None,
@@ -271,7 +271,7 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
             package = package_at(contents, piece)
             pdf.drawString(237, metric_heading, 'PALLET' if contents.get('kind') == 'pallet' else 'BOX')
             box = shipment['boxes'][piece-1]
-            value = shipment['chargeable_volume'] if volume_mode else box['weight']
+            value = shipment['volume'] if volume_mode else box['weight']
             unit = ('ft³' if shipment.get('volume_unit') == 'ft3' else 'm³') if volume_mode else 'kg'
             measurement = (value if value is not None else '—') + ' ' + unit
             if volume_mode and box['weight_exception']:

@@ -28,7 +28,7 @@ if (!base || !process.env.SYSTEM_TEST_PASSWORD || !['127.0.0.1', 'localhost'].in
             assert.ok(!/chargeable/i.test(await page.locator('body').innerText()), route);
             assert.equal(await page.locator('[aria-label*=chargeable i]').count(), 0);
         }
-        const saved = await page.request.post(base + '/admin/consignments/save', {data: {rows: Array.from({length: 50}, (_, i) => ({consignment_number: prefix + '-' + String(i).padStart(2, '0'), identifier_type: 'LRN', pieces: i === 0 ? 2 : 1, chargeable_weight: '100', pickup_date: '2026-10-09', pickup_address: '429 Jagraj Gram, Delhi', drop_address: 'Ms Ashiya, Delhi', drop_pincode: '110037'}))}});
+        const saved = await page.request.post(base + '/admin/consignments/save', {data: {rows: Array.from({length: 50}, (_, i) => ({consignment_number: prefix + '-' + String(i).padStart(2, '0'), identifier_type: 'LRN', pieces: i === 0 ? 2 : 1, weight: '100', pickup_date: '2026-10-09', pickup_address: '429 Jagraj Gram, Delhi', drop_address: 'Ms Ashiya, Delhi', drop_pincode: '110037'}))}});
         assert.equal(saved.status(), 200);
         const baseline = (await (await page.request.get(base + '/admin/consignments/list', {params: {search: prefix, per_page: 100}})).json()).rows;
         ids = baseline.map(row => row.id);

@@ -1,7 +1,6 @@
 """Explicit removal must synchronize SQL and storage, including ER history."""
 import io
-import json
-from pathlib import Path
+from pathlib import PurePosixPath
 
 import pytest
 from storage3.exceptions import StorageApiError
@@ -180,12 +179,9 @@ def test_second_file_delete_failure_restores_first_object_and_entire_sql_change(
     assert client.get(f"/admin/consignments/{row['id']}/invoice").data == next(value for (bucket, _), value in before.items() if bucket == 'invoice-uploads')
 
 
-@pytest.mark.parametrize('remote', [True, False])
 @pytest.mark.parametrize('kind', ['pod', 'invoice'])
-def test_database_commit_failure_restores_deleted_bytes(panel, storage, monkeypatch, remote, kind):
+def test_database_commit_failure_restores_deleted_bytes(panel, storage, monkeypatch, kind):
     app, client = panel
-    if not remote:
-        monkeypatch.setattr(controller, '_get_supabase_client', lambda: None)
     row = add(client)
     field = 'pod_image' if kind == 'pod' else 'invoice_file'
     before = client.get(f"/admin/consignments/{row['id']}/{kind}").data
@@ -196,36 +192,32 @@ def test_database_commit_failure_restores_deleted_bytes(panel, storage, monkeypa
     assert result.status_code == 500
     assert get_row(client)[field] == row[field]
     assert client.get(f"/admin/consignments/{row['id']}/{kind}").data == before
-    if not remote:
-        assert Path(app.instance_path, 'uploads', row[field].removeprefix('local:')).read_bytes() == before
 
 
 @pytest.mark.parametrize('bucket', ['invoice-uploads', 'client-invoices'])
 def test_invoice_upload_download_replace_remove_uses_supabase_not_instance(panel, storage, monkeypatch, bucket):
     app, client = panel
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', bucket)
-    local_before = {path for path in Path(app.instance_path, 'uploads').rglob('*') if path.is_file()}
     original = add(client)
     assert original['invoice_file'].startswith(f'supabase:{bucket}/consignments/')
-    assert Path(original['invoice_file']).name == 'DEMO0017_invoice.pdf'
+    assert PurePosixPath(original['invoice_file']).name == 'DEMO0017_invoice.pdf'
     assert original['pod_image'].startswith('supabase:pod-uploads/consignments/')
-    assert Path(original['pod_image']).name == 'DEMO0017_pod.png'
+    assert PurePosixPath(original['pod_image']).name == 'DEMO0017_pod.png'
     assert client.get(f"/admin/consignments/{original['id']}/invoice").mimetype == 'application/pdf'
     # A later setting change must not change the location of an existing file.
     monkeypatch.setenv('SUPABASE_INVOICE_BUCKET', 'next-invoices')
     assert client.get(f"/admin/consignments/{original['id']}/invoice").status_code == 200
     current = replace(client, original, 'invoice')
     assert current['invoice_file'].startswith('supabase:next-invoices/consignments/')
-    assert Path(current['invoice_file']).name == 'DEMO0017_invoice.pdf'
+    assert PurePosixPath(current['invoice_file']).name == 'DEMO0017_invoice.pdf'
     result = client.delete(f"/admin/consignments/{original['id']}/invoice", json={'expected_reference': current['invoice_file']})
     assert result.status_code == 200, result.json
     assert get_row(client)['invoice_file'] is None
     assert {name for name, _ in storage.objects} == {'pod-uploads'}
     assert_er_purged(app, 'DEMO0017', [original['invoice_file'], current['invoice_file']], 'invoice')
-    assert {path for path in Path(app.instance_path, 'uploads').rglob('*') if path.is_file()} == local_before
 
 
-def test_irrecoverable_restore_is_reported_truthfully(panel, storage, monkeypatch):
+def test_failed_restore_is_reported_without_local_recovery_copy(panel, storage, monkeypatch):
     app, client = panel
     row = add(client, both=False)
     original = client.get(f"/admin/consignments/{row['id']}/pod").data
@@ -235,17 +227,7 @@ def test_irrecoverable_restore_is_reported_truthfully(panel, storage, monkeypatc
     result = client.delete(f"/admin/consignments/{row['id']}/pod", json={})
     assert result.status_code == 500 and 'could not be restored' in result.json['message']
     assert get_row(client)['pod_image'] == row['pod_image']
-    copies = list(Path(app.instance_path, 'uploads', '.document-recovery').glob('*/reference.json'))
-    assert len(copies) == 1
-    manifest = json.loads(copies[0].read_text())
-    assert manifest['storage_reference'] == row['pod_image']
-    assert (copies[0].parent / manifest['recovery_file']).read_bytes() == original
-    from test_complete_backup import unpack
-    archive, _, report = unpack(client.get('/admin/generate-backup'))
-    recovery = next(item for item in report['documents']
-                    if '.document-recovery/' in (item.get('source_reference') or '')
-                    and item['source_reference'].endswith(manifest['recovery_file']))
-    assert recovery['status'] == 'included' and archive.read(recovery['archive_path']) == original
+    assert storage.objects == {}
 
 
 def test_already_missing_object_allows_stale_metadata_removal(panel, storage):

@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-import threading
 
 import click
 from dotenv import load_dotenv
@@ -28,12 +27,11 @@ def create_app(test_config=None):
     elif example_file.exists():
         load_dotenv(example_file, override=False)
     overrides = dict(test_config or {})
-    instance_path = Path(overrides.pop("INSTANCE_PATH", PROJECT_ROOT / "instance")).resolve()
-    instance_path.mkdir(parents=True, exist_ok=True)
-    app = Flask(__name__, instance_path=str(instance_path))
+    overrides.pop("INSTANCE_PATH", None)
+    app = Flask(__name__)
     production = os.getenv("FLASK_ENV", "development").lower() == "production"
     secret_key = os.getenv("SECRET_KEY", "").strip()
-    database_url = os.getenv("DATABASE_URL", "").strip()
+    database_url = str(overrides.pop("SQLALCHEMY_DATABASE_URI", "")).strip() or os.getenv("DATABASE_URL", "").strip()
     if production and not (secret_key or overrides.get("SECRET_KEY")):
         raise RuntimeError("Set SECRET_KEY before starting in production.")
     if production and not os.getenv("ADMIN_PASSWORD_HASH", "").strip():
@@ -41,16 +39,14 @@ def create_app(test_config=None):
     if database_url.startswith("postgres://"):
         database_url = "postgresql://" + database_url[len("postgres://"):]
     placeholder_markers = ("[YOUR_PASSWORD]", "[YOUR-PASSWORD]", "POOLER_HOST", "your_password")
-    if database_url and any(marker.lower() in database_url.lower() for marker in placeholder_markers):
-        if production:
-            raise RuntimeError("Replace the password placeholder in DATABASE_URL before starting in production.")
-        app.logger.warning("DATABASE_URL still contains placeholder values; falling back to the local SQLite database for development.")
-        database_url = ""
-    if production and not (database_url or overrides.get("SQLALCHEMY_DATABASE_URI")):
-        raise RuntimeError("Set DATABASE_URL before starting in production.")
-    database_url = database_url or f"sqlite:///{instance_path / 'admin.db'}"
-    url = make_url(overrides.get("SQLALCHEMY_DATABASE_URI", database_url))
+    if not database_url:
+        raise RuntimeError("Set DATABASE_URL to a PostgreSQL database. Local database storage is disabled.")
+    if any(marker.lower() in database_url.lower() for marker in placeholder_markers):
+        raise RuntimeError("Replace the password placeholder in DATABASE_URL.")
+    url = make_url(database_url)
     is_postgres = url.get_backend_name() == "postgresql"
+    if not is_postgres:
+        raise RuntimeError("Only PostgreSQL database connections are supported. Local database storage is disabled.")
     if is_postgres and url.password == "[YOUR-PASSWORD]":
         raise RuntimeError("Replace the password placeholder in DATABASE_URL through your secure environment settings.")
     is_supabase = bool(url.host) and (
@@ -58,14 +54,6 @@ def create_app(test_config=None):
     )
     if is_postgres and is_supabase and "sslmode" not in url.query:
         url = url.update_query_dict({"sslmode": "require"})
-    if url.get_backend_name() == "sqlite" and url.database not in (None, "", ":memory:"):
-        database_path = Path(url.database)
-        if not database_path.is_absolute():
-            database_path = PROJECT_ROOT / database_path
-        database_path = database_path.resolve()
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        url = url.set(database=str(database_path))
-
     app.config.update(
         SECRET_KEY=secret_key or "dev-local-secret-key",
         SQLALCHEMY_DATABASE_URI=url.render_as_string(hide_password=False),
@@ -76,8 +64,8 @@ def create_app(test_config=None):
         RATELIMIT_STORAGE_URI=os.getenv("RATELIMIT_STORAGE_URI") or os.getenv("REDIS_URL") or "memory://",
         RATELIMIT_HEADERS_ENABLED=True,
         MAX_CONTENT_LENGTH=20 * 1024 * 1024,
-        AUTO_CREATE_TABLES=os.getenv("AUTO_CREATE_TABLES", "false" if production or is_postgres else "true").lower() == "true",
-        ADMIN_DATABASE_MODEL=os.getenv("ADMIN_DATABASE_MODEL", "auto"),
+        AUTO_CREATE_TABLES=os.getenv("AUTO_CREATE_TABLES", "false").lower() == "true",
+        ADMIN_DATABASE_MODEL="er",
     )
     if is_postgres:
         app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
@@ -89,42 +77,13 @@ def create_app(test_config=None):
             "connect_args": {"connect_timeout": 10},
         }
     app.config.update(overrides)
-    # Use the normalized URI even when it was supplied through test_config.
+    # Use the validated PostgreSQL URI.
     app.config["SQLALCHEMY_DATABASE_URI"] = url.render_as_string(hide_password=False)
     db.init_app(app)
-    with app.app_context():
-        if db.engine.dialect.name == 'sqlite':
-            from sqlalchemy import event
-
-            @event.listens_for(db.engine, 'connect')
-            def enforce_sqlite_relations(connection, record):
-                connection.execute('PRAGMA foreign_keys=ON')
-            from app.schema_upgrade import upgrade_measurement_columns
-            renamed = upgrade_measurement_columns(db.engine)
-            if renamed:
-                app.logger.info("Renamed database columns: %s", ", ".join(renamed))
     limiter.init_app(app)
-
-    measurement_migration_complete = url.get_backend_name() != "postgresql"
-    measurement_migration_lock = threading.Lock()
-
-    @app.before_request
-    def migrate_measurement_columns_before_request():
-        nonlocal measurement_migration_complete
-        if measurement_migration_complete:
-            return
-        with measurement_migration_lock:
-            if not measurement_migration_complete:
-                from app.schema_upgrade import upgrade_measurement_columns
-                renamed = upgrade_measurement_columns(db.engine)
-                if renamed:
-                    app.logger.info("Renamed database columns: %s", ", ".join(renamed))
-                measurement_migration_complete = True
 
     from app.admin import admin_bp
     app.register_blueprint(admin_bp)
-    from app.seed_data import seed_demo
-    app.cli.add_command(seed_demo)
     from app.admin.document_lifecycle import purge_removed_documents
     app.cli.add_command(purge_removed_documents)
 
@@ -164,26 +123,13 @@ def create_app(test_config=None):
 
     @app.cli.command("upgrade-db")
     def upgrade_db():
-        """Add admin fields and master tables without deleting records."""
+        """Add application support tables without replacing existing records."""
         from app.orm import using_er
-        from app.shipment_packages import upgrade_volume_units
-        from app.schema_upgrade import upgrade_measurement_columns
-        renamed = upgrade_measurement_columns(db.engine)
-        if using_er():
-            from app.er_adapter import prepare_backend
-            prepare_backend(db.engine)
-            converted = upgrade_volume_units()
-            click.echo("ER backend ready. Archived screen fields restored; original records preserved.")
-            if renamed:
-                click.echo("Renamed: " + ", ".join(renamed))
-            click.echo(f"Converted {converted} shipment volumes from CBM to CBFT (ft3).")
-            return
-        from app.schema_upgrade import upgrade_admin_fields
-        changed = renamed + upgrade_admin_fields(db.engine)
-        db.create_all()
-        converted = upgrade_volume_units()
-        click.echo("Database upgraded. Existing records preserved. " + ("Added: " + ", ".join(changed) if changed else "Schema already current."))
-        click.echo(f"Converted {converted} shipment volumes from CBM to CBFT (ft3).")
+        if not using_er():
+            raise click.ClickException("Only the PostgreSQL shipment ER schema is supported.")
+        from app.er_adapter import prepare_backend
+        prepare_backend(db.engine)
+        click.echo("PostgreSQL support tables are ready. Existing records preserved.")
 
     @app.cli.command("check-db")
     def check_db():
@@ -218,24 +164,16 @@ def create_app(test_config=None):
         except RuntimeError as error:
             raise click.ClickException(str(error)) from None
         if client is None:
-            if os.getenv('SUPABASE_MIS_BUCKET', '').strip():
-                raise click.ClickException('Set SUPABASE_URL and SUPABASE_KEY to use the configured report bucket. No files were changed.')
-            click.echo('Storage: local. SUPABASE_URL and SUPABASE_KEY are both blank.')
-            click.echo(f'Uploads are saved in {Path(app.instance_path, "uploads")}.')
-            click.echo('DATABASE_URL connects shipment data only; it does not enable Supabase Storage.')
-            click.echo('No files or database records were changed.')
-            return
+            raise click.ClickException('Set SUPABASE_URL and SUPABASE_KEY. Local file storage is disabled.')
         click.echo('Storage: Supabase.')
         buckets = {
             'POD': os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
             'Invoice': os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
         }
-        if mis_bucket := os.getenv('SUPABASE_MIS_BUCKET', '').strip():
-            if mis_bucket in buckets.values():
-                raise click.ClickException('SUPABASE_MIS_BUCKET must be separate from the POD and invoice buckets. No files were changed.')
-            buckets['MIS'] = mis_bucket
-        else:
-            click.echo('MIS: private local report storage (SUPABASE_MIS_BUCKET is blank).')
+        mis_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
+        if mis_bucket in buckets.values():
+            raise click.ClickException('SUPABASE_MIS_BUCKET must be separate from the POD and invoice buckets. No files were changed.')
+        buckets['MIS'] = mis_bucket
         failed = []
         for kind, bucket in buckets.items():
             namespace = 'mis_reports' if kind == 'MIS' else 'consignments'
@@ -252,31 +190,11 @@ def create_app(test_config=None):
             raise click.ClickException('Storage checks failed. Existing uploaded files were left untouched.')
         click.echo('Read-only storage check passed.')
 
-    @app.cli.command("repair-consignment-schema")
-    def repair_schema():
-        """Add missing shipment columns to an existing PostgreSQL database."""
-        from app.orm import using_er
-        if using_er():
-            raise click.ClickException("This migrated database uses the ER model. Use upgrade-db to prepare its backend.")
-        if db.engine.dialect.name != "postgresql":
-            raise click.ClickException("This command is only for PostgreSQL.")
-        from app.schema_upgrade import upgrade_measurement_columns
-        upgrade_measurement_columns(db.engine)
-        from app.db_maintenance import ensure_consignment_columns
-        ensure_consignment_columns(app.config["SQLALCHEMY_DATABASE_URI"], app.logger)
-        click.echo("Consignment columns checked.")
-
     if app.config["AUTO_CREATE_TABLES"]:
         with app.app_context():
             from app.orm import using_er
             if using_er():
                 from app.er_adapter import prepare_backend
                 prepare_backend(db.engine)
-            elif db.engine.dialect.name == "sqlite":
-                from app.schema_upgrade import upgrade_admin_fields
-                upgrade_admin_fields(db.engine)
-                db.create_all()
-            else:
-                db.create_all()
 
     return app

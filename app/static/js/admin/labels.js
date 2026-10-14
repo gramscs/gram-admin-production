@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function () {
             card.append(node('h3', '', row.identifier_type + ' · ' + row.consignment_number));
             const snapshot = node('div', 'label-snapshot');
             const volumeMode = row.measurement_mode === 'volume';
-            const measurement = (volumeMode ? row.chargeable_volume : row.chargeable_weight) ?? '—';
+            const measurement = (volumeMode ? row.volume : row.weight) ?? '—';
             const contents = row.package_contents || {}, kind = contents.kind === 'pallet' ? 'Pallet' : 'Box';
             [row.pieces + (kind === 'Pallet' ? ' pallets' : ' boxes'), 'Pickup: ' + row.pickup_date, measurement + (volumeMode ? ' ft³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
             card.append(snapshot);

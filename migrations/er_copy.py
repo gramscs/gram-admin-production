@@ -4,7 +4,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import Date, JSON, Uuid
 
 from database.models import Base, UTCDateTime
-from migrations.shipment_v1 import ER_SOURCE_COLUMN_ALIASES, timestamp
+from migrations.shipment_v1 import timestamp
 from migrations.storage import MigrationError
 
 
@@ -15,10 +15,7 @@ def build_er_plan(source_rows, storage, namespace):
         for original in source_rows[table.name]:
             record = {}
             for column in table.c:
-                value = original.get(
-                    column.name,
-                    original.get(ER_SOURCE_COLUMN_ALIASES.get(column.name)),
-                )
+                value = original.get(column.name)
                 if value is not None:
                     if isinstance(column.type, Uuid):
                         value = UUID(str(value))
@@ -38,12 +35,12 @@ def build_er_plan(source_rows, storage, namespace):
     references, manifest, paths = set(), {}, set()
     for record in rows["files"]:
         path, bucket = record["storage_path"], record["storage_bucket"]
-        if path.startswith("local:"):
-            reference = path[len("local:"):]
-        elif path.startswith("supabase:"):
+        if path.startswith("supabase:"):
             reference = path
         else:
-            reference = path if bucket == "local" else f"supabase:{bucket}/{path}"
+            if bucket == "local":
+                raise MigrationError("Local file storage is disabled. Move existing uploads to Supabase before importing.")
+            reference = f"supabase:{bucket}/{path}"
         metadata = storage.describe(reference)
         if metadata.bucket != bucket:
             raise MigrationError("A file's storage bucket conflicts with its path.")

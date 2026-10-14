@@ -1,6 +1,4 @@
 """New saved reports do not populate the POD or invoice bucket."""
-from pathlib import Path
-
 import pytest
 
 from app import orm as models
@@ -11,25 +9,19 @@ from test_er_dashboard import migrated_admin, populated, legacy_engine, disposab
 from test_complete_backup import unpack
 
 
-@pytest.mark.parametrize('remote_reports', [False, True])
-def test_reports_use_private_local_or_dedicated_storage_and_backup(panel, storage, monkeypatch, remote_reports):
+def test_reports_use_private_dedicated_storage_and_backup(panel, storage, monkeypatch):
     app, client = panel
     enable_listing(storage, monkeypatch)
     row = add(client, 'REPORT-CLIENT')
     before = dict(storage.objects)
-    monkeypatch.setenv('SUPABASE_MIS_BUCKET', 'mis-reports' if remote_reports else '')
+    monkeypatch.setenv('SUPABASE_MIS_BUCKET', 'mis-reports')
     generated = client.post('/admin/mis/reports', json={'name':'Management report', 'format':'pdf',
         'filters':{'period':'all'}, 'columns':['consignment_number']})
     assert generated.status_code == 200, generated.json
     with app.app_context():
         report = db.session.get(models.MisReport, models.record_id(generated.json['id']))
         reference = report.file_ref
-    if remote_reports:
-        assert reference.startswith('supabase:mis-reports/mis_reports/')
-    else:
-        assert reference.removeprefix('local:').startswith('mis_reports/')
-        assert Path(app.instance_path, 'uploads', reference.removeprefix('local:')).is_file()
-        assert storage.objects == before
+    assert reference.startswith('supabase:mis-reports/mis_reports/')
     assert {key:value for key,value in storage.objects.items() if key[0] in ('pod-uploads','invoice-uploads')} == before
     download = client.get(generated.json['download_url'])
     assert download.status_code == 200 and download.data.startswith(b'%PDF')
@@ -39,8 +31,6 @@ def test_reports_use_private_local_or_dedicated_storage_and_backup(panel, storag
     deleted = client.delete('/admin/mis/reports/'+str(generated.json['id']), json={})
     assert deleted.status_code == 200, deleted.json
     assert storage.objects == before
-    if not remote_reports:
-        assert not Path(app.instance_path, 'uploads', reference.removeprefix('local:')).exists()
 
 
 @pytest.mark.parametrize('bucket', ['pod-uploads','invoice-uploads'])
@@ -74,7 +64,6 @@ def test_remote_report_setting_without_credentials_does_not_save_locally(app, ad
     monkeypatch.setenv('SUPABASE_MIS_BUCKET', 'mis-reports')
     response = admin_client.post('/admin/mis/reports', json={'name': 'Not configured', 'format': 'pdf'})
     assert response.status_code == 500
-    assert not list(Path(app.instance_path, 'uploads').rglob('mis-*.pdf'))
     with app.app_context():
         assert models.MisReport.query.count() == 0
     checked = app.test_cli_runner().invoke(args=['check-storage'])

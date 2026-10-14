@@ -64,7 +64,6 @@ def invalid_batch_changes_nothing(client, app, monkeypatch):
     response = upload(client, files, apply=True)
     assert response.status_code == 400 and len(response.json['errors']) == 2
     assert client.get(f"/admin/consignments/{row['id']}/pod").status_code == 404
-    assert not list(Path(app.instance_path, 'uploads').glob('pod-*'))
     duplicate = upload(client, [('BULK-INVALID_pod.png', image()), ('BULK-INVALID_pod.pdf', pdf())], apply=True)
     assert duplicate.status_code == 400 and 'only one' in duplicate.json['errors'][0]['message']
     unsafe = upload(client, [('BULK-INVALID_invoice.svg', b'<svg onload="alert(1)"/>')], apply=True)
@@ -78,7 +77,9 @@ def ambiguous_names_and_missing_files(client, app, monkeypatch):
     row = create(client, 'BULK-MISSING')
     assert upload(client, [('BULK-MISSING_pod.png', image())], apply=True).status_code == 200
     stored = client.get('/admin/consignments/list', query_string={'search': 'BULK-MISSING'}).json['rows'][0]['pod_image']
-    Path(app.instance_path, 'uploads', stored.removeprefix('local:')).unlink()
+    from app.admin import consignment_controller
+    bucket, object_path = consignment_controller._parse_supabase_pod_value(stored)
+    consignment_controller._get_supabase_client().storage.from_(bucket).remove([object_path])
     result = client.post('/admin/consignments/documents/bulk-download', json={'ids': [row['id']], 'kind': 'pod'})
     assert result.status_code == 404 and result.json['documents'][0]['status'] == 'missing'
 
@@ -133,16 +134,15 @@ def failed_storage_rolls_back_batch(client, app, monkeypatch):
     result = upload(client, [('BULK-ROLLBACK_pod.png', image()), ('BULK-ROLLBACK_invoice.pdf', pdf())], apply=True)
     assert result.status_code == 500
     assert client.get(f"/admin/consignments/{row['id']}/pod").status_code == 404
-    assert not list(Path(app.instance_path, 'uploads').glob('pod-*'))
 
 
 def measurement_choice_roundtrip(client, app, monkeypatch):
-    row = create(client, 'BULK-VOLUME', measurement_mode='volume', chargeable_volume='1.234')
-    assert row['measurement_mode'] == 'volume' and row['chargeable_volume'] == '1.234' and row['chargeable_weight'] is None
-    result = client.post('/admin/consignments/save', json={'rows': [{**row, 'measurement_mode': 'weight', 'chargeable_weight': '20.500'}]})
+    row = create(client, 'BULK-VOLUME', measurement_mode='volume', volume='1.234')
+    assert row['measurement_mode'] == 'volume' and row['volume'] == '1.234' and row['weight'] is None
+    result = client.post('/admin/consignments/save', json={'rows': [{**row, 'measurement_mode': 'weight', 'weight': '20.500'}]})
     assert result.status_code == 200
     row = client.get('/admin/consignments/list', query_string={'search': 'BULK-VOLUME'}).json['rows'][0]
-    assert row['measurement_mode'] == 'weight' and row['chargeable_volume'] == '1.234'
+    assert row['measurement_mode'] == 'weight' and row['volume'] == '1.234'
     result = client.post('/admin/consignments/save', json={'rows': [{**row, 'measurement_mode': 'wrong'}]})
     assert result.status_code == 400
 

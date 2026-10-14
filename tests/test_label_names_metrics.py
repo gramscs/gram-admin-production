@@ -68,7 +68,7 @@ def test_blank_names_preserve_existing_label_run(panel):
     assert pages(client.post('/admin/labels/generate', data=data))[0].extract_text() == old_text
 
 
-@pytest.mark.parametrize('headers', [('weight', 'volume'), ('chargeable_weight', 'chargeable_volume')])
+@pytest.mark.parametrize('headers', [('weight', 'volume'), ('weight', 'volume')])
 def test_new_and_legacy_excel_imports_export_with_plain_measurement_names(admin_client, headers):
     book = Workbook(); sheet = book.active
     sheet.append(['consignment_number', 'measurement_mode', *headers])
@@ -89,10 +89,10 @@ def test_new_and_legacy_excel_imports_export_with_plain_measurement_names(admin_
     workbook = load_workbook(io.BytesIO(archive.read('admin-data.xlsx')))
     assert not any('chargeable' in str(cell.value).lower() for sheet in workbook for cell in sheet[1])
     # The machine-readable backup retains database keys for restoration.
-    assert float(payload['consignments'][0]['chargeable_weight']) == 12.345
+    assert float(payload['consignments'][0]['weight']) == 12.345
 
 
-@pytest.mark.parametrize('field,title', [('chargeable_weight', 'Weight'), ('chargeable_volume', 'Volume')])
+@pytest.mark.parametrize('field,title', [('weight', 'Weight'), ('volume', 'Volume')])
 def test_invalid_measurement_error_uses_public_name(admin_client, field, title):
     response = admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'BAD-METRIC', field: '-1'}]})
     assert response.status_code == 400

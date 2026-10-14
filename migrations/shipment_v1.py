@@ -33,10 +33,6 @@ COLUMN_MAP = {
     "pickup_date": "planned_pickup_date", "drop_date": "expected_delivery_date",
     "pickup_address": "pickup_address_snapshot", "drop_address": "drop_address_snapshot",
 }
-ER_SOURCE_COLUMN_ALIASES = {
-    "weight": "chargeable_weight",
-    "volume": "chargeable_volume",
-}
 TARGET_MAP = {
     "company": "companies", "company_location": "company_locations",
     "consignment": "consignments", "mis_view": "mis_views", "mis_report": "mis_reports",
@@ -93,29 +89,18 @@ def configure_wait_limits(connection, *, lock_timeout_ms=LOCK_TIMEOUT_MS,
 
 def migration_engine(url):
     from sqlalchemy.engine import make_url
+    if make_url(url).get_backend_name() != "postgresql":
+        raise MigrationError("Only PostgreSQL databases are supported.")
     settings = {"connect_timeout": 10, "keepalives": 1, "keepalives_idle": 30,
-                "keepalives_interval": 10, "keepalives_count": 3, "tcp_user_timeout": 30_000
-                } if make_url(url).get_backend_name() == "postgresql" else {}
+                "keepalives_interval": 10, "keepalives_count": 3, "tcp_user_timeout": 30_000}
     engine = create_engine(url, hide_parameters=True, pool_pre_ping=True, connect_args=settings)
-    if engine.dialect.name not in {"sqlite", "postgresql"}:
+    if engine.dialect.name != "postgresql":
         engine.dispose()
-        raise MigrationError("Only SQLite and PostgreSQL databases are supported.")
-    if engine.dialect.name == "sqlite":
-        @event.listens_for(engine, "connect")
-        def on_connect(connection, record):
-            connection.isolation_level = None
-            connection.execute("PRAGMA foreign_keys=ON")
+        raise MigrationError("Only PostgreSQL databases are supported.")
 
-        @event.listens_for(engine, "begin")
-        def on_begin(connection):
-            # Explicit BEGIN is essential for DDL rollback. IMMEDIATE also
-            # freezes a separate WAL-mode source against concurrent writers.
-            # No source DML is performed, but its file must allow locking.
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-    else:
-        @event.listens_for(engine, "begin")
-        def on_postgres_begin(connection):
-            configure_wait_limits(connection)
+    @event.listens_for(engine, "begin")
+    def on_postgres_begin(connection):
+        configure_wait_limits(connection)
     return engine
 
 
@@ -124,9 +109,8 @@ def read_legacy(connection):
     names = [name for name in LEGACY_TABLES if inspector.has_table(name)]
     if "consignment" not in names:
         raise MigrationError("The source has no legacy consignment table. Check the source database setting.")
-    if connection.dialect.name == "postgresql":
-        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
-        connection.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
+    quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+    connection.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
     schema, rows = {}, {}
     for name in names:
         table = Table(name, MetaData(), autoload_with=connection)
@@ -147,9 +131,7 @@ def read_source(connection, source_format="auto", *, exclude=(), progress=None):
     exclude tables created by this migration itself.
     """
     names = sorted(set(inspect(connection).get_table_names()) - set(exclude))
-    names = [name for name in names if not name.startswith("sqlite_")]
-    if connection.dialect.name == "postgresql":
-        filtered = connection.execute(text("""
+    filtered = connection.execute(text("""
             SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             JOIN pg_roles r ON r.rolname = current_user
             WHERE n.nspname = current_schema() AND c.relname = ANY(:names)
@@ -158,11 +140,11 @@ def read_source(connection, source_format="auto", *, exclude=(), progress=None):
                 (pg_has_role(c.relowner, 'USAGE') AND NOT c.relforcerowsecurity)
             )
         """), {"names": names}).scalars().all()
-        if filtered:
-            raise MigrationError("The source role may see only part of the RLS-protected data. Use its owner/BYPASSRLS role for a complete import.")
-        if names:
-            quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
-            connection.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
+    if filtered:
+        raise MigrationError("The source role may see only part of the RLS-protected data. Use its owner/BYPASSRLS role for a complete import.")
+    if names:
+        quoted = ", ".join(connection.dialect.identifier_preparer.quote(name) for name in names)
+        connection.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
     schema, rows = {}, {}
     for name in names:
         if progress:
@@ -194,7 +176,6 @@ def read_source(connection, source_format="auto", *, exclude=(), progress=None):
             missing = [
                 column.name for column in table.c
                 if column.name not in source_columns
-                and ER_SOURCE_COLUMN_ALIASES.get(column.name) not in source_columns
             ]
             if missing:
                 raise MigrationError(f"ER source table {table.name} is missing model columns.")
@@ -256,7 +237,6 @@ def timestamp(value, label):
             raise MigrationError(f"{label}: invalid timestamp.") from None
     if not isinstance(value, datetime):
         raise MigrationError(f"{label}: missing timestamp.")
-    # The legacy app writes UTC datetimes, but SQLite drops their timezone.
     return (value.replace(tzinfo=UTC) if value.tzinfo is None else value).astimezone(UTC)
 
 
@@ -354,8 +334,8 @@ def build_plan(source_rows, storage, namespace, admin_username, now):
                     "identifier_type": original.get("identifier_type", "LRN"), "identifier_value": original.get("consignment_number"),
                     "current_status": original.get("status") if str(original.get("status") or "").strip() else "No status",
                     "pieces": original.get("pieces", 1),
-                    "chargeable_weight": original.get("weight", original.get("chargeable_weight")),
-                    "chargeable_volume": original.get("volume", original.get("chargeable_volume")),
+                    "weight": original.get("weight"),
+                    "volume": original.get("volume"),
                     "pickup_address_snapshot": original.get("pickup_address"), "drop_address_snapshot": original.get("drop_address"),
                     "planned_pickup_date": parsed_date(original.get("pickup_date"), warnings, f"Consignment {original['id']} pickup"),
                     "expected_delivery_date": parsed_date(original.get("drop_date"), warnings, f"Consignment {original['id']} drop"),
@@ -417,7 +397,7 @@ def insert_rows(connection, rows, progress=None):
         insert_batches(connection, table, rows[table.name], progress)
 
 
-def validate_plan(rows):
+def validate_plan(connection, rows):
     for name, records in rows.items():
         for record in records:
             for field, value in record.items():
@@ -425,7 +405,7 @@ def validate_plan(rows):
                 if isinstance(column.type, String) and value is not None:
                     if not isinstance(value, str) or (column.type.length and len(value) > column.type.length):
                         raise MigrationError(f"{name}.{field}: invalid text or value too long.")
-            for field in ("chargeable_weight", "chargeable_volume"):
+            for field in ("weight", "volume"):
                 if record.get(field) is not None:
                     value = Decimal(str(record[field]))
                     if not value.is_finite() or abs(value) > Decimal("999999999.999") or value != value.quantize(Decimal("0.001")):
@@ -434,17 +414,21 @@ def validate_plan(rows):
                 if field in record and (not isinstance(record[field], int) or isinstance(record[field], bool)
                         or not minimum <= record[field] <= 2147483647):
                     raise MigrationError(f"{name}.{field}: invalid integer count.")
-    engine = migration_engine("sqlite://")
+    schema = "_migration_validation_" + uuid4().hex
+    quoted_schema = connection.dialect.identifier_preparer.quote(schema)
+    validation = connection.begin_nested()
     try:
-        with engine.begin() as connection:
-            Base.metadata.create_all(connection)
-            insert_rows(connection, rows)
+        connection.execute(text(f"CREATE SCHEMA {quoted_schema}"))
+        isolated = connection.execution_options(schema_translate_map={None: schema})
+        Base.metadata.create_all(isolated)
+        insert_rows(isolated, rows)
+        validation.rollback()
     except MigrationError:
+        validation.rollback()
         raise
     except Exception:
+        validation.rollback()
         raise MigrationError("Source records violate the ER model. Check unique identifiers, defaults, document/report file sharing, required values and numeric ranges.") from None
-    finally:
-        engine.dispose()
 
 
 def target_snapshot(connection):
@@ -464,10 +448,6 @@ def migrate(engine, storage, *, source_engine=None, admin_username="admin", dry_
             raise MigrationError("Database lock wait exceeded 15 seconds. Stop other migration runs and pause app writers, then retry the same command. This run did not complete.") from None
         if code == "57014":
             raise MigrationError("A database statement timed out or was cancelled. This run did not complete; retry after checking database activity. No credentials were printed.") from None
-        if engine.dialect.name == "sqlite" or (source_engine is not None and source_engine.dialect.name == "sqlite"):
-            import sqlite3
-            if isinstance(error.orig, sqlite3.OperationalError) and "locked" in str(error.orig).lower():
-                raise MigrationError("The local source database is busy. Pause the app and other migration runs, then retry the same command.") from None
         raise
 
 
@@ -476,8 +456,7 @@ def _migrate(engine, storage, *, source_engine, admin_username, dry_run,
     if not admin_username or not admin_username.strip():
         raise MigrationError("ADMIN_USERNAME must not be blank.")
     now = datetime.now(UTC)
-    if fresh_target and (source_engine is None or source_engine is engine or
-            (engine.dialect.name == source_engine.dialect.name == "sqlite" and engine.url.database == source_engine.url.database)):
+    if fresh_target and (source_engine is None or source_engine is engine):
         raise MigrationError("A fresh target requires a separate source database.")
     with ExitStack() as stack:
         progress("Connecting to the source database...")
@@ -485,9 +464,8 @@ def _migrate(engine, storage, *, source_engine, admin_username, dry_run,
         progress("Connecting to the destination database...")
         target = stack.enter_context(engine.begin())
         source = source if source is not None else target
-        if target.dialect.name == "postgresql":
-            progress("Acquiring the migration lock (maximum wait: 15 seconds)...")
-            target.execute(text("SELECT pg_advisory_xact_lock(723910042001)"))
+        progress("Acquiring the migration lock (maximum wait: 15 seconds)...")
+        target.execute(text("SELECT pg_advisory_xact_lock(723910042001)"))
         progress("Inspecting the destination schema...")
         inspector = inspect(target)
         completed = target.execute(select(RUNS).where(RUNS.c.version == VERSION)).mappings().first() if inspector.has_table(RUNS.name) else None
@@ -515,10 +493,9 @@ def _migrate(engine, storage, *, source_engine, admin_username, dry_run,
         source_digest = digest({"schema": schema, "rows": source_rows, "files": manifest, "admin_username": admin_username})
         if completed:
             progress("An earlier import exists; verifying its source, destination and archive...")
-            if target.dialect.name == "postgresql":
-                tables = sorted(set(Base.metadata.tables) | set(LEDGER.tables))
-                quoted = ", ".join(target.dialect.identifier_preparer.quote(name) for name in tables)
-                target.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
+            tables = sorted(set(Base.metadata.tables) | set(LEDGER.tables))
+            quoted = ", ".join(target.dialect.identifier_preparer.quote(name) for name in tables)
+            target.exec_driver_sql(f"LOCK TABLE {quoted} IN SHARE MODE")
             if source_digest != completed["source_digest"]:
                 raise MigrationError("The source data/files changed after migration. This one-time migration will not overwrite the completed import.")
             if digest(target_snapshot(target)) != completed["target_digest"]:
@@ -527,8 +504,8 @@ def _migrate(engine, storage, *, source_engine, admin_username, dry_run,
                     .order_by(RECORDS.c.source_table, RECORDS.c.source_id)).mappings()]) != digest(sorted(archive, key=lambda row: (row["source_table"], row["source_id"]))):
                 raise MigrationError("The migration archive changed. Check it against your backup.")
             return {"status": "already_applied", "counts": completed["counts"], "warnings": completed["warnings"]}
-        progress("Validating all records and relationships in an isolated database...")
-        validate_plan(rows)
+        progress("Validating all records and relationships in an isolated PostgreSQL schema...")
+        validate_plan(target, rows)
         mapped_counts = Counter(item["source_table"] for item in archive if item["target_table"] is not None)
         coverage = {name: {"source_rows": len(records), "archived_rows": len(records),
                           "mapped_rows": mapped_counts[name]}
@@ -541,13 +518,12 @@ def _migrate(engine, storage, *, source_engine, admin_username, dry_run,
         Base.metadata.create_all(target)
         progress("Creating migration bookkeeping tables...")
         LEDGER.create_all(target)
-        if target.dialect.name == "postgresql":
-            progress("Enabling row-level security on the new tables...")
-            # Supabase's public schema may have browser/API grants by default.
-            # Owner/backend access still works; other roles have no policies.
-            for name in sorted(set(Base.metadata.tables) | set(LEDGER.tables)):
-                quoted = target.dialect.identifier_preparer.quote(name)
-                target.exec_driver_sql(f"ALTER TABLE {quoted} ENABLE ROW LEVEL SECURITY")
+        progress("Enabling row-level security on the new tables...")
+        # Supabase's public schema may have browser/API grants by default.
+        # Owner/backend access still works; other roles have no policies.
+        for name in sorted(set(Base.metadata.tables) | set(LEDGER.tables)):
+            quoted = target.dialect.identifier_preparer.quote(name)
+            target.exec_driver_sql(f"ALTER TABLE {quoted} ENABLE ROW LEVEL SECURITY")
         insert_rows(target, rows, progress=progress)
         progress("Checking destination record counts...")
         snapshot = target_snapshot(target)

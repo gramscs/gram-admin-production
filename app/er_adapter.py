@@ -6,7 +6,6 @@ untouched. Canonical file metadata and versioned documents use the ER tables.
 """
 from datetime import UTC, date, datetime
 import json
-from pathlib import Path
 from uuid import UUID, uuid4
 
 from flask import current_app, session, has_request_context
@@ -16,9 +15,8 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 from app.models import db
 from database.models import (Base, Company, CompanyLocation, Consignment, MisView,
-    MisReport, AdminUser, File, ShipmentDocument, ShipmentEvent, AuditLog, JSON_DATA)
+    MisReport, AdminUser, File, ShipmentDocument, ShipmentEvent, AuditLog, LabelRun, JSON_DATA)
 from migrations.shipment_v1 import COLUMN_MAP, RECORDS, json_value
-from migrations.storage import Storage
 
 
 class ExtraBase(DeclarativeBase):
@@ -143,18 +141,18 @@ def actor_id():
 
 
 def register_file(reference, original_name=None, mime=None):
-    from app.admin.consignment_controller import _get_supabase_client
-    storage = Storage(Path(current_app.instance_path, 'uploads'), _get_supabase_client())
-    reference = reference.removeprefix('local:')
-    metadata = storage.describe(reference)
+    from app.admin.consignment_controller import _parse_supabase_pod_value, _download_supabase_pod_file
+    import hashlib
+    bucket, path = _parse_supabase_pod_value(reference)
     with db.session.no_autoflush:
-        existing = db.session.query(File).filter_by(storage_path=metadata.path).with_for_update().first()
+        existing = db.session.query(File).filter_by(storage_bucket=bucket, storage_path=path).with_for_update().first()
     if existing:
         return existing
-    row = File(id=uuid4(), uploaded_by=actor_id(), storage_bucket=metadata.bucket,
-        storage_path=metadata.path, original_filename=original_name or metadata.filename,
-        mime_type=mime or metadata.mime_type, size_bytes=metadata.size_bytes,
-        checksum=metadata.checksum, uploaded_at=datetime.now(UTC))
+    content, _ = _download_supabase_pod_file(reference)
+    row = File(id=uuid4(), uploaded_by=actor_id(), storage_bucket=bucket,
+        storage_path=path, original_filename=original_name or path.rsplit('/', 1)[-1],
+        mime_type=mime or 'application/octet-stream', size_bytes=len(content),
+        checksum=hashlib.sha256(content).hexdigest(), uploaded_at=datetime.now(UTC))
     db.session.add(row)
     return row
 
@@ -211,12 +209,14 @@ def prepare_backend(engine):
             connection.execute(text("SET LOCAL lock_timeout = '15s'"))
             connection.execute(text("SET LOCAL statement_timeout = '120s'"))
             connection.execute(text('SELECT pg_advisory_xact_lock(723910042002)'))
+        LabelRun.__table__.create(connection, checkfirst=True)
         missing = set(Base.metadata.tables) - set(inspect(connection).get_table_names())
         if missing:
             raise ValueError('The ER migration is incomplete. Missing model tables: ' + ', '.join(sorted(missing)))
         ExtraBase.metadata.create_all(connection)
         if connection.dialect.name == 'postgresql':
             connection.execute(text('ALTER TABLE admin_record_extras ENABLE ROW LEVEL SECURITY'))
+            connection.execute(text('ALTER TABLE label_runs ENABLE ROW LEVEL SECURITY'))
         existing = {(row.entity_type, row.entity_id) for row in connection.execute(select(RecordExtras.__table__))}
         if inspect(connection).has_table(RECORDS.name):
             # A subsequent ER-to-ER import archives this support table too.

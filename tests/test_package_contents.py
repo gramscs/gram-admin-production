@@ -1,6 +1,5 @@
 """B2B boxes, per-box pieces and unit-safe historical volume upgrades."""
 from decimal import Decimal
-from pathlib import Path
 import io
 import json
 
@@ -20,7 +19,7 @@ CONTENTS = {'kind': 'box', 'default_pieces': 10,
 
 def saved(client, **values):
     data = {'consignment_number': 'BOX-CONTENTS', 'pieces': 3, 'package_contents': CONTENTS,
-            'measurement_mode': 'volume', 'chargeable_volume': '25.250', **values}
+            'measurement_mode': 'volume', 'volume': '25.250', **values}
     response = client.post('/admin/consignments/save', json={'rows': [data]})
     assert response.status_code == 200, response.json
     return client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
@@ -53,7 +52,7 @@ def test_box_weight_exceptions_persist_and_invoice_values_can_vary_per_box(panel
     app, client = panel
     contents = {'kind': 'box', 'default_pieces': 10,
                 'boxes': {'2': {'pieces': 8, 'note': 'Fragile', 'weight': '3.250'}}}
-    row = saved(client, measurement_mode='weight', chargeable_weight='12.345', package_contents=contents)
+    row = saved(client, measurement_mode='weight', weight='12.345', package_contents=contents)
     assert row['package_contents'] == contents
     reviewed = client.post('/admin/labels/review', json={'consignment_ids': [row['id']]}).json['shipments'][0]
     assert [box['weight'] for box in reviewed['boxes']] == ['12.345', '3.250', '12.345']
@@ -107,12 +106,12 @@ def test_old_cbm_is_displayed_correctly_and_upgrade_converts_exactly_once(panel)
     row = saved(client)
     with app.app_context():
         stored = db.session.get(models.Consignment, models.record_id(row['id']))
-        stored.chargeable_volume = Decimal('1.000')
+        stored.volume = Decimal('1.000')
         stored.volume_unit = None
         db.session.commit()
     before = snapshot(app)
     converted = client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
-    assert converted['chargeable_volume'] == '35.315' and converted['volume_unit'] == 'ft3'
+    assert converted['volume'] == '35.315' and converted['volume_unit'] == 'ft3'
     assert snapshot(app) == before, 'Read-only views must not mutate the database'
     for attempt in range(2):
         result = app.test_cli_runner().invoke(args=['upgrade-db'])
@@ -120,10 +119,10 @@ def test_old_cbm_is_displayed_correctly_and_upgrade_converts_exactly_once(panel)
         assert f'Converted {1 if attempt == 0 else 0} shipment volumes' in result.output
         with app.app_context():
             stored = db.session.get(models.Consignment, models.record_id(row['id']))
-            assert stored.chargeable_volume == Decimal('35.315') and stored.volume_unit == 'ft3'
+            assert stored.volume == Decimal('35.315') and stored.volume_unit == 'ft3'
     result = client.post('/admin/consignments/save', json={'rows': [converted]})
     assert result.status_code == 200
-    assert client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]['chargeable_volume'] == '35.315'
+    assert client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]['volume'] == '35.315'
 
 
 def test_box_contents_and_ft3_survive_excel_and_complete_backup(panel):
@@ -143,7 +142,7 @@ def test_box_contents_and_ft3_survive_excel_and_complete_backup(panel):
     response = client.post('/admin/consignments/import', data={'file': (io.BytesIO(content.getvalue()), 'contents.xlsx')}, follow_redirects=True)
     assert response.status_code == 200 and b'Added: 1' in response.data
     imported = client.get('/admin/consignments/list?search=BOX-CONTENTS-IMPORTED').json['rows'][0]
-    assert imported['package_contents'] == CONTENTS and imported['chargeable_volume'] == '25.250'
+    assert imported['package_contents'] == CONTENTS and imported['volume'] == '25.250'
     archive, payload, _ = unpack(client.get('/admin/generate-backup'))
     workbook = load_workbook(io.BytesIO(archive.read('admin-data.xlsx')))
     values = list(workbook['consignments'].values)
@@ -157,7 +156,7 @@ def test_volume_upgrade_rolls_back_all_rows_if_one_value_overflows(panel):
     row = saved(client)
     with app.app_context():
         stored = db.session.get(models.Consignment, models.record_id(row['id']))
-        stored.chargeable_volume = Decimal('999999999.999')
+        stored.volume = Decimal('999999999.999')
         stored.volume_unit = None
         db.session.commit()
     before = snapshot(app)
@@ -166,8 +165,8 @@ def test_volume_upgrade_rolls_back_all_rows_if_one_value_overflows(panel):
     assert snapshot(app) == before
 
 
-def test_complete_database_migration_keeps_contents_and_volume_unit(panel, tmp_path):
-    app, client = panel
+def test_complete_database_migration_keeps_contents_and_volume_unit(migrated_admin, tmp_path):
+    app, client, storage, source = migrated_admin
     saved(client)
     from app.er_adapter import prepare_backend, RecordExtras
     from database.models import Consignment
@@ -176,33 +175,11 @@ def test_complete_database_migration_keeps_contents_and_volume_unit(panel, tmp_p
     from migrations.shipment_v1 import migrate
     from migrations.storage import Storage
     with app.app_context():
-        source = db.engine
         with disposable_engine(source.dialect.name, tmp_path / 'copied-boxes.db') as target:
-            migrate(target, Storage(Path(app.instance_path) / 'uploads'), source_engine=source, fresh_target=True)
+            migrate(target, storage, source_engine=source, fresh_target=True)
             prepare_backend(target)
             with Session(target) as session:
                 record = session.scalar(select(Consignment).where(Consignment.identifier_value == 'BOX-CONTENTS'))
                 extras = session.get(RecordExtras, ('consignments', record.id)).data
                 assert extras['volume_unit'] == 'ft3' and extras['package_contents'] == CONTENTS
-                assert record.pieces == 3 and record.chargeable_volume == Decimal('25.250')
-
-
-def test_legacy_database_upgrade_with_unassigned_company(legacy_engine, tmp_path, monkeypatch):
-    from app import create_app
-    from app.models import Consignment
-    from sqlalchemy import insert, select
-    with legacy_engine.begin() as connection:
-        connection.execute(insert(Consignment.__table__).values(consignment_number='OLD-CBM', pieces=2, chargeable_volume='2.000'))
-    monkeypatch.setenv('DATABASE_URL', legacy_engine.url.render_as_string(hide_password=False))
-    application = create_app({'TESTING': True, 'INSTANCE_PATH': str(tmp_path / 'cli-instance'), 'AUTO_CREATE_TABLES': False, 'ADMIN_DATABASE_MODEL': 'legacy', 'RATELIMIT_ENABLED': False})
-    try:
-        for expected in (1, 0):
-            result = application.test_cli_runner().invoke(args=['upgrade-db'])
-            assert result.exit_code == 0, result.output
-            assert f'Converted {expected} shipment volumes' in result.output
-        with legacy_engine.connect() as connection:
-            row = connection.execute(select(Consignment.__table__)).mappings().one()
-            assert row['volume'] == Decimal('70.629') and row['volume_unit'] == 'ft3'
-    finally:
-        with application.app_context():
-            db.session.remove(); db.engine.dispose()
+                assert record.pieces == 3 and record.volume == Decimal('25.250')

@@ -12,7 +12,7 @@ from app.admin.labels import generate_labels_pdf
 
 def shipment():
     return dict(id='example', pieces=1, company='Sample client', invoice_amount='6000.00',
-        measurement_mode='weight', chargeable_weight='100.000', chargeable_volume='1.500',
+        measurement_mode='weight', weight='100.000', volume='1.500',
         pickup_date='09/10/2026', consignment_number='320986788', sender_name='Dispatch Team',
         receiver_name='Receiving Team', pickup_address='429 Jagraj Gram, Delhi 110001',
         pickup_pincode='110001', drop_address='24 Distribution Road, Delhi 110037',

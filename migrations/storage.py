@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import io
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
 
 
@@ -23,8 +23,7 @@ class StoredFile:
 
 
 class Storage:
-    def __init__(self, uploads_dir, supabase_client=None, bucket="pod-uploads", additional_buckets=()):
-        self.root = Path(uploads_dir).resolve()
+    def __init__(self, supabase_client=None, bucket="pod-uploads", additional_buckets=()):
         self.client = supabase_client
         self.bucket = bucket
         self.additional_buckets = tuple(additional_buckets)
@@ -32,32 +31,22 @@ class Storage:
     def location(self, reference):
         if not isinstance(reference, str) or not reference or "\x00" in reference:
             raise MigrationError("An upload has an invalid storage reference.")
-        if reference.startswith("supabase:"):
-            bucket, separator, path = reference[len("supabase:"):].partition("/")
-            parts = path.split("/")
-            if (not separator or bucket in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", bucket)
-                    or any(part in ("", ".", "..") for part in parts) or "\\" in path):
-                raise MigrationError("An upload has an invalid Supabase object reference.")
-            return bucket, f"supabase:{bucket}/{path}", path
-        if reference.lower().startswith(("http:", "https:", "data:", "file:")) or "\\" in reference:
-            raise MigrationError("External/unsupported upload references must be moved to private admin storage first.")
-        path = (self.root / reference).resolve()
-        if not path.is_relative_to(self.root) or path == self.root:
-            raise MigrationError("An upload reference escapes the configured uploads folder.")
-        relative = path.relative_to(self.root).as_posix()
-        return "local", "local:" + relative, path
+        if not reference.startswith("supabase:"):
+            raise MigrationError("Every imported upload must already be stored in Supabase.")
+        bucket, separator, path = reference[len("supabase:"):].partition("/")
+        parts = path.split("/")
+        if (not separator or bucket in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", bucket)
+                or any(part in ("", ".", "..") for part in parts) or "\\" in path):
+            raise MigrationError("An upload has an invalid Supabase object reference.")
+        return bucket, f"supabase:{bucket}/{path}", path
 
     def describe(self, reference):
         bucket, canonical, location = self.location(reference)
         try:
-            if bucket == "local" and not canonical.startswith("supabase:"):
-                with location.open("rb") as source:
-                    result = self._metadata(source, reference, bucket, canonical, location.name)
-            else:
-                if self.client is None:
-                    raise MigrationError("Supabase uploads require SUPABASE_URL and SUPABASE_KEY in the environment.")
-                content = self.client.storage.from_(bucket).download(location)
-                result = self._metadata(io.BytesIO(content), reference, bucket, canonical, PurePosixPath(location).name)
+            if self.client is None:
+                raise MigrationError("Supabase uploads require SUPABASE_URL and SUPABASE_KEY in the environment.")
+            content = self.client.storage.from_(bucket).download(location)
+            result = self._metadata(io.BytesIO(content), reference, bucket, canonical, PurePosixPath(location).name)
             return result
         except MigrationError:
             raise
@@ -90,14 +79,8 @@ class Storage:
         return StoredFile(reference, bucket, path, filename, mime, size, checksum.hexdigest())
 
     def inventory(self, references):
-        """Include unlinked local files and this app's Supabase namespace."""
+        """Include referenced and unlinked objects in the configured Supabase namespace."""
         try:
-            if self.root.exists():
-                for path in sorted(self.root.rglob("*")):
-                    if path.is_symlink():
-                        raise MigrationError("Move symlinked uploads into regular files before migration.")
-                    if path.is_file():
-                        yield path.relative_to(self.root).as_posix()
             buckets = {self.location(value)[0] for value in references if value.startswith("supabase:")}
             if self.client is not None:
                 buckets.add(self.bucket)

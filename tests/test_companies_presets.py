@@ -3,10 +3,6 @@ import io
 import pytest
 from openpyxl import load_workbook
 from pypdf import PdfReader
-from sqlalchemy import create_engine, text
-
-from app import create_app
-from app.models import Company, Consignment, Lead, db
 
 
 def company(client, name='Acme Logistics', **changes):
@@ -87,26 +83,6 @@ def test_updated_labels_have_optional_barcode_and_company_name(admin_client):
         assert sum('LiberationSans' in font['/BaseFont'] for font in embedded_fonts) == 2
         outputs.append(page.get_contents().get_data().count(b' re'))
     assert outputs[0] - outputs[1] > 20, 'The barcode must add its bars independently of the layout bands'
-
-
-def test_legacy_company_and_crm_upgrade_preserves_data_and_is_repeatable(tmp_path, monkeypatch):
-    path = tmp_path/'legacy-admin.db'
-    engine = create_engine(f'sqlite:///{path}')
-    with engine.begin() as connection:
-        connection.execute(text('CREATE TABLE lead (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, email VARCHAR(120) NOT NULL, phone VARCHAR(30), subject VARCHAR(200), message TEXT NOT NULL, created_at DATETIME NOT NULL)'))
-        connection.execute(text("INSERT INTO lead VALUES (1, 'Keep contact', 'keep@example.test', '9999999999', 'Old enquiry', 'Keep message', '2026-01-01 12:00:00')"))
-    engine.dispose()
-    monkeypatch.setenv('FLASK_ENV', 'development')
-    upgraded = create_app({'INSTANCE_PATH': str(tmp_path/'legacy-instance'), 'SQLALCHEMY_DATABASE_URI': f'sqlite:///{path}', 'AUTO_CREATE_TABLES': True, 'RATELIMIT_ENABLED': False})
-    for _ in range(2):
-        assert upgraded.test_cli_runner().invoke(args=['upgrade-db']).exit_code == 0
-    with upgraded.app_context():
-        row = db.session.get(Lead, 1)
-        assert row.name == 'Keep contact' and row.message == 'Keep message' and row.status == 'New'
-        assert row.follow_up_date is None and row.notes is None
-        assert Company.query.count() == 0
-        db.session.remove()
-        db.engine.dispose()
 
 
 @pytest.mark.parametrize('path,method,data', [
