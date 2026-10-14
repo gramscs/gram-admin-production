@@ -191,7 +191,7 @@ def test_missing_label_table_recovers_with_additive_upgrade_and_keeps_existing_r
     data = label_form([row['id']], delivery='preview')
     response = admin_client.post('/admin/labels/generate', data=data)
     assert response.status_code == 503
-    assert 'python -m flask --app wsgi:app upgrade-db' in response.json['message']
+    assert 'python migrations/002_label_runs.py --apply' in response.json['message']
     assert 'numbering files' not in response.json['message']
     with app.app_context():
         assert not inspect(db.engine).has_table('label_runs'), 'Requests must not create schema automatically'

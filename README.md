@@ -34,6 +34,17 @@ python -m flask --app wsgi:app check-storage
 tables when missing; it does not recreate the business schema. See
 [database migration and upgrade instructions](docs/database-migration.md).
 
+For the missing label-numbering table, apply the versioned migration directly
+to the PostgreSQL database already configured by `DATABASE_URL`:
+
+```bash
+python migrations/002_label_runs.py --apply
+```
+
+This creates `label_runs` and records the revision in PostgreSQL, preserving
+existing shipments and numbering. It is safe to rerun and creates no local
+database. Pulling the project does not execute the migration automatically.
+
 ## Features
 
 - Shipment, client, pickup/drop preset, document, reporting, and label management.
@@ -47,7 +58,7 @@ tables when missing; it does not recreate the business schema. See
 
 - [app/](app): Flask application, routes, services, templates, and static assets.
 - [database/](database): PostgreSQL ER models, integrity rules, and schema tools.
-- [migrations/](migrations): one-time PostgreSQL data import utilities.
+- [migrations/](migrations): versioned PostgreSQL upgrades and one-time import utilities.
 - [tests/](tests): automated tests; database tests require a dedicated
   PostgreSQL test database configured with `ER_TEST_DATABASE_URL`.
 - [docs/database-model.md](docs/database-model.md): schema and integrity model.

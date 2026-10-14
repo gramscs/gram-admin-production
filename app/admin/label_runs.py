@@ -52,7 +52,7 @@ def render_label_run(identifier, owner, shipments, render):
             if getattr(error.orig, 'pgcode', None) == '42P01':
                 raise LabelSchemaMissing(
                     'Label numbering is not set up in the database. In the app terminal, run '
-                    'python -m flask --app wsgi:app upgrade-db, then retry generating labels.'
+                    'python migrations/002_label_runs.py --apply, then retry generating labels.'
                 ) from error
             raise
         if existing is not None:

@@ -1,5 +1,17 @@
 # System testing
 
+## Versioned label-numbering migration — 14 October 2026
+
+`tests/test_label_runs_migration.py`: **8 passed**, with two upstream
+deprecation warnings. These isolated PostgreSQL checks cover read-only
+preflight, table creation and PDF recovery, indexes/constraints/RLS, retained
+shipment data and prior migration history, repeat application without resetting
+numbering, atomic rollback, incompatible/missing-recorded-table protection,
+rejection of non-PostgreSQL targets, use of the app connection, and redacted CLI
+errors. Migration 002 is committed for execution against the configured
+`DATABASE_URL`; it has not been applied to the user's Supabase database from
+this environment.
+
 ## Missing label-numbering table — 14 October 2026
 
 `tests/test_label_review.py`: **29 passed**, with two upstream deprecation

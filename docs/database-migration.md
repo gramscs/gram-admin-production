@@ -6,6 +6,42 @@ local persistence.
 
 ## Upgrade an existing application database
 
+### Version 002: PostgreSQL label numbering
+
+[`002_label_runs.py`](../migrations/002_label_runs.py) adds the missing
+`label_runs` table to the **existing PostgreSQL database in `DATABASE_URL`**.
+It uses the application's `.env` loading and connection settings. Running a
+migration from Codespaces changes that configured database, not a database on
+the Codespaces filesystem.
+
+From the repository, with the app's virtual environment activated:
+
+```bash
+git pull origin standalone-admin
+python migrations/002_label_runs.py --apply
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-db
+```
+
+The migration creates the table, constraints and indexes, enables row-level
+security, and records `002_label_runs` in `admin_migration_runs` in the same
+database. It preserves existing shipments and label-numbering assignments.
+DDL and the history entry commit together; failure rolls back the transaction.
+Repeated application verifies the existing table and keeps the same history
+entry and numbering. Omit `--apply` for a read-only preflight.
+
+After the command succeeds, reopen label review and retry preview/download.
+Do not rerun migration 001 or move data to another database for this error.
+Pushing/pulling this file alone does not execute it on Supabase. No local
+database or persistence fallback is created. The migration does not import old
+local numbering files or regenerate historical PDFs.
+
+If migration 002 is already recorded but its table has subsequently disappeared,
+the command stops instead of silently restarting numbering. Restore the
+missing numbering history before retrying. Application rollback can leave this
+additive table in place; do not drop it after labels have been generated.
+
+### General support-table maintenance
+
 Set `DATABASE_URL` to the intended PostgreSQL database. Run:
 
 ```bash
@@ -19,14 +55,6 @@ tables (`admin_record_extras` and `label_runs`) and preserves existing business
 tables and records. It does not rebuild the schema, rename or drop business
 columns, or import data. Database columns and public API fields for shipment
 measurements are `weight` and `volume`.
-
-If label preview/download fails with `relation "label_runs" does not exist`,
-run the upgrade commands above in the same Codespaces terminal/environment as
-the running app. This table was introduced when label numbering moved from
-local files to PostgreSQL; pulling code alone does not create it. The upgrade
-preserves existing shipment records and any numbering already stored in
-`label_runs`. Reopen label review after upgrading and retry the PDF. Do not run
-the fresh-database importer for this error.
 
 For future business-schema changes, add a dedicated versioned PostgreSQL
 migration that alters the existing tables transactionally and preserves their
