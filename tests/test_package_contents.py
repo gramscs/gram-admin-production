@@ -1,4 +1,4 @@
-"""B2B boxes, per-box pieces and unit-safe historical volume upgrades."""
+"""Shared B2B package details and unit-safe historical volume upgrades."""
 from decimal import Decimal
 import io
 import json
@@ -13,8 +13,9 @@ from test_label_review import panel, create, pages, snapshot, migrated_admin, po
 from test_complete_backup import unpack
 
 
-CONTENTS = {'kind': 'box', 'default_pieces': 10,
-            'boxes': {'2': {'pieces': 8, 'note': 'Fragile & upright <glass>'}}}
+CONTENTS = {'kind': 'box', 'default_pieces': 10}
+OLD_CONTENTS = {**CONTENTS,
+               'boxes': {'2': {'pieces': 8, 'note': 'Fragile & upright <glass>', 'weight': '3.250'}}}
 
 
 def saved(client, **values):
@@ -25,12 +26,12 @@ def saved(client, **values):
     return client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
 
 
-def test_per_box_counts_exceptions_persist_and_print_on_the_right_page(panel):
+def test_shared_counts_persist_and_print_on_every_page(panel):
     app, client = panel
     row = saved(client)
     assert row['package_contents'] == CONTENTS
     assert row['pieces'] == 3 and row['volume_unit'] == 'ft3'
-    before = snapshot(app)
+    before = snapshot(app, include_label_runs=False)
     review = client.post('/admin/labels/review', json={'consignment_ids': [row['id']]}).json
     assert review['shipments'][0]['package_contents'] == CONTENTS
     output = pages(client.post('/admin/labels/generate', data=label_form([row['id']])))
@@ -39,41 +40,51 @@ def test_per_box_counts_exceptions_persist_and_print_on_the_right_page(panel):
         text = page.extract_text()
         assert 'PIECES\n' in text and 'BOX\n' in text and 'BOXES\n' not in text
         assert f'{index} of 3' in text and '25.250 ft³' in text and 'm³' not in text
-        assert ('\n8\n' if index == 2 else '\n10\n') in text
-        assert ('Fragile & upright <glass>' in text) == (index == 2)
-    assert snapshot(app) == before
+        assert '\n10\n' in text
+    assert snapshot(app, include_label_runs=False) == before
     # Older callers that omit contents must not erase them.
     result = client.post('/admin/consignments/save', json={'rows': [{'id': row['id'], 'consignment_number': row['consignment_number'], 'status': 'Delivered'}]})
     assert result.status_code == 200
     assert client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]['package_contents'] == CONTENTS
 
 
-def test_box_weight_exceptions_persist_and_invoice_values_can_vary_per_box(panel):
+def test_saved_exceptions_cannot_affect_reads_exports_or_new_labels(panel):
     app, client = panel
-    contents = {'kind': 'box', 'default_pieces': 10,
-                'boxes': {'2': {'pieces': 8, 'note': 'Fragile', 'weight': '3.250'}}}
-    row = saved(client, measurement_mode='weight', weight='12.345', package_contents=contents)
-    assert row['package_contents'] == contents
+    row = saved(client, measurement_mode='weight', weight='12.345')
+    # Simulate an existing database containing data saved before the removal.
+    with app.app_context():
+        stored = db.session.get(models.Consignment, models.record_id(row['id']))
+        stored.package_contents = OLD_CONTENTS
+        db.session.commit()
+    before = snapshot(app, include_label_runs=False)
+    listed = client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
+    assert listed['package_contents'] == CONTENTS
     reviewed = client.post('/admin/labels/review', json={'consignment_ids': [row['id']]}).json['shipments'][0]
-    assert [box['weight'] for box in reviewed['boxes']] == ['12.345', '3.250', '12.345']
+    assert reviewed['package_contents'] == CONTENTS and 'boxes' not in reviewed
+    sheet = list(load_workbook(io.BytesIO(client.get('/admin/consignments/export.xlsx').data)).active.values)
+    exported = next(dict(zip(sheet[0], values)) for values in sheet[1:] if values[0] == 'BOX-CONTENTS')
+    assert json.loads(exported['package_contents']) == CONTENTS
     data = label_form([row['id']])
     details = json.loads(data['label_details'])
     details[0]['box_invoice_amounts'] = ['6000.00', '50.25', '7000']
     data['label_details'] = json.dumps(details)
     output = pages(client.post('/admin/labels/generate', data=data))
     assert len(output) == 3
-    assert '12.345 kg' in output[0].extract_text() and 'Rs 6,000.00' in output[0].extract_text()
-    assert '3.250 kg' in output[1].extract_text() and 'Rs 50.25' in output[1].extract_text()
-    assert '12.345 kg' in output[2].extract_text() and 'Rs 7,000.00' in output[2].extract_text()
+    for page in output:
+        text = page.extract_text()
+        assert '12.345 kg' in text and 'Rs 6,000.00' in text and '\n10\n' in text
+        for retired in ('3.250 kg', 'Rs 50.25', 'Rs 7,000.00', 'Fragile', '\n8\n', 'BOX NOTE'):
+            assert retired not in text
+    assert snapshot(app, include_label_runs=False) == before, 'Reads and printing must not rewrite saved data'
+    # Saving the record removes retired overrides, including for older clients.
+    assert client.post('/admin/consignments/save', json={'rows': [{**listed, 'package_contents': OLD_CONTENTS}]}).status_code == 200
+    with app.app_context():
+        assert db.session.get(models.Consignment, models.record_id(row['id'])).package_contents == CONTENTS
 
 
 @pytest.mark.parametrize('contents', [
     {'kind': 'bag'}, {'default_pieces': -1}, {'default_pieces': True}, {'default_pieces': '1.5'},
-    {'boxes': {'4': {'pieces': 2}}}, {'boxes': {'02': {'pieces': 2}}},
-    {'boxes': {'1': {'note': 'x' * 121}}}, {'boxes': {'1': {'note': 'two\nlines'}}},
-    {'boxes': {'1': {'weight': -1}}}, {'boxes': {'1': {'weight': 'NaN'}}},
-    {'boxes': {'1': {'weight': 'Infinity'}}}, {'boxes': {'1': {'weight': '1.0001'}}},
-    {'boxes': {'1': {'weight': '1000000000'}}}, {'boxes': {'1': {'weight': True}}},
+    {'default_pieces': 0}, {'default_pieces': 1000001}, {'unknown': 2}, [],
 ])
 def test_bad_contents_rejected_without_partial_save(panel, contents):
     app, client = panel
@@ -83,14 +94,13 @@ def test_bad_contents_rejected_without_partial_save(panel, contents):
     assert snapshot(app) == before
 
 
-def test_reducing_boxes_requires_explicit_removal_of_out_of_range_entries(panel):
+def test_reducing_boxes_discards_old_overrides_without_blocking_the_save(panel):
     _, client = panel
     row = saved(client)
-    response = client.post('/admin/consignments/save', json={'rows': [{**row, 'pieces': 1}]})
-    assert response.status_code == 400
-    assert client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]['pieces'] == 3
-    response = client.post('/admin/consignments/save', json={'rows': [{**row, 'pieces': 1, 'package_contents': {'kind': 'box', 'default_pieces': 10, 'boxes': {}}}]})
+    response = client.post('/admin/consignments/save', json={'rows': [{**row, 'pieces': 1, 'package_contents': OLD_CONTENTS}]})
     assert response.status_code == 200
+    stored = client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
+    assert stored['pieces'] == 1 and stored['package_contents'] == CONTENTS
 
 
 def test_unknown_piece_counts_and_pallets_are_not_invented(panel):
@@ -113,11 +123,10 @@ def test_old_cbm_is_displayed_correctly_and_upgrade_converts_exactly_once(panel)
     converted = client.get('/admin/consignments/list?search=BOX-CONTENTS').json['rows'][0]
     assert converted['volume'] == '35.315' and converted['volume_unit'] == 'ft3'
     assert snapshot(app) == before, 'Read-only views must not mutate the database'
+    from app.shipment_packages import upgrade_volume_units
     for attempt in range(2):
-        result = app.test_cli_runner().invoke(args=['upgrade-db'])
-        assert result.exit_code == 0, result.output
-        assert f'Converted {1 if attempt == 0 else 0} shipment volumes' in result.output
         with app.app_context():
+            assert upgrade_volume_units() == (1 if attempt == 0 else 0)
             stored = db.session.get(models.Consignment, models.record_id(row['id']))
             assert stored.volume == Decimal('35.315') and stored.volume_unit == 'ft3'
     result = client.post('/admin/consignments/save', json={'rows': [converted]})
@@ -137,6 +146,7 @@ def test_box_contents_and_ft3_survive_excel_and_complete_backup(panel):
     from openpyxl import Workbook
     book = Workbook(); book.active.append(headers)
     record['consignment_number'] = 'BOX-CONTENTS-IMPORTED'
+    record['package_contents'] = json.dumps(OLD_CONTENTS)
     book.active.append([record.get(key) for key in headers])
     content = io.BytesIO(); book.save(content)
     response = client.post('/admin/consignments/import', data={'file': (io.BytesIO(content.getvalue()), 'contents.xlsx')}, follow_redirects=True)
@@ -160,13 +170,14 @@ def test_volume_upgrade_rolls_back_all_rows_if_one_value_overflows(panel):
         stored.volume_unit = None
         db.session.commit()
     before = snapshot(app)
-    result = app.test_cli_runner().invoke(args=['upgrade-db'])
-    assert result.exit_code != 0
+    from app.shipment_packages import upgrade_volume_units
+    with app.app_context(), pytest.raises(ValueError, match='outside the supported range'):
+        upgrade_volume_units()
     assert snapshot(app) == before
 
 
-def test_complete_database_migration_keeps_contents_and_volume_unit(migrated_admin, tmp_path):
-    app, client, storage, source = migrated_admin
+def test_complete_database_migration_keeps_contents_and_volume_unit(panel, isolated_storage, tmp_path):
+    app, client = panel
     saved(client)
     from app.er_adapter import prepare_backend, RecordExtras
     from database.models import Consignment
@@ -175,8 +186,9 @@ def test_complete_database_migration_keeps_contents_and_volume_unit(migrated_adm
     from migrations.shipment_v1 import migrate
     from migrations.storage import Storage
     with app.app_context():
-        with disposable_engine(source.dialect.name, tmp_path / 'copied-boxes.db') as target:
-            migrate(target, storage, source_engine=source, fresh_target=True)
+        source = db.engine
+        with disposable_engine(source.dialect.name, 'copied-boxes') as target:
+            migrate(target, Storage(isolated_storage), source_engine=source, fresh_target=True)
             prepare_backend(target)
             with Session(target) as session:
                 record = session.scalar(select(Consignment).where(Consignment.identifier_value == 'BOX-CONTENTS'))

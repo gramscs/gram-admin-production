@@ -15,12 +15,9 @@ from test_er_dashboard import migrated_admin, populated, legacy_engine, disposab
 from label_helpers import label_form
 
 
-@pytest.fixture(params=['legacy', 'er'])
-def panel(request, app, admin_client, migrated_admin):
-    if request.param == 'legacy':
-        return app, admin_client
-    er_app, client, _, _ = migrated_admin
-    return er_app, client
+@pytest.fixture
+def panel(app, admin_client):
+    return app, admin_client
 
 
 def create(client, count=1):
@@ -35,11 +32,12 @@ def create(client, count=1):
     return sorted(found, key=lambda row: row['consignment_number'])
 
 
-def snapshot(app):
+def snapshot(app, *, include_label_runs=True):
     with app.app_context():
         with db.engine.connect() as connection:
             return {name: [tuple(row) for row in connection.execute(text(f'SELECT * FROM "{name}"')).all()]
-                    for name in sorted(inspect(db.engine).get_table_names())}
+                    for name in sorted(inspect(db.engine).get_table_names())
+                    if include_label_runs or name != 'label_runs'}
 
 
 def pages(response):
@@ -47,10 +45,10 @@ def pages(response):
     return PdfReader(io.BytesIO(response.data)).pages
 
 
-def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel, monkeypatch):
+def test_review_and_pdf_use_db_fields_without_changing_shipment_records(panel, monkeypatch):
     app, client = panel
     rows = create(client, 2)
-    before = snapshot(app)
+    before = snapshot(app, include_label_runs=False)
     review = client.post('/admin/labels/review', json={'consignment_ids': [row['id'] for row in rows]})
     assert review.status_code == 200 and review.json['shipments'][0]['pickup_date'] == '09/10/2026'
     data = label_form([row['id'] for row in rows])
@@ -85,7 +83,7 @@ def test_review_and_pdf_use_db_fields_manual_details_logo_and_no_db_writes(panel
         else:
             assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
             assert 'EWBN' not in extracted and 'ignore unchecked' not in extracted
-    assert snapshot(app) == before
+    assert snapshot(app, include_label_runs=False) == before
     from database.models import LabelRun
     with app.app_context():
         run = db.session.get(LabelRun, UUID(data['job_id']))
@@ -136,17 +134,18 @@ def test_invalid_label_details_do_not_allocate_or_touch_shipments(app, admin_cli
     assert snapshot(app) == before
 
 
-@pytest.mark.parametrize('box_amounts', [[], ['NaN', '1'], ['-1', '1'], ['1.001', '1'], [True, '1']])
-def test_invalid_per_box_invoice_values_do_not_allocate_or_touch_shipments(app, admin_client, box_amounts):
+@pytest.mark.parametrize('box_amounts', [[], ['50.25', '7000'], ['NaN', True]])
+def test_old_invoice_drafts_use_only_the_shared_shipment_amount(app, admin_client, box_amounts):
     row = create(admin_client)[0]
-    before = snapshot(app)
+    before = snapshot(app, include_label_runs=False)
     data = label_form([row['id']])
     details = json.loads(data['label_details'])
     details[0]['box_invoice_amounts'] = box_amounts
     data['label_details'] = json.dumps(details)
-    rejected = admin_client.post('/admin/labels/generate', data=data)
-    assert rejected.status_code == 400 and rejected.json['success'] is False
-    assert snapshot(app) == before
+    output = pages(admin_client.post('/admin/labels/generate', data=data))
+    assert len(output) == 2
+    assert all('Rs 6,000.00' in page.extract_text() for page in output)
+    assert snapshot(app, include_label_runs=False) == before
 
 
 def test_run_cannot_be_reused_for_different_details_or_owner(app, admin_client):
@@ -156,6 +155,10 @@ def test_run_cannot_be_reused_for_different_details_or_owner(app, admin_client):
     details = json.loads(data['label_details']); details[0]['invoice_amount'] = '9'
     changed = admin_client.post('/admin/labels/generate', data={**data, 'label_details': json.dumps(details)})
     assert changed.status_code == 409
+    from database.models import AdminUser
+    with app.app_context():
+        db.session.add(AdminUser(username='another-admin', role='administrator', active=True))
+        db.session.commit()
     with admin_client.session_transaction() as state:
         state['admin_username'] = 'another-admin'
     assert admin_client.post('/admin/labels/generate', data=data).status_code == 409
@@ -163,6 +166,7 @@ def test_run_cannot_be_reused_for_different_details_or_owner(app, admin_client):
 
 def test_render_failure_allocates_nothing(app, admin_client, monkeypatch):
     row = create(admin_client)[0]
+    before = snapshot(app)
     def fail(*args): raise RuntimeError('Simulated PDF error')
     monkeypatch.setattr(labels, 'generate_labels_pdf', fail)
     assert admin_client.post('/admin/labels/generate', data=label_form([row['id']])).status_code == 500

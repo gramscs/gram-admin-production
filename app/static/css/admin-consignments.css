@@ -31,16 +31,4 @@
 #editConsignmentModal .form-label { font-size: .85rem; margin-bottom: .35rem; }
 #shipment-form-error { flex-shrink: 0; max-height: 22vh; overflow-y: auto; font-size: .85rem; }
 @media (max-width: 767.98px) { .pagination-buttons { flex-wrap: wrap; } .consignment-page h4 { font-size: 1.2rem; } }
-#package-contents-editor td:last-child { width: 55%; }
 #package-contents-editor input[type="number"] { min-width: 5rem; }
-@media (max-width: 575.98px) {
-  #package-contents-editor thead { display: none; }
-  #package-contents-editor tbody { display: block; }
-  #package-contents-editor tr { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; padding: .8rem 0; border-bottom: 1px solid var(--admin-border); }
-  #package-contents-editor th { align-self: center; }
-  #package-contents-editor td, #package-contents-editor th { border: 0; padding: 0; width: auto; }
-  #package-contents-editor td:last-child { grid-column: 1 / -1; width: 100%; }
-  #package-contents-editor td::before { display: block; font-size: .75rem; color: var(--admin-muted); margin-bottom: .3rem; }
-  #package-contents-editor td:nth-child(2)::before { content: 'Pieces inside'; }
-  #package-contents-editor td:last-child::before { content: 'Exception / handling note'; }
-}

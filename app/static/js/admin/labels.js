@@ -72,13 +72,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const fields = reviewFields.get(card);
         const value = {id: fields.id};
         Object.entries(fields.inputs).forEach(([name, input]) => {value[name] = input.type === 'checkbox' ? input.checked : input.value;});
-        value.box_invoice_amounts = fields.boxInputs.map(input => input.value);
         if (!value.eway_bill_exists) value.eway_bill_number = '';
         return value;
     }
     function cardReady(card) {
         const fields = reviewFields.get(card);
-        return [...Object.values(fields.inputs), ...fields.boxInputs].every(input => input.disabled || input.checkValidity());
+        return Object.values(fields.inputs).every(input => input.disabled || input.checkValidity());
     }
     function changed(card) {
         const value = cardValues(card);
@@ -98,49 +97,12 @@ document.addEventListener('DOMContentLoaded', function () {
             const contents = row.package_contents || {}, kind = contents.kind === 'pallet' ? 'Pallet' : 'Box';
             [row.pieces + (kind === 'Pallet' ? ' pallets' : ' boxes'), 'Pickup: ' + row.pickup_date, measurement + (volumeMode ? ' ft³' : ' kg'), row.company].filter(Boolean).forEach(text => snapshot.append(node('span', '', text)));
             card.append(snapshot);
-            const packages = node('details', 'label-package-summary mb-3');
-            packages.open = true;
-            const boxInputs = [];
-            const known = Array.from({length: row.pieces}, (_, i) => {
-                const entry = (contents.boxes || {})[i + 1] || {};
-                return Object.hasOwn(entry, 'pieces') ? entry.pieces : contents.default_pieces;
-            });
-            const total = known.reduce((sum, n) => sum + (n || 0), 0);
-            packages.append(node('summary', 'small fw-semibold', 'Box contents · ' + (known.every(n => n != null) ? total + ' pieces total' : 'some piece counts not entered') + ' · review counts & exceptions'));
-            packages.append(node('p', 'small text-muted mt-2', 'Pieces and weight come from shipment details. Weight exceptions can be edited in Shipments → Edit → Box contents. The shipment invoice amount is copied to every box unless you enter a box exception.'));
-            const table = node('table', 'table table-sm small mb-0'), head = node('thead'), header = node('tr'), body = node('tbody');
-            [kind, 'Pieces inside', 'Weight (kg)', 'Invoice value (Rs)', 'Exception / handling note'].forEach(title => header.append(node('th', '', title))); head.append(header);
-            for (let n = 1; n <= row.pieces; n++) {
-                const entry = (contents.boxes || {})[n] || {}, tr = node('tr');
-                const count = Object.hasOwn(entry, 'pieces') ? entry.pieces : contents.default_pieces;
-                const box = row.boxes[n - 1] || {};
-                [n + ' of ' + row.pieces, count ?? '—', box.weight ?? '—'].forEach(text => tr.append(node('td', '', text)));
-                const amountCell = node('td'), boxAmount = node('input', 'form-control form-control-sm');
-                const savedAmount = data.box_invoice_amounts && data.box_invoice_amounts[n - 1];
-                boxAmount.type = 'number'; boxAmount.min = '0'; boxAmount.max = '999999999.99'; boxAmount.step = '0.01';
-                boxAmount.value = savedAmount == null || savedAmount === '' ? data.invoice_amount || '' : savedAmount;
-                boxAmount.placeholder = 'Uses shipment amount'; boxAmount.dataset.boxInvoice = String(n);
-                boxAmount.dataset.exception = savedAmount != null && String(savedAmount) !== '' && String(savedAmount) !== String(data.invoice_amount || '');
-                boxAmount.setAttribute('aria-label', 'Invoice value for ' + row.consignment_number + ', box ' + n + ' of ' + row.pieces);
-                boxInputs.push(boxAmount); amountCell.append(boxAmount); tr.append(amountCell, node('td', '', entry.note || '—')); body.append(tr);
-            }
-            table.append(head, body); const scroll = node('div', 'table-responsive'); scroll.style.maxHeight = '260px'; scroll.append(table); packages.append(scroll); card.append(packages);
+            const packages = node('p', 'label-package-summary small text-muted mb-3');
+            packages.textContent = (contents.default_pieces == null ? 'Pieces per ' + kind.toLowerCase() + ': not entered' : contents.default_pieces + ' pieces per ' + kind.toLowerCase()) + ' · The same details apply to every label in this shipment.';
+            card.append(packages);
             const fields = node('div', 'label-review-fields');
             const amount = node('input', 'form-control'); amount.id = 'label-amount-' + index; amount.type = 'number'; amount.min = '0'; amount.max = '999999999.99'; amount.step = '0.01'; amount.required = true; amount.value = data.invoice_amount || ''; amount.dataset.field = 'invoice_amount';
-            field(fields, 'Default invoice amount per box (Rs) *', amount);
-            amount.addEventListener('input', () => {
-                boxInputs.forEach(input => {if (input.dataset.exception !== 'true') input.value = amount.value;});
-                changed(card);
-            });
-            boxInputs.forEach(input => input.addEventListener('input', () => {
-                input.dataset.exception = String(input.value !== '' && input.value !== amount.value);
-                changed(card);
-            }));
-            boxInputs.forEach(input => input.addEventListener('blur', () => {
-                if (!input.value) input.value = amount.value;
-                input.dataset.exception = 'false';
-                changed(card);
-            }));
+            field(fields, 'Invoice amount (Rs) *', amount);
             const paymentInput = payment('label-payment-' + index, data.payment_mode);
             field(fields, 'Payment mode *', paymentInput);
             const description = node('input', 'form-control'); description.id = 'label-goods-' + index; description.maxLength = 160; description.required = true; description.value = data.goods_description; description.dataset.field = 'goods_description';
@@ -161,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function () {
             toggleEway(); exists.addEventListener('change', toggleEway);
             eway.append(label, number); card.append(eway); root.append(card);
             reviewFields.set(card, {id: row.id, inputs: {invoice_amount: amount, payment_mode: paymentInput,
-                goods_description: description, eway_bill_exists: exists, eway_bill_number: number, ...nameInputs}, boxInputs});
+                goods_description: description, eway_bill_exists: exists, eway_bill_number: number, ...nameInputs}});
             card.addEventListener('input', () => changed(card)); card.addEventListener('change', () => changed(card));
         });
         const pieces = review.reduce((sum, row) => sum + row.pieces, 0);
@@ -210,7 +172,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (invalid) {
             part('label-review-search').value = ''; cards.forEach(card => {card.hidden = false;});
             const fields = reviewFields.get(invalid);
-            const field = [...Object.values(fields.inputs), ...fields.boxInputs].find(input => !input.disabled && !input.checkValidity());
+            const field = Object.values(fields.inputs).find(input => !input.disabled && !input.checkValidity());
             error('label-review-error', 'Complete the details for ' + invalid.dataset.identifier + ' before generating.');
             field.focus(); field.reportValidity(); return;
         }

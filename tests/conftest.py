@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from uuid import uuid4
@@ -109,6 +110,8 @@ def app(monkeypatch, isolated_storage):
     database_engine = create_engine(test_url, pool_pre_ping=True, connect_args=connect_args)
     from database.models import Base
     Base.metadata.create_all(database_engine)
+    from migrations.shipment_v1 import LEDGER
+    LEDGER.create_all(database_engine)
     monkeypatch.setenv("FLASK_ENV", "development")
     monkeypatch.setenv("ADMIN_USERNAME", "admin")
     monkeypatch.setenv("ADMIN_PASSWORD_HASH", generate_password_hash("test-admin-password"))

@@ -1,5 +1,37 @@
 # System testing
 
+## Label exception removal — 14 October 2026
+
+Against the current PostgreSQL-only application, the five targeted modules
+(`test_package_contents`, `test_label_review`, `test_label_layout`,
+`test_label_names_metrics`, `test_shipment_fields_labels`) finished with
+**88 passed and 1 failed**, with two upstream deprecation warnings.
+The failure is in the existing complete database import path: its temporary
+validation schema reports `relation "consignments" does not exist`. This is
+separate from shipment saves and label generation; no migration code or live
+database was changed for this release. That import check remains unresolved.
+
+The passing checks cover shared package counts, ignored historical quantity,
+weight and invoice overrides, normal Excel import/export, complete backups,
+PDF text and geometry, unchanged shipment records during printing, validation,
+and PostgreSQL label numbering. A numbering boundary error was corrected so
+new order/invoice batches no longer skip one number; existing assignments are
+preserved.
+
+Two Chromium runners passed all seven workflow groups: `box-contents.cjs` and
+`label-review.cjs`. They exercised a 100-box shipment and 100-page PDF, quantity
+validation inside the modal, package type/count edits, 50 shipments selected
+across pages, preview/download/reprint, and desktop/mobile/tablet light/dark
+layouts. There were no uncaught JavaScript errors. Both used disposable
+PostgreSQL schemas and mocked storage, not live Supabase data.
+
+Updated examples: [PDF](b2b-label-example.pdf),
+[box contents](screenshots/box-contents.png),
+[mobile form](screenshots/box-contents-mobile.png), and
+[label review](screenshots/label-review.png).
+
+## Running tests
+
 The application test suite uses an isolated PostgreSQL database and mocked
 Supabase Storage. It must not point at the configured application database or
 real Supabase project.

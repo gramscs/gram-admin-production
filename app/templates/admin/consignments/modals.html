@@ -43,7 +43,7 @@
             <div class="col-sm-6">
               <label for="modal-pieces" class="form-label">Boxes / pallets</label>
               <input id="modal-pieces" type="number" min="1" max="10000" step="1" class="form-control" />
-              <button type="button" id="edit-box-contents" class="btn btn-outline-primary btn-sm mt-2"><i class="fa fa-th-large me-1" aria-hidden="true"></i>Box contents & exceptions →</button>
+              <button type="button" id="edit-box-contents" class="btn btn-outline-primary btn-sm mt-2"><i class="fa fa-th-large me-1" aria-hidden="true"></i>Box contents →</button>
             </div>
             <div class="col-sm-6"><label for="modal-measurement-mode" class="form-label">Measure shipment by</label><select id="modal-measurement-mode" class="form-select"><option value="weight">Weight (kg)</option><option value="volume">Volume (ft³ / CBFT)</option></select></div>
             {% for field, label in [('weight', 'Weight (kg)'), ('volume', 'Volume (ft³)')] %}
@@ -96,7 +96,7 @@
         <section id="shipment-packages-step" hidden aria-labelledby="package-step-title">
           <button type="button" id="back-to-shipment" class="btn btn-outline-secondary btn-sm mb-3">← Shipment details</button>
           <h3 id="package-step-title" class="fs-5">Box contents</h3>
-          <p class="text-muted small">Tell the packing team what is inside each box/pallet. These details are saved with the shipment and used for its labels.</p>
+          <p class="text-muted small">Enter the number of pieces in each box/pallet. This count is the same for every package in this shipment.</p>
           <div id="package-contents-editor"></div>
         </section>
       </div>

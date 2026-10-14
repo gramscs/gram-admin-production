@@ -2,7 +2,7 @@
 {% set active_page = 'labels' %}
 {% block title %}B2B Labels – Gram SCS{% endblock %}
 {% block topbar_title %}B2B Labels{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css', v='box-label-exceptions-1') }}" />{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css', v='shared-label-details-1') }}" />{% endblock %}
 {% block content %}
 <div class="page-heading"><span class="page-eyebrow">PRINT & DISPATCH</span><h1>B2B Shipping Labels</h1><p>Select your saved shipments, check the box/pallet count, then preview or download labels ready for the packing desk.</p></div>
 {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
@@ -46,7 +46,7 @@
       <div class="label-common-panel">
         <h3 class="fs-6">Apply common details</h3>
         <div class="label-common-fields"><div><label for="label-common-payment" class="form-label">Payment mode</label><select id="label-common-payment" class="form-select"><option value="pre-paid">Pre-paid</option><option value="to-pay">To pay</option><option value="cash-on-delivery">Cash on delivery</option></select></div><div><label for="label-common-description" class="form-label">Goods description</label><input id="label-common-description" class="form-control" maxlength="160" placeholder="e.g. Automotive spare parts" /></div><button type="button" class="btn btn-outline-primary" id="apply-label-common">Apply to all shipments</button></div>
-        <p class="small text-muted mb-0 mt-2">Enter a default invoice amount for each shipment; it copies to every box. Edit box exceptions in the draft below. Blank names print the address directly.</p>
+        <p class="small text-muted mb-0 mt-2">Enter one invoice amount for each shipment. It appears on every box/pallet label. Blank names print the address directly.</p>
       </div>
       <div class="d-flex flex-wrap align-items-center gap-2 my-3"><label class="visually-hidden" for="label-review-search">Find a selected shipment</label><input id="label-review-search" class="form-control sheet-search" placeholder="Find a selected shipment" /><span id="label-review-ready" class="small text-muted" aria-live="polite"></span></div>
       <div id="label-review-error" class="alert alert-danger d-none" role="alert"></div>
@@ -56,4 +56,4 @@
   </div></div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='box-label-exceptions-1') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='shared-label-details-1') }}"></script>{% endblock %}

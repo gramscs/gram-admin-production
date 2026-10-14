@@ -55,3 +55,16 @@ tables when missing; it does not recreate the business schema. See
 
 The measurement fields are named `weight` and `volume` in the application and
 database. No compatibility aliases for the previous column names are supported.
+
+## Shared label details
+
+In shipment Add/Edit, **Box contents →** lets you choose boxes or pallets and
+enter one pieces-per-package count. Label review asks for one invoice amount per
+shipment. Every label uses that count, the selected shipment weight or volume,
+and the same invoice amount. Box/pallet numbering still runs from **1 of N**.
+
+Per-package quantity, weight, invoice and handling-note exceptions have been
+removed. Old overrides cannot affect new labels or normal Excel exports and
+are discarded when a shipment is saved or imported. Historical backup records
+and already generated PDFs are preserved. No schema migration is needed for
+this removal. Pull the update and restart the app.

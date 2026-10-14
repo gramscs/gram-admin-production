@@ -21,7 +21,7 @@ def test_optional_names_address_pin_order_and_measurement_caption(panel, named):
             'pickup_address': 'Warehouse & dispatch <A>, Delhi 110001',
             'drop_address': '24 Distribution Road, Delhi 110037'}]})
         assert updated.status_code == 200, updated.json
-    before = snapshot(app)
+    before = snapshot(app, include_label_runs=False)
     data = label_form([row['id'] for row in rows])
     details = json.loads(data['label_details'])
     for index, detail in enumerate(details):
@@ -42,7 +42,7 @@ def test_optional_names_address_pin_order_and_measurement_caption(panel, named):
             assert text.index(f'Receiver {index // 2 + 1}') < text.index('24 Distribution Road') < text.index('110037')
         else:
             assert 'Acme' not in text and 'Receiver' not in text
-    assert snapshot(app) == before
+    assert snapshot(app, include_label_runs=False) == before
 
 
 def test_pin_missing_from_address_is_appended_once(panel):

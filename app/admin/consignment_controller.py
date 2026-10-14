@@ -16,7 +16,7 @@ from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
-from app.shipment_packages import normalize_contents, volume_ft3
+from app.shipment_packages import normalize_contents, volume_ft3, shared_contents
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
 from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
 
@@ -153,7 +153,7 @@ def _serialize_consignment(consignment):
         "weight": str(consignment.weight) if consignment.weight is not None else None,
         "volume": str(volume_ft3(consignment)) if consignment.volume is not None else None,
         "volume_unit": "ft3",
-        "package_contents": consignment.package_contents,
+        "package_contents": shared_contents(consignment.package_contents),
         "measurement_mode": consignment.measurement_mode or ('volume' if consignment.volume is not None and consignment.weight is None else 'weight'),
         "company_id": consignment.company_id,
         "company_name": consignment.company.name if consignment.company else None,
@@ -397,7 +397,7 @@ def consignments_export_excel():
             consignment.weight, volume_ft3(consignment),
             models.export_id(consignment.company_id), consignment.company.name if consignment.company else None,
             consignment.measurement_mode or ('volume' if consignment.volume is not None and consignment.weight is None else 'weight'),
-            'ft3', json.dumps(consignment.package_contents) if consignment.package_contents else None,
+            'ft3', json.dumps(shared_contents(consignment.package_contents)) if consignment.package_contents else None,
         ])
 
     buffer = io.BytesIO()
@@ -471,7 +471,7 @@ def _normalize_shipment_fields(row, existing=None):
             contents = json.loads(contents) if contents.strip() else None
         except (ValueError, TypeError):
             raise ValueError('Box contents must be valid JSON in the import file.') from None
-    fields['package_contents'] = normalize_contents(contents, int(pieces))
+    fields['package_contents'] = normalize_contents(contents)
     if 'volume' in row:
         unit = row.get('volume_unit') or 'ft3'
         if unit not in ('ft3', 'm3'):

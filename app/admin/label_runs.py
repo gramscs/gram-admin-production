@@ -51,9 +51,9 @@ def render_label_run(identifier, owner, shipments, render):
 
         day = order_date()
         year = financial_year(day)
-        order_end = session.query(func.max(LabelRun.order_sequence_start + LabelRun.shipment_count)).filter_by(
+        order_end = session.query(func.max(LabelRun.order_sequence_start + LabelRun.shipment_count - 1)).filter_by(
             order_date=day).scalar() or 0
-        invoice_end = session.query(func.max(LabelRun.invoice_sequence_start + LabelRun.shipment_count)).filter_by(
+        invoice_end = session.query(func.max(LabelRun.invoice_sequence_start + LabelRun.shipment_count - 1)).filter_by(
             financial_year=year).scalar() or 0
         order_start, invoice_start = order_end + 1, invoice_end + 1
         assignments = [

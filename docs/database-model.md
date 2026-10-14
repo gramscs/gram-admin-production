@@ -88,3 +88,15 @@ services.
 ```bash
 ER_TEST_DATABASE_URL=postgresql://.../gram_admin_test python -m pytest -q
 ```
+
+## Shared package contents
+
+`pieces` counts outer boxes/pallets. In `admin_record_extras`, `package_contents`
+stores `kind` (`box` or `pallet`) and `default_pieces`, the same count of pieces
+inside every package. Counts are optional; entered counts must be integers from
+1 to 1,000,000. Unknown counts print as **—**.
+
+Per-package overrides are no longer supported. Older `boxes` entries are ignored
+on reads and printing, excluded from normal Excel exports, and discarded when
+saving or importing a shipment. Historical backups retain the original stored
+data. Removing these controls does not require a schema migration.
