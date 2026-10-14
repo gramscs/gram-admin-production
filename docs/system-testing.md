@@ -1,5 +1,17 @@
 # System testing
 
+## Missing label-numbering table — 14 October 2026
+
+`tests/test_label_review.py`: **29 passed**, with two upstream deprecation
+warnings. The regression test removes `label_runs` only in an isolated
+PostgreSQL test schema, reproduces the failed PDF request, checks the actionable
+upgrade message, runs the existing additive `upgrade-db` command, and verifies
+preview/download recovery. Repeating the upgrade preserves assignments and
+shipment records. No automatic schema creation was added to label requests.
+The live database connection was refused from this environment, so the upgrade
+must be run in the app's configured Codespaces terminal as described in the
+[upgrade guide](database-migration.md).
+
 ## Label exception removal — 14 October 2026
 
 Against the current PostgreSQL-only application, the five targeted modules

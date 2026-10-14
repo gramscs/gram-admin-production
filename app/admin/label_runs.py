@@ -6,12 +6,17 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, text
+from sqlalchemy.exc import ProgrammingError
 
 from app.models import db
 from database.models import LabelRun
 
 
 class LabelRunConflict(ValueError):
+    pass
+
+
+class LabelSchemaMissing(RuntimeError):
     pass
 
 
@@ -41,7 +46,15 @@ def render_label_run(identifier, owner, shipments, render):
     session = db.session
     try:
         session.execute(text('SELECT pg_advisory_xact_lock(723910042003)'))
-        existing = session.get(LabelRun, identifier)
+        try:
+            existing = session.get(LabelRun, identifier)
+        except ProgrammingError as error:
+            if getattr(error.orig, 'pgcode', None) == '42P01':
+                raise LabelSchemaMissing(
+                    'Label numbering is not set up in the database. In the app terminal, run '
+                    'python -m flask --app wsgi:app upgrade-db, then retry generating labels.'
+                ) from error
+            raise
         if existing is not None:
             if existing.owner != owner or existing.fingerprint != fingerprint:
                 raise LabelRunConflict('This label batch changed. Reopen Review label details to generate a new batch.')

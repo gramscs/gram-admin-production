@@ -20,6 +20,14 @@ tables and records. It does not rebuild the schema, rename or drop business
 columns, or import data. Database columns and public API fields for shipment
 measurements are `weight` and `volume`.
 
+If label preview/download fails with `relation "label_runs" does not exist`,
+run the upgrade commands above in the same Codespaces terminal/environment as
+the running app. This table was introduced when label numbering moved from
+local files to PostgreSQL; pulling code alone does not create it. The upgrade
+preserves existing shipment records and any numbering already stored in
+`label_runs`. Reopen label review after upgrading and retry the PDF. Do not run
+the fresh-database importer for this error.
+
 For future business-schema changes, add a dedicated versioned PostgreSQL
 migration that alters the existing tables transactionally and preserves their
 data. Do not use the one-time importer below for routine schema changes.

@@ -23,7 +23,7 @@ from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app import orm as models
 from app.shipment_packages import volume_ft3, shared_contents
-from app.admin.label_runs import LabelRunConflict, render_label_run
+from app.admin.label_runs import LabelRunConflict, LabelSchemaMissing, render_label_run
 from app.admin.reporting import parse_date
 
 PAYMENT_MODES = {'pre-paid': 'Pre-paid', 'to-pay': 'To pay', 'cash-on-delivery': 'Cash on delivery'}
@@ -319,11 +319,13 @@ def labels_generate():
             lambda assignments: generate_labels_pdf(shipments, assignments, include_barcode))
     except LabelRunConflict as error:
         return jsonify(success=False, message=str(error)), 409
+    except LabelSchemaMissing as error:
+        return jsonify(success=False, message=str(error)), 503
     except (ValueError, TypeError) as error:
         return jsonify(success=False, message=str(error)), 400
     except Exception:
         current_app.logger.exception('Label generation failed')
-        return jsonify(success=False, message='Labels could not be generated. Check the label numbering files and try again.'), 500
+        return jsonify(success=False, message='Labels could not be generated. Check the server error log and try again.'), 500
     response = send_file(output, as_attachment=data.get('delivery') != 'preview', download_name='b2b-shipping-labels.pdf', mimetype='application/pdf')
     response.headers['Cache-Control'] = 'private, no-store'
     response.headers['X-Content-Type-Options'] = 'nosniff'

@@ -169,8 +169,55 @@ def test_render_failure_allocates_nothing(app, admin_client, monkeypatch):
     before = snapshot(app)
     def fail(*args): raise RuntimeError('Simulated PDF error')
     monkeypatch.setattr(labels, 'generate_labels_pdf', fail)
-    assert admin_client.post('/admin/labels/generate', data=label_form([row['id']])).status_code == 500
+    response = admin_client.post('/admin/labels/generate', data=label_form([row['id']]))
+    assert response.status_code == 500
+    assert 'server error log' in response.json['message']
+    assert 'numbering files' not in response.json['message']
     assert snapshot(app) == before
+
+
+def test_missing_label_table_recovers_with_additive_upgrade_and_keeps_existing_records(app, admin_client):
+    from database.models import LabelRun
+    row = create(admin_client)[0]
+    before = snapshot(app, include_label_runs=False)
+    # Only this test's isolated PostgreSQL schema is changed.
+    with app.app_context():
+        db.session.remove()
+        LabelRun.__table__.drop(db.engine)
+    runner = app.test_cli_runner()
+    check = runner.invoke(args=['check-db'])
+    assert check.exit_code != 0 and 'table label_runs' in check.output
+
+    data = label_form([row['id']], delivery='preview')
+    response = admin_client.post('/admin/labels/generate', data=data)
+    assert response.status_code == 503
+    assert 'python -m flask --app wsgi:app upgrade-db' in response.json['message']
+    assert 'numbering files' not in response.json['message']
+    with app.app_context():
+        assert not inspect(db.engine).has_table('label_runs'), 'Requests must not create schema automatically'
+        assert db.session.execute(text('SELECT 1')).scalar() == 1
+    assert snapshot(app, include_label_runs=False) == before
+
+    upgraded = runner.invoke(args=['upgrade-db'])
+    assert upgraded.exit_code == 0, upgraded.output
+    assert runner.invoke(args=['check-db']).exit_code == 0
+    assert snapshot(app, include_label_runs=False) == before
+    first = pages(admin_client.post('/admin/labels/generate', data=data))
+    assert len(first) == row['pieces']
+    assert row['consignment_number'] in first[0].extract_text()
+    with app.app_context():
+        run = db.session.get(LabelRun, UUID(data['job_id']))
+        assignments = list(run.assignments)
+        assert run.shipment_count == 1
+
+    # Running the command again preserves numbering and reuses preview/download assignments.
+    assert runner.invoke(args=['upgrade-db']).exit_code == 0
+    second = pages(admin_client.post('/admin/labels/generate', data={**data, 'delivery': 'download'}))
+    assert [page.extract_text() for page in first] == [page.extract_text() for page in second]
+    with app.app_context():
+        assert db.session.query(LabelRun).count() == 1
+        assert db.session.get(LabelRun, UUID(data['job_id'])).assignments == assignments
+    assert snapshot(app, include_label_runs=False) == before
 
 
 def test_locked_sequences_parallel_requests_date_and_financial_year_rollovers(app, monkeypatch):
