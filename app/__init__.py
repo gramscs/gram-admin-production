@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import threading
 
 import click
 from dotenv import load_dotenv
@@ -98,7 +99,27 @@ def create_app(test_config=None):
             @event.listens_for(db.engine, 'connect')
             def enforce_sqlite_relations(connection, record):
                 connection.execute('PRAGMA foreign_keys=ON')
+            from app.schema_upgrade import upgrade_measurement_columns
+            renamed = upgrade_measurement_columns(db.engine)
+            if renamed:
+                app.logger.info("Renamed database columns: %s", ", ".join(renamed))
     limiter.init_app(app)
+
+    measurement_migration_complete = url.get_backend_name() != "postgresql"
+    measurement_migration_lock = threading.Lock()
+
+    @app.before_request
+    def migrate_measurement_columns_before_request():
+        nonlocal measurement_migration_complete
+        if measurement_migration_complete:
+            return
+        with measurement_migration_lock:
+            if not measurement_migration_complete:
+                from app.schema_upgrade import upgrade_measurement_columns
+                renamed = upgrade_measurement_columns(db.engine)
+                if renamed:
+                    app.logger.info("Renamed database columns: %s", ", ".join(renamed))
+                measurement_migration_complete = True
 
     from app.admin import admin_bp
     app.register_blueprint(admin_bp)
@@ -146,15 +167,19 @@ def create_app(test_config=None):
         """Add admin fields and master tables without deleting records."""
         from app.orm import using_er
         from app.shipment_packages import upgrade_volume_units
+        from app.schema_upgrade import upgrade_measurement_columns
+        renamed = upgrade_measurement_columns(db.engine)
         if using_er():
             from app.er_adapter import prepare_backend
             prepare_backend(db.engine)
             converted = upgrade_volume_units()
             click.echo("ER backend ready. Archived screen fields restored; original records preserved.")
+            if renamed:
+                click.echo("Renamed: " + ", ".join(renamed))
             click.echo(f"Converted {converted} shipment volumes from CBM to CBFT (ft3).")
             return
         from app.schema_upgrade import upgrade_admin_fields
-        changed = upgrade_admin_fields(db.engine)
+        changed = renamed + upgrade_admin_fields(db.engine)
         db.create_all()
         converted = upgrade_volume_units()
         click.echo("Database upgraded. Existing records preserved. " + ("Added: " + ", ".join(changed) if changed else "Schema already current."))
@@ -235,6 +260,8 @@ def create_app(test_config=None):
             raise click.ClickException("This migrated database uses the ER model. Use upgrade-db to prepare its backend.")
         if db.engine.dialect.name != "postgresql":
             raise click.ClickException("This command is only for PostgreSQL.")
+        from app.schema_upgrade import upgrade_measurement_columns
+        upgrade_measurement_columns(db.engine)
         from app.db_maintenance import ensure_consignment_columns
         ensure_consignment_columns(app.config["SQLALCHEMY_DATABASE_URI"], app.logger)
         click.echo("Consignment columns checked.")

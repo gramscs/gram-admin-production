@@ -3,8 +3,38 @@
 from sqlalchemy import inspect, text
 
 
+def upgrade_measurement_columns(engine):
+    """Rename legacy measurement columns without changing their stored values."""
+    renamed = []
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(741239601)"))
+        for table_name in ("consignment", "consignments"):
+            inspector = inspect(connection)
+            if not inspector.has_table(table_name):
+                continue
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            for old_name, new_name in (
+                ("chargeable_weight", "weight"),
+                ("chargeable_volume", "volume"),
+            ):
+                if old_name in columns and new_name in columns:
+                    raise RuntimeError(
+                        f"Cannot rename {table_name}.{old_name}: "
+                        f"both {old_name} and {new_name} exist."
+                    )
+                if old_name in columns:
+                    connection.execute(text(
+                        f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"'
+                    ))
+                    columns.remove(old_name)
+                    columns.add(new_name)
+                    renamed.append(f"{table_name}.{new_name}")
+    return renamed
+
+
 def upgrade_consignment_fields(engine):
-    added = []
+    added = upgrade_measurement_columns(engine)
     with engine.begin() as connection:
         inspector = inspect(connection)
         if not inspector.has_table("consignment"):
@@ -13,8 +43,8 @@ def upgrade_consignment_fields(engine):
         definitions = {
             "identifier_type": "VARCHAR(12) NOT NULL DEFAULT 'LRN'",
             "pieces": "INTEGER NOT NULL DEFAULT 1",
-            "chargeable_weight": "NUMERIC(12, 3)",
-            "chargeable_volume": "NUMERIC(12, 3)",
+            "weight": "NUMERIC(12, 3)",
+            "volume": "NUMERIC(12, 3)",
             "measurement_mode": "VARCHAR(12)",
             "volume_unit": "VARCHAR(3)",
             "package_contents": "JSON",

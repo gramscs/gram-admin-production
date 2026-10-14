@@ -94,7 +94,7 @@ def report(session, user=None):
     return view, file, row
 
 
-def test_all_relationships_and_uuid_round_trip(er_session):
+def test_all_relationships_and_uuid_round_trip(er_engine, er_session):
     user = AdminUser(username="manager", role="administrator")
     company, pickup, drop = presets(er_session)
     row = shipment(er_session, company=company, pickup_location=pickup, drop_location=drop,
@@ -119,6 +119,9 @@ def test_all_relationships_and_uuid_round_trip(er_session):
     assert user.shipment_events == [history] and user.audit_logs == [audit]
     assert user.files == [file] and user.mis_views == [view] and user.mis_reports == [generated]
     assert row.chargeable_weight == Decimal("12.345") and row.chargeable_volume == Decimal("0.125")
+    columns = {column["name"] for column in inspect(er_engine).get_columns("consignments")}
+    assert {"weight", "volume"} <= columns
+    assert not {"chargeable_weight", "chargeable_volume"} & columns
 
 
 @pytest.mark.parametrize("slot", ["pickup_location_id", "drop_location_id"])

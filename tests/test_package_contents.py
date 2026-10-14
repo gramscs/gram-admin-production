@@ -202,7 +202,7 @@ def test_legacy_database_upgrade_with_unassigned_company(legacy_engine, tmp_path
             assert f'Converted {expected} shipment volumes' in result.output
         with legacy_engine.connect() as connection:
             row = connection.execute(select(Consignment.__table__)).mappings().one()
-            assert row['chargeable_volume'] == Decimal('70.629') and row['volume_unit'] == 'ft3'
+            assert row['volume'] == Decimal('70.629') and row['volume_unit'] == 'ft3'
     finally:
         with application.app_context():
             db.session.remove(); db.engine.dispose()

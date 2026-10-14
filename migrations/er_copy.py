@@ -4,7 +4,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import Date, JSON, Uuid
 
 from database.models import Base, UTCDateTime
-from migrations.shipment_v1 import timestamp
+from migrations.shipment_v1 import ER_SOURCE_COLUMN_ALIASES, timestamp
 from migrations.storage import MigrationError
 
 
@@ -15,7 +15,10 @@ def build_er_plan(source_rows, storage, namespace):
         for original in source_rows[table.name]:
             record = {}
             for column in table.c:
-                value = original[column.name]
+                value = original.get(
+                    column.name,
+                    original.get(ER_SOURCE_COLUMN_ALIASES.get(column.name)),
+                )
                 if value is not None:
                     if isinstance(column.type, Uuid):
                         value = UUID(str(value))
@@ -27,7 +30,7 @@ def build_er_plan(source_rows, storage, namespace):
                     elif isinstance(column.type, Date) and isinstance(value, str):
                         from datetime import date
                         value = date.fromisoformat(value)
-                record[column.name] = value
+                record[column.key] = value
             rows[table.name].append(record)
 
     # Preserve the original file UUIDs: documents, historical versions and

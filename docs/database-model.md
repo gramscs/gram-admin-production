@@ -34,10 +34,17 @@ PDF/image/report bytes; the `files` table stores their details and location.
 All primary keys are UUIDs. All relationships in the diagram have SQLAlchemy
 relationships and database foreign keys, except `audit_logs.entity_id`: that
 is deliberately a logical reference so deletion does not erase the audit trail.
+The physical shipment columns are named `weight` and `volume`; the current
+dashboard's Python properties and API keys retain their existing
+`chargeable_weight` and `chargeable_volume` names for compatibility. The app
+renames the old columns idempotently before serving requests and preserves
+their values.
 
 ## Files you can review
 
 - [`database/models.py`](../database/models.py): every table and relationship.
+- [`app/schema_upgrade.py`](../app/schema_upgrade.py): idempotent startup
+  migration that renames existing measurement columns in both schema versions.
 - [`database/integrity.py`](../database/integrity.py): cross-table integrity triggers.
 - [`database/schema.py`](../database/schema.py): generates PostgreSQL SQL without a connection.
 - [`database-schema.sql`](database-schema.sql): the generated schema, including constraints,

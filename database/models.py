@@ -156,8 +156,8 @@ class Consignment(UUIDRecord, Base):
         CheckConstraint("trim(identifier_value) <> ''", name="identifier_not_blank"),
         CheckConstraint("trim(current_status) <> ''", name="status_not_blank"),
         CheckConstraint("pieces >= 1", name="positive_pieces"),
-        CheckConstraint("chargeable_weight >= 0", name="nonnegative_weight"),
-        CheckConstraint("chargeable_volume >= 0", name="nonnegative_volume"),
+        CheckConstraint("weight >= 0", name="nonnegative_weight"),
+        CheckConstraint("volume >= 0", name="nonnegative_volume"),
         CheckConstraint("actual_delivery_at >= actual_pickup_at", name="delivery_after_pickup"),
         Index("ix_consignments_current_status_planned_pickup_date", "current_status", "planned_pickup_date"),
     )
@@ -169,8 +169,8 @@ class Consignment(UUIDRecord, Base):
     identifier_value: Mapped[str] = mapped_column(String(64), unique=True)
     current_status: Mapped[str] = mapped_column(String(200), default="Pickup Scheduled", server_default="Pickup Scheduled")
     pieces: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    chargeable_weight: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
-    chargeable_volume: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    chargeable_weight: Mapped[Decimal | None] = mapped_column("weight", Numeric(12, 3), key="chargeable_weight")
+    chargeable_volume: Mapped[Decimal | None] = mapped_column("volume", Numeric(12, 3), key="chargeable_volume")
     pickup_address_snapshot: Mapped[str | None] = mapped_column(Text)
     drop_address_snapshot: Mapped[str | None] = mapped_column(Text)
     planned_pickup_date: Mapped[date | None] = mapped_column(Date, index=True)

@@ -1,5 +1,11 @@
 # One-run import into a fresh database
 
+Existing dashboard databases rename `chargeable_weight` and
+`chargeable_volume` to `weight` and `volume` automatically before the app
+serves its first request. The
+rename preserves stored values; Python model properties and API keys retain
+their existing names.
+
 [`migrations/001_shipment_database.py`](../migrations/001_shipment_database.py)
 creates **all ten ER tables** and imports **all available source data in one
 transaction**. It accepts the current app's legacy database or a database already

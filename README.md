@@ -319,8 +319,11 @@ bundled in the app so printing does not depend on fonts installed on the server.
 Public metrics use **Weight** and **Volume**, including dashboard, forms, MIS,
 PDFs and Excel downloads. Shipment import/export and backup workbooks use
 `weight` and `volume` headers; older imports using `chargeable_weight` and
-`chargeable_volume` are still accepted. Existing database/API field names and
-machine-readable backup JSON keep compatible field names. Run `upgrade-db` for the box-contents and CBFT update described below.
+`chargeable_volume` are still accepted. The physical database columns are
+`weight` and `volume`; existing Python/API field names and machine-readable
+backup JSON remain compatible. Existing databases are migrated before the app
+serves its first request.
+Run `upgrade-db` for the box-contents and CBFT update described below.
 
 Order IDs use `B2B-YYYYMMDD-0001`, with the generation date in India and a daily
 sequence. Invoice numbers use `B2B-2026-27-0001`, with the April–March financial

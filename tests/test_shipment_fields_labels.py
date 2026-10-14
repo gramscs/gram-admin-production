@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from openpyxl import load_workbook
 from pypdf import PdfReader
-from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine
+from sqlalchemy import Column, Integer, MetaData, Numeric, String, Table, create_engine, inspect, text
 
 from app import create_app
 from app.models import Consignment, db
@@ -114,11 +114,54 @@ def test_labels_require_login(client):
     assert client.post("/admin/labels/generate", data={"consignment_ids": [1]}).status_code == 302
 
 
+def test_measurement_columns_are_renamed_when_app_starts(tmp_path):
+    path = tmp_path / "pre-rename.db"
+    engine = create_engine(f"sqlite:///{path}")
+    metadata = MetaData()
+    tables = {
+        table_name: Table(
+            table_name, metadata,
+            Column("id", Integer, primary_key=True),
+            Column("chargeable_weight", Numeric(12, 3)),
+            Column("chargeable_volume", Numeric(12, 3)),
+        )
+        for table_name in ("consignment", "consignments")
+    }
+    metadata.create_all(engine)
+    with engine.begin() as connection:
+        for table in tables.values():
+            connection.execute(table.insert().values(
+                id=1, chargeable_weight=Decimal("12.345"), chargeable_volume=Decimal("0.125"),
+            ))
+    engine.dispose()
+
+    upgraded = create_app({
+        "INSTANCE_PATH": str(tmp_path / "renamed-instance"),
+        "SQLALCHEMY_DATABASE_URI": f"sqlite:///{path}",
+        "AUTO_CREATE_TABLES": False,
+        "RATELIMIT_ENABLED": False,
+    })
+    with upgraded.app_context():
+        inspector = inspect(db.engine)
+        for table_name in ("consignment", "consignments"):
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            assert {"weight", "volume"} <= columns
+            assert not {"chargeable_weight", "chargeable_volume"} & columns
+            values = db.session.execute(
+                text(f'SELECT weight, volume FROM "{table_name}" WHERE id = 1')
+            ).one()
+            assert tuple(Decimal(str(value)) for value in values) == (
+                Decimal("12.345"), Decimal("0.125"),
+            )
+        db.session.remove()
+        db.engine.dispose()
+
+
 def test_old_sqlite_database_upgrades_without_losing_records(app, tmp_path):
     path = tmp_path / "legacy.db"
     engine = create_engine(f"sqlite:///{path}")
     metadata = MetaData()
-    new_fields = {"identifier_type", "pieces", "chargeable_weight", "chargeable_volume", "company_id", "pod_original_name", "invoice_file", "invoice_original_name"}
+    new_fields = {"identifier_type", "pieces", "weight", "volume", "company_id", "pod_original_name", "invoice_file", "invoice_original_name"}
     columns = [Column(column.name, String(16) if column.name == "consignment_number" else column.type, primary_key=column.primary_key) for column in Consignment.__table__.columns if column.name not in new_fields]
     old = Table("consignment", metadata, *columns)
     metadata.create_all(engine)

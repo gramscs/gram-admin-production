@@ -33,6 +33,10 @@ COLUMN_MAP = {
     "pickup_date": "planned_pickup_date", "drop_date": "expected_delivery_date",
     "pickup_address": "pickup_address_snapshot", "drop_address": "drop_address_snapshot",
 }
+ER_SOURCE_COLUMN_ALIASES = {
+    "weight": "chargeable_weight",
+    "volume": "chargeable_volume",
+}
 TARGET_MAP = {
     "company": "companies", "company_location": "company_locations",
     "consignment": "consignments", "mis_view": "mis_views", "mis_report": "mis_reports",
@@ -186,7 +190,13 @@ def read_source(connection, source_format="auto", *, exclude=(), progress=None):
         if not er_names <= set(names):
             raise MigrationError("ER source mode requires all ten model tables, including empty ones.")
         for table in Base.metadata.sorted_tables:
-            if not set(table.c.keys()) <= set(rows[table.name][0] if rows[table.name] else (col["name"] for col in schema[table.name])):
+            source_columns = {column["name"] for column in schema[table.name]}
+            missing = [
+                column.name for column in table.c
+                if column.name not in source_columns
+                and ER_SOURCE_COLUMN_ALIASES.get(column.name) not in source_columns
+            ]
+            if missing:
                 raise MigrationError(f"ER source table {table.name} is missing model columns.")
     elif source_format == "legacy":
         if "consignment" not in names:
@@ -343,8 +353,9 @@ def build_plan(source_rows, storage, namespace, admin_username, now):
                 record = {"id": id, "company_id": company_ref(original.get("company_id"), "Consignment"),
                     "identifier_type": original.get("identifier_type", "LRN"), "identifier_value": original.get("consignment_number"),
                     "current_status": original.get("status") if str(original.get("status") or "").strip() else "No status",
-                    "pieces": original.get("pieces", 1), "chargeable_weight": original.get("chargeable_weight"),
-                    "chargeable_volume": original.get("chargeable_volume"),
+                    "pieces": original.get("pieces", 1),
+                    "chargeable_weight": original.get("weight", original.get("chargeable_weight")),
+                    "chargeable_volume": original.get("volume", original.get("chargeable_volume")),
                     "pickup_address_snapshot": original.get("pickup_address"), "drop_address_snapshot": original.get("drop_address"),
                     "planned_pickup_date": parsed_date(original.get("pickup_date"), warnings, f"Consignment {original['id']} pickup"),
                     "expected_delivery_date": parsed_date(original.get("drop_date"), warnings, f"Consignment {original['id']} drop"),

@@ -44,8 +44,12 @@ def collect_admin_data(admin_user):
     payload, counts = {}, {}
     for table in models.tables():
         key = TABLE_KEYS.get(table.name, table.name)
+        column_keys = {column.name: column.key for column in table.columns}
         result = db.session.execute(select(table).order_by(*table.primary_key.columns)).mappings()
-        payload[key] = [{name: _json_value(value) for name, value in row.items()} for row in result]
+        payload[key] = [{
+            column_keys.get(name, name): _json_value(value)
+            for name, value in row.items()
+        } for row in result]
         counts[key] = len(payload[key])
     payload['metadata'] = {'generated_at': datetime.now(UTC).isoformat(), 'generated_by': admin_user,
                            'table_counts': counts, 'total_rows': sum(counts.values()), 'format_version': 2}
@@ -233,7 +237,7 @@ def build_complete_backup(payload):
     buffer = SpooledTemporaryFile(max_size=8*1024*1024, mode='w+b')
     report = {'format_version': 2, 'generated_at': payload['metadata']['generated_at'], 'ordering': 'Consignments ordered by database ID ascending; numeric folder prefixes match backup_order in data and Excel.',
               'documents': [], 'inventory_errors': [], 'storage_scope': ['instance/uploads/', 'configured/referenced Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
-    table_columns = {TABLE_KEYS.get(table.name, table.name): [column.name for column in table.columns] for table in models.tables()}
+    table_columns = {TABLE_KEYS.get(table.name, table.name): [column.key for column in table.columns] for table in models.tables()}
     referenced = set()
     er = models.using_er()
     files_by_id = {item['id']: item for item in payload.get('files', [])}
