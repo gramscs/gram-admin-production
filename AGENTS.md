@@ -18,6 +18,7 @@ Preserve database data and provide reversible migrations where appropriate.
 Run targeted tests and checks rather than the full test suite by default.
 Keep plans, progress reports, and final responses concise.
 Database Changes
+Everytime full application test (system test) is not required. Do only unit tests for feature changes.
 
 For table or column changes, follow the workflow in workflows/database-change.md if supported by the current coding tool.
 
