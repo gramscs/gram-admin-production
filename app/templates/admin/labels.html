@@ -1,0 +1,59 @@
+{% extends 'admin/base.html' %}
+{% set active_page = 'labels' %}
+{% block title %}B2B Labels – Gram SCS{% endblock %}
+{% block topbar_title %}B2B Labels{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css', v='shared-label-details-1') }}" />{% endblock %}
+{% block content %}
+<div class="page-heading"><span class="page-eyebrow">PRINT & DISPATCH</span><h1>B2B Shipping Labels</h1><p>Select your saved shipments, check the box/pallet count, then preview or download labels ready for the packing desk.</p></div>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+<div class="label-workflow mb-4">
+  <div><span class="step-number">1</span><strong>Choose shipments</strong><p>Select the consignments you’re sending.</p></div>
+  <div><span class="step-number">2</span><strong>Review label details</strong><p>Add invoice amounts, payment and goods details.</p></div>
+  <div><span class="step-number">3</span><strong>Preview & print</strong><p>Print the PDF at actual size (100%).</p></div>
+</div>
+<form method="get" class="surface-panel p-3 d-flex flex-wrap gap-2 mb-3"><label class="visually-hidden" for="label-search">Search shipments</label><input id="label-search" name="search" value="{{ search }}" class="form-control sheet-search" placeholder="Identifier, client company or route tag" /><button class="btn btn-outline-primary">Search</button><a class="btn btn-outline-secondary" href="{{ url_for('admin.labels_panel') }}">Reset</a></form>
+<div id="label-selection-notice" class="alert alert-info d-none" role="status"></div>
+<form method="post" action="{{ url_for('admin.labels_generate') }}" id="labels-form" data-review-url="{{ url_for('admin.labels_review') }}" data-scope="{{ session.get('admin_username', 'admin') }}" data-id-format="{{ label_id_format }}">
+<div class="label-layout">
+  <div class="label-shipments">
+    <div class="surface-panel table-responsive"><table class="table mb-0"><thead><tr><th scope="col"><input id="select-all-labels" type="checkbox" aria-label="Select all shipments on this page" /></th><th scope="col">Shipment</th><th scope="col">Route</th><th scope="col">Boxes / pallets</th><th scope="col">Weight / volume</th></tr></thead><tbody>
+    {% for row in label_page_rows %}<tr><td><input type="checkbox" name="consignment_ids" value="{{ row.id }}" data-pieces="{{ row.pieces or 1 }}" aria-label="Select {{ row.consignment_number }}" /></td><td><strong>{{ row.consignment_number }}</strong><span class="d-block small text-muted">{{ row.identifier_type or 'LRN' }}{% if row.company %} · {{ row.company }}{% endif %}</span></td><td><span class="small d-block">{{ row.pickup_tag or row.pickup_pincode or 'Pickup not set' }} <i class="fa fa-long-arrow-right mx-1 text-muted" aria-hidden="true"></i> {{ row.drop_tag or row.drop_pincode or 'Drop not set' }}</span><span class="small text-muted d-block">{{ row.drop_address or 'No destination address' }}</span></td><td>{{ row.pieces or 1 }}</td><td class="text-nowrap small">{% if row.measurement_mode == 'volume' %}{{ row.volume if row.volume is not none else '—' }} ft³{% else %}{{ row.weight if row.weight is not none else '—' }} kg{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty-panel"><i class="fa fa-barcode" aria-hidden="true"></i><strong>No matching saved shipments</strong><span>Add and save shipments in Shipments first.</span></td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="list-pagination"><span>Page {{ page }} · {{ total }} shipments</span><div class="d-flex gap-2">{% if page > 1 %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.labels_panel', page=page-1, search=search) }}">Previous</a>{% endif %}{% if page * 25 < total %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.labels_panel', page=page+1, search=search) }}">Next</a>{% endif %}</div></div>
+  </div>
+  <div class="label-controls"><aside class="surface-panel print-settings p-3">
+    <h2 class="fs-6 fw-bold mb-3">Print settings</h2>
+
+    <div class="d-flex justify-content-between small mt-3"><span class="text-muted">Size</span><strong>4 × 6 inches</strong></div>
+    <div class="d-flex justify-content-between small mt-2"><span class="text-muted">Shipments selected</span><strong id="label-selected-count">0</strong></div>
+    <div class="d-flex justify-content-between mt-2 mb-3"><span class="text-muted small">Box/pallet labels</span><strong id="label-piece-count">0</strong></div>
+    <label class="d-flex align-items-center gap-2 small"><input id="include-label-barcode" type="checkbox" checked />Include Code 128 barcode</label><input name="barcode" id="label-barcode-value" type="hidden" value="1" />
+    <p class="small text-muted mt-2">Encodes your shipment identifier. EAN is not required for this barcode.</p>
+    <div id="label-limit-error" class="alert alert-warning small d-none" role="alert">Maximum 500 labels per download. Select fewer boxes/pallets.</div>
+    <button type="button" class="btn btn-primary w-100" id="review-labels-btn" disabled><i class="fa fa-sliders me-1" aria-hidden="true"></i>Generate labels</button>
+    <button type="button" class="btn btn-outline-secondary w-100 mt-2" id="clear-label-selection">Clear selection</button>
+    <div id="labels-error" class="alert alert-danger small mt-3 d-none" role="alert"></div>
+    <p class="small text-muted mt-3 mb-0">Selections stay with you across pages and searches in this tab. One label per box/pallet; print at 100% scale.</p>
+  </aside></div>
+</div></form>
+<script type="application/json" id="label-page-data">{{ label_page_rows|tojson }}</script>
+<div class="modal fade" id="labelReviewModal" tabindex="-1" aria-labelledby="label-review-title" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><div><h2 class="modal-title fs-5" id="label-review-title">Review label details</h2><p class="small text-muted mb-0" id="label-review-summary"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <p class="small text-muted">Pickup date, addresses, boxes and measurements come from your saved shipments. The details below apply to this label batch.</p>
+      <div class="label-common-panel">
+        <h3 class="fs-6">Apply common details</h3>
+        <div class="label-common-fields"><div><label for="label-common-payment" class="form-label">Payment mode</label><select id="label-common-payment" class="form-select"><option value="pre-paid">Pre-paid</option><option value="to-pay">To pay</option><option value="cash-on-delivery">Cash on delivery</option></select></div><div><label for="label-common-description" class="form-label">Goods description</label><input id="label-common-description" class="form-control" maxlength="160" placeholder="e.g. Automotive spare parts" /></div><button type="button" class="btn btn-outline-primary" id="apply-label-common">Apply to all shipments</button></div>
+        <p class="small text-muted mb-0 mt-2">Enter one invoice amount for each shipment. It appears on every box/pallet label. Blank names print the address directly.</p>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-2 my-3"><label class="visually-hidden" for="label-review-search">Find a selected shipment</label><input id="label-review-search" class="form-control sheet-search" placeholder="Find a selected shipment" /><span id="label-review-ready" class="small text-muted" aria-live="polite"></span></div>
+      <div id="label-review-error" class="alert alert-danger d-none" role="alert"></div>
+      <div id="label-review-rows"></div>
+    </div>
+    <div class="modal-footer label-review-footer"><span class="small text-muted">4 × 6 inches · one label per box/pallet</span><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back</button><button type="button" class="btn btn-outline-primary" id="preview-labels-btn"><i class="fa fa-eye me-1" aria-hidden="true"></i>Preview PDF</button><button type="button" class="btn btn-primary" id="download-labels-btn"><i class="fa fa-download me-1" aria-hidden="true"></i>Download PDF</button></div></div>
+  </div></div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin/labels.js', v='shared-label-details-1') }}"></script>{% endblock %}

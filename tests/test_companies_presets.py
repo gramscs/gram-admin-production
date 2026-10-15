@@ -1,0 +1,93 @@
+import io
+
+import pytest
+from openpyxl import load_workbook
+from pypdf import PdfReader
+
+
+def company(client, name='Acme Logistics', **changes):
+    data = {'name': name, 'address': 'Registered office', 'locations': [
+        {'kind': 'pickup', 'label': 'Delhi warehouse', 'address': 'Sender Road', 'pincode': '110001', 'is_default': True},
+        {'kind': 'drop', 'label': 'Mumbai store', 'address': 'Receiver Road', 'pincode': '400001', 'is_default': True}], **changes}
+    response = client.post('/admin/companies', json=data)
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()['company']
+
+
+def test_company_presets_defaults_edit_and_shipment_snapshots(admin_client):
+    master = company(admin_client)
+    assert len(master['locations']) == 2
+    assert all(row['is_default'] for row in master['locations'])
+    shipment = {'consignment_number': 'CLIENT001', 'company_id': master['id'], 'pickup_address': 'Custom sender', 'pickup_pincode': '110001', 'drop_address': 'Receiver Road', 'drop_pincode': '400001'}
+    assert admin_client.post('/admin/consignments/save', json={'rows': [shipment]}).status_code == 200
+    master['locations'][0]['address'] = 'Changed master address'
+    assert admin_client.put(f"/admin/companies/{master['id']}", json=master).status_code == 200
+    saved = admin_client.get('/admin/consignments/list?search=Acme').get_json()['rows'][0]
+    assert saved['company_id'] == master['id'] and saved['company_name'] == master['name']
+    assert saved['pickup_address'] == 'Custom sender'
+    assert admin_client.post(f"/admin/companies/{master['id']}/archive", json={}).status_code == 200
+    assert admin_client.post('/admin/consignments/save', json={'rows': [saved]}).status_code == 200
+    assert admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'ARCHIVEDNEW', 'company_id': master['id']}]}).status_code == 400
+    master['active'] = True
+    assert admin_client.put(f"/admin/companies/{master['id']}", json=master).status_code == 200
+    assert admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'BADCLIENT', 'company_id': 999}]}).status_code == 400
+    assert admin_client.get('/admin/consignments/list').get_json()['total'] == 1
+    backup = admin_client.get('/admin/generate-backup?format=json').get_json()
+    assert backup['companies'][0]['name'] == master['name']
+    assert backup['company_locations'][0]['address'] == 'Changed master address'
+
+
+def test_company_validation_and_foreign_location_rollback(admin_client):
+    master = company(admin_client)
+    assert admin_client.post('/admin/companies', json={'name': 'acme logistics'}).status_code == 400
+    other = company(admin_client, name='Other company')
+    master['locations'][0]['id'] = other['locations'][0]['id']
+    master['name'] = 'Should not save'
+    assert admin_client.put(f"/admin/companies/{master['id']}", json=master).status_code == 400
+    options = admin_client.get('/admin/companies/options').get_json()['companies']
+    assert options[0]['name'] == 'Acme Logistics'
+    assert admin_client.post('/admin/companies', json={'name': 'Broken', 'locations': [{'kind': 'pickup', 'label': 'Bad PIN', 'address': 'Address', 'pincode': 'bad'}]}).status_code == 400
+    assert len(admin_client.get('/admin/companies/options').get_json()['companies']) == 2
+
+
+def test_client_link_excel_roundtrip_and_legacy_update(admin_client):
+    master = company(admin_client)
+    admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'EXCLIENT', 'company_id': master['id']}]})
+    exported = load_workbook(io.BytesIO(admin_client.get('/admin/consignments/export.xlsx').data)).active
+    values = dict(zip([cell.value for cell in exported[1]], [cell.value for cell in exported[2]]))
+    assert values['client_company'] == master['name'] and values['company_id'] == master['id']
+    row = admin_client.get('/admin/consignments/list').get_json()['rows'][0]
+    admin_client.post('/admin/consignments/save', json={'rows': [{'id': row['id'], 'consignment_number': row['consignment_number'], 'status': 'Delivered'}]})
+    assert admin_client.get('/admin/consignments/list').get_json()['rows'][0]['company_id'] == master['id']
+
+
+def test_updated_labels_have_optional_barcode_and_company_name(admin_client):
+    from label_helpers import label_form
+    master = company(admin_client)
+    admin_client.post('/admin/consignments/save', json={'rows': [{'consignment_number': 'BARCODE001', 'company_id': master['id'], 'pieces': 2, 'pickup_address': 'Sender Road', 'drop_address': 'Receiver Road'}]})
+    row = admin_client.get('/admin/consignments/list').get_json()['rows'][0]
+    outputs = []
+    for barcode in ['1', '0']:
+        response = admin_client.post('/admin/labels/generate', data=label_form([row['id']], barcode=barcode, delivery='preview'))
+        assert response.status_code == 200 and response.headers['Content-Disposition'].startswith('inline')
+        pdf = PdfReader(io.BytesIO(response.data))
+        assert len(pdf.pages) == 2
+        page = pdf.pages[0]
+        assert float(page.mediabox.width) == 288 and float(page.mediabox.height) == 432
+        label = page.extract_text()
+        assert 'Acme Logistics' in label and 'DELIVER TO' in label and 'Receiver Road' in label and 'Sender Road' in label
+        fonts = [font.get_object() for font in page['/Resources']['/Font'].values()]
+        embedded_fonts = [font for font in fonts if font.get('/FontDescriptor') and font['/FontDescriptor'].get_object().get('/FontFile2')]
+        assert len(embedded_fonts) == 4
+        assert sum('LiberationMono' in font['/BaseFont'] for font in embedded_fonts) == 2
+        assert sum('LiberationSans' in font['/BaseFont'] for font in embedded_fonts) == 2
+        outputs.append(page.get_contents().get_data().count(b' re'))
+    assert outputs[0] - outputs[1] > 20, 'The barcode must add its bars independently of the layout bands'
+
+
+@pytest.mark.parametrize('path,method,data', [
+    ('/admin/companies', 'post', {'name': 'Unauthenticated'}), ('/admin/companies/options', 'get', None),
+])
+def test_company_json_require_login(client, path, method, data):
+    response = getattr(client, method)(path, json=data, headers={'Accept': 'application/json'})
+    assert response.status_code == 401

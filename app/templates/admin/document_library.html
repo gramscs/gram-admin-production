@@ -1,0 +1,35 @@
+{% extends 'admin/base.html' %}
+{% set active_page = 'documents' %}
+{% block title %}Shipment Documents – Gram SCS{% endblock %}
+{% block topbar_title %}Documents{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-document-library.css') }}" />
+{% endblock %}
+{% block content %}
+<div class="page-heading d-flex flex-wrap justify-content-between align-items-start gap-3">
+  <div><span class="page-eyebrow">SHIPMENT DOCUMENTS</span><h1>Documents</h1><p>PODs and invoices, organized by shipment. Identifier types and company details come from your shipment records.</p></div>
+  <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#bulkDocumentsModal"><i class="fa fa-upload me-2" aria-hidden="true"></i>Bulk documents <span id="bulk-selected-count" class="badge text-bg-secondary">0</span></button>
+</div>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+<div id="status-msg" class="alert d-none" role="alert"></div>
+<div class="surface-panel overflow-hidden">
+  {% include 'admin/_shipment_filters.html' %}
+  <div class="table-responsive"><table class="table align-middle mb-0 document-library-table">
+    <caption class="visually-hidden">Current PODs and invoices linked to saved shipments, including shipments with missing documents.</caption>
+    <thead><tr><th scope="col"><input id="select-visible-shipments" type="checkbox" class="form-check-input" aria-label="Select shipments on this page" /></th><th scope="col">Shipment identifier</th><th scope="col">Identifier type</th><th scope="col">Company</th><th scope="col">POD</th><th scope="col">Invoice</th><th scope="col">Shipment</th></tr></thead>
+    <tbody id="sheet-body" data-list-url="{{ url_for('admin.consignments_list_api') }}" data-shipment-url="{{ url_for('admin.consignments_panel') }}"></tbody>
+  </table></div>
+  <div class="pagination-controls p-3 border-top">
+    <span class="pagination-info" id="document-count" aria-live="polite">Loading shipments…</span>
+    <label class="d-flex align-items-center gap-2 small text-muted" for="per-page-select">Rows per page<select class="form-select form-select-sm rows-per-page" id="per-page-select">{% for count in [10, 25, 50, 100] %}<option value="{{ count }}" {% if count == 25 %}selected{% endif %}>{{ count }}</option>{% endfor %}</select></label>
+    <nav class="pagination-buttons" aria-label="Document pages"><button type="button" class="btn btn-outline-secondary btn-sm" id="prev-page-btn" disabled>Previous</button><span class="small text-muted align-self-center" id="document-page"></span><button type="button" class="btn btn-outline-secondary btn-sm" id="next-page-btn" disabled>Next</button></nav>
+  </div>
+</div>
+<p class="small text-muted mt-3">Use the pencil to manage an attached document, or Upload to add a missing one. PDF, JPG, PNG and WebP are accepted. The eye opens the specific shipment. Bulk documents handles multiple files together.</p>
+{% include 'admin/consignments/document_editor.html' %}
+{% include 'admin/consignments/bulk_documents.html' %}
+{% endblock %}
+{% block scripts %}
+{% for script in ['shipment-filters.js', 'api.js', 'bulk-documents.js', 'document-editor.js', 'document-library.js'] %}<script src="{{ url_for('static', filename='js/admin/' ~ script, v='modal-validation-1') }}"></script>{% endfor %}
+{% endblock %}

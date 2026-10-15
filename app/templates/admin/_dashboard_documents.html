@@ -1,0 +1,25 @@
+<details class="surface-panel document-followup" id="document-followup">
+  <summary>
+    <span class="followup-icon"><i class="fa fa-folder-open-o" aria-hidden="true"></i></span>
+    <span class="followup-heading"><span class="page-eyebrow">DOCUMENT FOLLOW-UP</span><strong>Missing PODs &amp; invoices</strong><small>{{ report.status_label }} · follows your dashboard filters</small></span>
+    <span class="followup-total">{{ report.document_counts.any }} <small>shipments</small></span>
+    <span class="followup-expand">View list <i class="fa fa-angle-down" aria-hidden="true"></i></span>
+  </summary>
+  <div class="followup-content">
+    <div class="followup-options" role="group" aria-label="Missing document filter">
+      {% for key, label in [('any', 'Either missing'), ('pod', 'POD missing'), ('invoice', 'Invoice missing'), ('both', 'Both missing')] %}
+      <button type="button" class="followup-filter" data-missing-filter="{{ key }}" aria-pressed="{{ 'true' if key == 'any' else 'false' }}">{{ label }} <span>{{ report.document_counts[key] }}</span></button>
+      {% endfor %}
+    </div>
+    <p class="followup-help">See what still needs uploading. Open Documents to attach files to a shipment.</p>
+    <div class="table-responsive"><table class="table mb-0 followup-table"><thead><tr><th>Shipment identifier</th><th>Identifier type</th><th>Company</th><th>Status</th><th>Missing documents</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody id="missing-document-rows" data-documents-url="{{ url_for('admin.documents_panel') }}">
+      {% for row in report.missing_documents[:25] %}
+        <tr><td><strong>{{ row.identifier }}</strong></td><td>{{ row.identifier_type }}</td><td>{{ row.company }}</td><td>{{ row.status }}</td><td>{% if row.missing_pod %}<span class="missing-doc-badge">POD</span>{% endif %}{% if row.missing_invoice %}<span class="missing-doc-badge">Invoice</span>{% endif %}</td><td><a href="{{ url_for('admin.documents_panel', search=row.identifier, identifier_type=row.identifier_type, company=row.company_id) }}">Open Documents</a></td></tr>
+      {% else %}<tr><td colspan="6" class="followup-empty">All PODs and invoices are uploaded in this view.</td></tr>{% endfor %}
+      </tbody></table></div>
+    <div class="followup-pagination"><span id="missing-document-count" role="status" aria-live="polite">{{ report.document_counts.any }} shipment(s) with missing documents</span><div><button type="button" class="btn btn-outline-secondary btn-sm" id="missing-document-prev" disabled>Previous</button><span id="missing-document-page">Page 1</span><button type="button" class="btn btn-outline-secondary btn-sm" id="missing-document-next" disabled>Next</button></div></div>
+    <noscript><p class="followup-help">Showing the first 25 shipments. Enable JavaScript to filter and browse the full list.</p></noscript>
+  </div>
+</details>
+<script type="application/json" id="missing-document-data">{{ report.missing_documents|tojson }}</script>

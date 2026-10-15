@@ -1,0 +1,95 @@
+{% extends "admin/base.html" %}
+{% set active_page = 'consignments' %}
+{% block title %}Shipment Tracker – Gram SCS{% endblock %}
+{% block topbar_title %}Shipments{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='shared-label-details-1') }}" />
+{% endblock %}
+
+{% macro sort_button(column, label) -%}
+<button type="button" class="sort-header" data-sort-column="{{ column }}" aria-label="Sort by {{ label }}">
+  {{ label }} <span class="sort-icon" aria-hidden="true"><i class="fa fa-sort"></i></span>
+</button>
+{%- endmacro %}
+
+{% block content %}
+<section class="consignment-page" aria-label="Shipment sheet">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <div>
+      <span class="page-eyebrow">SHIPMENT MANAGEMENT</span>
+      <h4 class="mb-1 fw-bold">Shipment Tracker</h4>
+      <p class="text-muted small mb-0">Add or edit shipment details, then click Save All to save your changes.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <div class="dropdown">
+        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" id="data-tools-btn" data-bs-toggle="dropdown" aria-expanded="false">Import / Export</button>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="data-tools-btn">
+          <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#importConsignmentsModal">Import Excel</button></li>
+          <li><a class="dropdown-item" href="{{ url_for('admin.consignments_import_template_excel') }}">Download Import Template</a></li>
+          <li><hr class="dropdown-divider" /></li>
+          <li><a id="shipment-excel-export" class="dropdown-item" href="{{ url_for('admin.consignments_export_excel') }}">Export Excel</a></li>
+          <li><a id="shipment-pdf-export" data-report-download title="Exports saved shipments matching your filters" class="dropdown-item" href="{{ url_for('admin.consignments_export_pdf') }}">Export PDF</a></li>
+        </ul>
+      </div>
+      <button id="add-row-btn" type="button" class="btn btn-outline-primary btn-sm">Add Row</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#bulkDocumentsModal">Bulk documents <span id="bulk-selected-count" class="badge text-bg-secondary">0</span></button>
+      <button id="save-btn" type="button" class="btn btn-success btn-sm">Save All</button>
+    </div>
+  </div>
+
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+  <div id="status-msg" class="alert d-none" role="alert"></div>
+
+  <div class="surface-panel overflow-hidden">
+    {% include 'admin/_shipment_filters.html' %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" id="sheet-table">
+        <caption class="visually-hidden">Editable shipments. Related fields are grouped together; use Edit for full shipment details.</caption>
+        <thead class="table-light">
+          <tr>
+            <th scope="col"><input type="checkbox" id="select-visible-shipments" class="form-check-input" aria-label="Select shipments on this page" /></th>
+            <th scope="col" class="shipment-column">{{ sort_button('consignment_number', 'Identifier #') }}<span class="column-hint">Type / number</span></th>
+            <th scope="col" class="pieces-column">Boxes / pallets</th>
+            <th scope="col" class="chargeable-column">Weight / volume<span class="column-hint">kg / ft³</span></th>
+            <th scope="col" class="status-column">{{ sort_button('status', 'Status') }}</th>
+            <th scope="col" class="route-column">{{ sort_button('pickup_tag', 'Pickup Tag') }}{{ sort_button('pickup_date', 'Pickup Date') }}</th>
+            <th scope="col" class="route-column">{{ sort_button('drop_pincode', 'Drop Pin') }}{{ sort_button('drop_date', 'Drop Estimated') }}</th>
+            <th scope="col" class="text-center actions-column">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sheet-body"
+          data-existing-rows="{{ consignments | tojson | forceescape }}"
+          data-save-url="{{ url_for('admin.consignments_save') }}"
+          data-list-url="{{ url_for('admin.consignments_list_api') }}"></tbody>
+      </table>
+    </div>
+    <div class="pagination-controls p-3 border-top">
+      <div class="pagination-info">Showing <span id="showing-start">0</span>–<span id="showing-end">0</span> of <span id="total-count">0</span></div>
+      <div class="d-flex align-items-center gap-2">
+        <label for="per-page-select" class="small text-muted text-nowrap">Rows per page</label>
+        <select id="per-page-select" class="form-select form-select-sm rows-per-page">
+          {% for count in [10, 25, 50, 100] %}<option value="{{ count }}">{{ count }}</option>{% endfor %}
+        </select>
+      </div>
+      <nav class="pagination-buttons" aria-label="Shipment pages">
+        <button id="prev-page-btn" type="button" class="btn btn-outline-secondary btn-sm">Prev</button>
+        <div id="page-numbers-container" class="d-flex gap-1"></div>
+        <button id="next-page-btn" type="button" class="btn btn-outline-secondary btn-sm">Next</button>
+      </nav>
+      <div id="loading-spinner" class="d-none" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading…</div>
+    </div>
+  </div>
+</section>
+{% include "admin/consignments/modals.html" %}
+{% include "admin/consignments/bulk_documents.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
+{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'admin/package-contents.js', 'consignments.js'] %}
+<script src="{{ url_for('static', filename='js/' ~ script, v='shared-label-details-1') }}"></script>
+{% endfor %}
+{% endblock %}

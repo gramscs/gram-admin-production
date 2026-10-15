@@ -1,0 +1,13 @@
+.document-library-table th { color: var(--admin-muted); font-size: .75rem; white-space: nowrap; }
+.document-library-table td { padding: 1rem .75rem; font-size: .85rem; }
+.document-library-table .shipment-identity { min-width: 150px; overflow-wrap: anywhere; max-width: 220px; }
+.document-library-table .document-company { min-width: 130px; max-width: 220px; overflow-wrap: anywhere; }
+.document-card { display: flex; align-items: flex-start; gap: .65rem; min-width: 200px; max-width: 300px; }
+.document-thumb { width: 48px; height: 60px; object-fit: contain; border: 1px solid var(--admin-border); border-radius: .35rem; background: var(--admin-soft); flex-shrink: 0; }
+.document-file-icon { display: grid; place-items: center; width: 48px; height: 60px; color: var(--admin-accent); background: var(--admin-soft); border: 1px solid var(--admin-border); border-radius: .35rem; flex-shrink: 0; font-size: 1.2rem; }
+.document-details { min-width: 0; }
+.document-name { display: block; font-size: .75rem; overflow-wrap: anywhere; margin-bottom: .35rem; }
+.document-preview-error { display: block; color: var(--admin-muted); font-size: .7rem; margin-top: .35rem; }
+.document-storage {display:block;color:var(--admin-muted);font-size:.65rem;margin-bottom:.4rem;}
+.document-missing { display: inline-flex; align-items: center; gap: .4rem; color: var(--admin-muted); font-size: .75rem; background: var(--admin-soft); border-radius: .4rem; padding: .45rem .65rem; }
+.document-actions {display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;}.document-icon-action {display:inline-grid;place-items:center;width:34px;height:34px;padding:0;flex-shrink:0;}.document-upload-action {display:block;margin-top:.5rem;font-size:.7rem;}.document-editor-preview {display:grid;place-items:center;min-height:130px;max-height:240px;border:1px solid var(--admin-border);border-radius:.75rem;background:var(--admin-soft);overflow:hidden;}.document-editor-preview img {max-width:100%;max-height:240px;object-fit:contain;}.document-editor-preview>i {font-size:2.5rem;color:var(--admin-accent);}.document-editor-preview+.small {overflow-wrap:anywhere;}
