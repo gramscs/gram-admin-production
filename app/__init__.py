@@ -198,3 +198,9 @@ def create_app(test_config=None):
                 prepare_backend(db.engine)
 
     return app
+
+
+def __getattr__(name: str) -> Flask:
+    if name == "app":
+        return create_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

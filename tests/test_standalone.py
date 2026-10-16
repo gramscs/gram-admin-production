@@ -8,6 +8,15 @@ from app import create_app
 from app.models import Consignment, Lead, NewsletterSubscriber, db
 
 
+def test_gunicorn_app_target_resolves_to_flask_app(monkeypatch):
+    import app as app_package
+    from flask import Flask
+
+    deployed_app = Flask(__name__)
+    monkeypatch.setattr(app_package, "create_app", lambda: deployed_app)
+    assert app_package.app is deployed_app
+
+
 def save(client, number="TEST001", **fields):
     response = client.post("/admin/consignments/save", json={"rows": [{
         "consignment_number": number, "status": "In Transit", **fields,

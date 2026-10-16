@@ -21,6 +21,10 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
+Render uses Python 3.12 as pinned in `.python-version` and the `Procfile` WSGI
+entry point (`wsgi:app`). The `app:app` target also works for Render services
+with that start command configured.
+
 Schema creation is not automatic on startup. For an existing compatible ER
 database, run the additive support-table upgrade and verify the schema:
 
