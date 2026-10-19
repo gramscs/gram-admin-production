@@ -15,7 +15,7 @@
         return td;
     }
     function render() {
-        const matching = rows.filter(row => mode === 'pod' ? row.missing_pod : mode === 'invoice' ? row.missing_invoice : mode === 'both' ? row.missing_pod && row.missing_invoice : true);
+        const matching = rows.filter(row => mode === 'pod' ? row.missing_pod : mode === 'invoice' ? row.missing_invoice : mode === 'lr' ? row.missing_lr : mode === 'all' ? row.missing_pod && row.missing_invoice && row.missing_lr : mode === 'both' ? row.missing_pod && row.missing_invoice : true);
         const pages = Math.max(1, Math.ceil(matching.length / size));
         page = Math.min(page, pages);
         body.replaceChildren();
@@ -25,7 +25,7 @@
             const strong = document.createElement('strong'); strong.textContent = row.identifier;
             identifier.append(strong);
             const documents = cell('');
-            [['POD', row.missing_pod], ['Invoice', row.missing_invoice]].forEach(([name, missing]) => {
+            [['POD', row.missing_pod], ['Invoice', row.missing_invoice], ['LR', row.missing_lr]].forEach(([name, missing]) => {
                 if (!missing) return;
                 const badge = document.createElement('span'); badge.className = 'missing-doc-badge'; badge.textContent = name;
                 documents.append(badge);
@@ -39,7 +39,7 @@
             body.append(tr);
         });
         if (!matching.length) {
-            const tr = document.createElement('tr'), td = cell(mode === 'any' ? 'All PODs and invoices are uploaded in this view.' : 'No shipments match this missing-document filter.');
+            const tr = document.createElement('tr'), td = cell(mode === 'any' ? 'All PODs, invoices and LRs are uploaded in this view.' : 'No shipments match this missing-document filter.');
             td.colSpan = 6; td.className = 'followup-empty'; tr.append(td); body.append(tr);
         }
         document.getElementById('missing-document-count').textContent = matching.length ? `${(page - 1) * size + 1}–${Math.min(page * size, matching.length)} of ${matching.length} shipments` : '0 shipments';

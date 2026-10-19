@@ -1,4 +1,4 @@
-"""Private, content-validated POD and invoice documents."""
+"""Private, content-validated POD, invoice and lorry receipt documents."""
 
 import base64
 import binascii
@@ -22,12 +22,18 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.admin.document_lifecycle import (commit_document_cleanup, document_is_retained,
-    purge_shipment_documents, storage_object_missing, StorageSyncError)
+    purge_shipment_documents, storage_object_missing, StorageSyncError, document_save_error)
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
-DOCUMENTS = {'pod': ('pod_image', 'pod_original_name'), 'invoice': ('invoice_file', 'invoice_original_name')}
+DOCUMENTS = {'pod': ('pod_image', 'pod_original_name'), 'invoice': ('invoice_file', 'invoice_original_name'), 'lr': ('lr_file', 'lr_original_name')}
+DOCUMENT_TYPES = {'pod': 'POD', 'invoice': 'invoice', 'lr': 'LR'}
 IMAGE_TYPES = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'), 'WEBP': ('.webp', 'image/webp')}
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.pdf'}
+
+
+def storage_reference(bucket, path):
+    """ER metadata stores bucket/path separately; storage APIs use a full reference."""
+    return path if path.startswith('supabase:') else f'supabase:{bucket}/{path}'
 
 
 def document_name(number, kind, extension):
@@ -179,7 +185,8 @@ def store_document_changes(consignment, changes, created, obsolete):
             # A unique folder preserves replacement rollback and ER history;
             # the visible leaf always follows the bulk-upload naming convention.
             filename = f'{uuid4().hex}/{document_name(consignment.consignment_number, kind, ext)}'
-            bucket = (os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads') if kind == 'invoice' else None
+            bucket = ((os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads') if kind == 'invoice'
+                      else (os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads') if kind == 'lr' else None)
             value = _store_pod_bytes(filename, content, mime, bucket_name=bucket)
             created.append(value)
             setattr(consignment, field, value)
@@ -205,7 +212,7 @@ def _response_error(message, status=400):
     return jsonify(success=False, message=message), status
 
 
-@admin_bp.route('/admin/consignments/<consignment_id>/<any(pod,invoice):kind>', methods=['GET', 'POST', 'DELETE'])
+@admin_bp.route('/admin/consignments/<consignment_id>/<any(pod,invoice,lr):kind>', methods=['GET', 'POST', 'DELETE'])
 @limiter.limit('30 per minute', methods=['POST', 'DELETE'])
 @require_admin
 def consignment_document(consignment_id, kind):
@@ -249,11 +256,11 @@ def consignment_document(consignment_id, kind):
             db.session.rollback()
             cleanup_documents(created)
             return _response_error(str(error), 500)
-        except Exception:
+        except Exception as error:
             db.session.rollback()
             cleanup_documents(created)
             current_app.logger.exception('Unable to update shipment document')
-            return _response_error('Document could not be saved. Your previous document was preserved.', 500)
+            return _response_error(document_save_error(error, 'Document could not be saved. Your previous document was preserved.'), 500)
         return jsonify(success=True, **{field: getattr(row, field)})
     value = getattr(row, field)
     if not value:

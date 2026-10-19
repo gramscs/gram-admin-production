@@ -18,6 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from pypdf import PdfReader
 
 from app.admin.reporting import COLUMNS
+from app.spreadsheets import save_workbook_in_memory
 
 MIMES = {'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'csv': 'text/csv; charset=utf-8', 'pdf': 'application/pdf'}
 PALETTE = {'Pickup Scheduled': '#d3a14b', 'In Transit': '#6696ef', 'Out for Delivery': '#9774df', 'Delivered': '#358e71', 'No status': '#9ba7b0', 'Other': '#de7980'}
@@ -33,7 +34,7 @@ def text_cell(sheet, values):
 
 def metric_rows(report):
     m = report['metrics']
-    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Boxes / pallets', m['pieces']), ('Weight (kg)', m['weight']), ('Volume (ft³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
+    return [('Shipments', m['total']), ('Delivered (current status)', m['delivered']), ('Open shipments', m['open']), ('Delivered share (%)', m['delivered_share']), ('Boxes / pallets', m['pieces']), ('Weight (kg)', m['weight']), ('Volume (ft³)', m['volume']), ('Weight recorded (shipments)', m['weight_recorded']), ('Volume recorded (shipments)', m['volume_recorded']), ('Open past expected date', m['past_expected']), ('Delivered without POD reference', m['missing_pod']), ('Without invoice reference', m['missing_invoice']), ('Without lorry receipt reference', m['missing_lr']), ('Unassigned client', m['unassigned']), ('Pickup date missing/invalid (included)', m['undated']), ('Undated excluded by date filter', m['excluded_undated']), ('Invalid measurements excluded from totals (shipments)', m['invalid_measurements'])]
 
 
 def excel(report, columns):
@@ -95,7 +96,7 @@ def excel(report, columns):
                 chart.series[0].graphicalProperties.line.solidFill = '358E71'
             summary.add_chart(chart, anchor)
     buffer = io.BytesIO()
-    book.save(buffer)
+    save_workbook_in_memory(book, buffer)
     return buffer.getvalue()
 
 
@@ -171,7 +172,7 @@ def pdf(report, columns):
         drawing.add(String(350,148,f'Peak: {peak} shipments per {report["grain"][:-2] if report["grain"] != "daily" else "day"}',fontName='LabelSans',fontSize=8))
     else:
         drawing.add(String(350,95,'No valid pickup dates in this view',fontName='LabelSans',fontSize=10))
-    watchlist = Table([[p('OPEN PAST EXPECTED DATE'), p('DELIVERED WITHOUT POD'), p('INVOICES MISSING')], [p(m['past_expected'], 'Heading2'), p(m['missing_pod'], 'Heading2'), p(m['missing_invoice'], 'Heading2')]], colWidths=[252]*3)
+    watchlist = Table([[p('OPEN PAST EXPECTED DATE'), p('DELIVERED WITHOUT POD'), p('INVOICES MISSING'), p('LORRY RECEIPTS MISSING')], [p(m['past_expected'], 'Heading2'), p(m['missing_pod'], 'Heading2'), p(m['missing_invoice'], 'Heading2'), p(m['missing_lr'], 'Heading2')]], colWidths=[189]*4)
     watchlist.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#F6F8F7')),('TOPPADDING',(0,0),(-1,-1),6),('BOTTOMPADDING',(0,0),(-1,-1),5)]))
     story += [drawing, watchlist, Spacer(1,10), p(report['definition']), PageBreak()]
     def table(title, headers, rows, widths):

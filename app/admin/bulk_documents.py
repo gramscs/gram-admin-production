@@ -1,7 +1,7 @@
 """Review bulk uploads before applying them; download named private documents."""
 import json
 from pathlib import Path
-from tempfile import SpooledTemporaryFile
+from io import BytesIO
 from urllib.parse import urlsplit
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -15,7 +15,7 @@ from app.admin.documents import (DOCUMENTS, MAX_DOCUMENT_BYTES, validate_documen
     store_document_changes, cleanup_documents, open_stored_document, document_name)
 from app.admin.reporting import filter_shipments, normalize_shipment_filters
 from app.models import db
-from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError
+from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError, document_save_error
 
 MAX_UPLOAD_FILES = 50
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -53,7 +53,7 @@ def bulk_document_upload():
         number, separator, kind = stem.rpartition('_')
         kind = kind.lower()
         if not separator or kind not in DOCUMENTS:
-            errors.append({'filename': name, 'message': 'Use consignmentNum_pod.ext or consignmentNum_invoice.ext.'})
+            errors.append({'filename': name, 'message': 'Use consignmentNum_pod.ext, consignmentNum_invoice.ext or consignmentNum_lr.ext.'})
             continue
         candidates = exact.get(number.casefold(), []) + aliases.get(number.casefold(), [])
         matches = list({row.id: row for row in candidates}.values())
@@ -97,11 +97,11 @@ def bulk_document_upload():
         db.session.rollback()
         cleanup_documents(created)
         return jsonify(success=False, message=str(error), applied=False), 500
-    except Exception:
+    except Exception as error:
         db.session.rollback()
         cleanup_documents(created)
         current_app.logger.exception('Bulk documents could not be saved')
-        return jsonify(success=False, message='Upload failed. Previous documents were preserved. Try again.', applied=False), 500
+        return jsonify(success=False, message=document_save_error(error, 'Upload failed. Previous documents were preserved. Try again.'), applied=False), 500
     documents = [{'id': str(row.id), 'kind': kind, 'reference': getattr(row, DOCUMENTS[kind][0]),
                   'original_name': getattr(row, DOCUMENTS[kind][1])} for row, kind, _ in plans]
     return jsonify(success=True, count=len(review), review=review, applied=True, documents=documents)
@@ -115,8 +115,8 @@ def bulk_document_download():
     if not isinstance(data, dict) or not _same_origin():
         return jsonify(success=False, message='Choose documents from this admin app.'), 400
     kind = data.get('kind', 'both')
-    if kind not in ('pod', 'invoice', 'both'):
-        return jsonify(success=False, message='Choose POD, invoices or both.'), 400
+    if kind not in (*DOCUMENTS, 'both', 'all'):
+        return jsonify(success=False, message='Choose POD, invoices, lorry receipts or all documents.'), 400
     ids = data.get('ids', [])
     if not isinstance(ids, list) or len(ids) > MAX_DOWNLOAD_SHIPMENTS:
         return jsonify(success=False, message='Select at most 200 shipments per download.'), 400
@@ -137,8 +137,8 @@ def bulk_document_download():
         return jsonify(success=False, message='More than 200 shipments match. Select shipments or narrow your search.'), 400
     if ids and len(rows) != len(ids):
         return jsonify(success=False, message='A selected shipment no longer exists. Refresh the table.'), 400
-    kinds = ('pod', 'invoice') if kind == 'both' else (kind,)
-    buffer = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode='w+b')
+    kinds = tuple(DOCUMENTS) if kind == 'all' else ('pod', 'invoice') if kind == 'both' else (kind,)
+    buffer = BytesIO()
     manifest, names, total, downloaded = [], set(), 0, 0
     try:
         with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:

@@ -52,6 +52,8 @@ class Consignment(db.Model):
     pod_original_name = db.Column(db.String(255))
     invoice_file = db.Column(db.String(1024))
     invoice_original_name = db.Column(db.String(255))
+    lr_file = db.Column(db.String(1024))
+    lr_original_name = db.Column(db.String(255))
 
 
 class Lead(db.Model):
