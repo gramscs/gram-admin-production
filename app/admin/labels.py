@@ -153,6 +153,12 @@ def labels_panel():
     return render_template('admin/labels.html', **_label_rows())
 
 
+@admin_bp.get('/admin/lr-generator')
+@require_admin
+def lr_generator_panel():
+    return render_template('admin/lr_generator.html', **_label_rows())
+
+
 @admin_bp.post('/admin/labels/review')
 @require_admin
 def labels_review():
