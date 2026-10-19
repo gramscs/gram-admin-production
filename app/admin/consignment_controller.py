@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from types import SimpleNamespace
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from openpyxl import Workbook, load_workbook
@@ -34,10 +35,23 @@ def _get_supabase_client():
         raise RuntimeError('Set both SUPABASE_URL and SUPABASE_KEY to use Supabase Storage.')
     try:
         from supabase import create_client
+        from supabase._sync.client import SupabaseException
     except Exception:
         raise RuntimeError('Supabase Storage requires the Supabase package. Install the app requirements.') from None
     try:
-        return create_client(url, key)
+        try:
+            return create_client(url, key)
+        except SupabaseException as error:
+            if str(error) != 'Invalid API key':
+                raise
+            # The older general SDK validates JWT syntax locally. Proxy-backed
+            # keys can be opaque until HTTPS egress substitutes the real key.
+            # The official Storage client sends that binding to the same project;
+            # Supabase still validates credentials and permissions on every call.
+            from storage3 import create_client as create_storage_client
+            storage = create_storage_client(url.rstrip('/') + '/storage/v1',
+                {'apikey': key, 'Authorization': 'Bearer ' + key}, is_async=False)
+            return SimpleNamespace(storage=storage)
     except Exception:
         raise RuntimeError('Supabase Storage could not initialize. Check SUPABASE_URL and use the legacy service_role key for SUPABASE_KEY.') from None
 
