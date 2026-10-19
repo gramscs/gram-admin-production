@@ -105,6 +105,10 @@ def test_panel_has_lr_navigation_and_only_template_fields(lr_client):
     assert result.status_code == 200
     assert b'LR Generator' in result.data and b'GRAM-LR-0107' in result.data
     assert b'lr-field-data' in result.data
+    assert b'Receipt acknowledgement (optional)' not in result.data
+    assert not any(field['name'] in ('receipt_reporting_date', 'receipt_reporting_time', 'gate_out_date',
+                                    'gate_out_time', 'detention_reason', 'incidental_expenses', 'pod_remarks')
+                   for field in FIELDS)
     assert not any(field['name'] in ('company_pan', 'company_gstin', 'authorised_signatory') for field in FIELDS)
 
 
@@ -132,7 +136,7 @@ def test_deduplicated_selection_and_details_have_one_to_one_mapping(lr_client, d
     ('invoice_value', 'NaN'), ('invoice_value', '-1'), ('invoice_value', '10.001'),
     ('invoice_value', '1000000000'), ('gross_weight', 'Infinity'), ('gross_weight', '1.0001'),
     ('packages', '0'), ('packages', '1.5'), ('packages', True), ('package_type', 'INVALID'),
-    ('invoice_date', '2026-02-30'), ('lr_date', '20261019'), ('gate_out_time', '25:00'),
+    ('invoice_date', '2026-02-30'), ('lr_date', '20261019'),
     ('consignor_address', 'x' * 401), ('goods_description', '<script>\x00</script>'),
 ])
 def test_invalid_form_values_are_rejected_on_server(lr_client, details, field, value):

@@ -45,13 +45,6 @@ FIELDS = [
     field('cargo_status', 'Cargo status', (368, 363, 579, 374), limit=80, group='Movement & remarks'),
     field('loading_remarks', 'Loading remarks', (108, 377, 579, 388), limit=180, group='Movement & remarks'),
     field('general_remarks', 'General remarks', (108, 391, 579, 402), limit=180, group='Movement & remarks'),
-    field('receipt_reporting_date', 'Receipt reporting date', (114, 569, 208, 584), kind='date', group='Receipt acknowledgement (optional)'),
-    field('receipt_reporting_time', 'Receipt reporting time', (114, 587, 208, 601), kind='time', group='Receipt acknowledgement (optional)'),
-    field('gate_out_date', 'Vehicle gate out date', (303, 569, 393, 584), kind='date', group='Receipt acknowledgement (optional)'),
-    field('gate_out_time', 'Vehicle gate out time', (303, 587, 393, 601), kind='time', group='Receipt acknowledgement (optional)'),
-    field('detention_reason', 'Reason for vehicle detention', (18, 614, 393, 635), kind='textarea', limit=240, group='Receipt acknowledgement (optional)'),
-    field('incidental_expenses', 'Nature & amount paid as incidental expenses', (18, 648, 393, 663), kind='textarea', limit=180, group='Receipt acknowledgement (optional)'),
-    field('pod_remarks', 'POD remarks', (398, 566, 579, 651), kind='textarea', limit=500, group='Receipt acknowledgement (optional)'),
 ]
 
 FIELD_NAMES = {item['name'] for item in FIELDS}

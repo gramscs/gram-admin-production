@@ -66,12 +66,6 @@ def generate_lr_pdf(receipts, generated_at=None):
                     value = _display(item, receipt[item['name']])
                     if item['name'] == 'packages':
                         value += ' ' + receipt['package_type']
-                    # Blank printed date separators are replaced only when a date is supplied.
-                    if item['name'] in ('receipt_reporting_date', 'gate_out_date') and value:
-                        left, top, right, bottom = item['box']
-                        pdf.setFillColorRGB(1, 1, 1)
-                        pdf.rect(left, 841.89 - bottom, right - left, bottom - top, fill=1, stroke=0)
-                        pdf.setFillColorRGB(0, 0, 0)
                     _text(pdf, value, item['box'], 10 if item['name'] == 'lr_number' else 8)
                 _text(pdf, _display({'kind': 'money'}, receipt['invoice_value']), (205, 302, 293, 314))
                 barcode = Code128(receipt['lr_number'], barHeight=25, barWidth=.8, humanReadable=False)
