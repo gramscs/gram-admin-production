@@ -267,11 +267,15 @@ def test_migration_preserves_documents_is_repeatable_and_rolls_back_on_error(app
     assert admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'lr.pdf')}).status_code == 200
 
 
-def test_sql_editor_migration_preserves_images_and_matches_python_history(app, admin_client, storage):
+@pytest.mark.parametrize('collation', [None, 'en-US-x-icu'])
+def test_sql_editor_migration_preserves_images_and_matches_python_history(app, admin_client, storage, collation):
     row = save(admin_client, **attachment('pod', image_bytes(), 'pod.png'),
                **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
     baseline = dict(storage.objects)
     script = (Path(__file__).resolve().parents[1] / 'migrations/sql/003_lorry_receipts.sql').read_text()
+    if collation:
+        # Emulate a hosted database's string collation without creating another database.
+        script = script.replace('definition text;', f'definition text COLLATE "{collation}";')
     with app.app_context():
         db.session.remove()
         engine = db.engine
@@ -289,7 +293,7 @@ def test_sql_editor_migration_preserves_images_and_matches_python_history(app, a
                 ON admin_migration_runs FOR EACH ROW EXECUTE FUNCTION reject_lr_migration_history()""")
         with engine.connect() as connection:
             with pytest.raises(DBAPIError, match='Simulated ledger failure'):
-                connection.exec_driver_sql(script)
+                connection.exec_driver_sql(script, execution_options={'no_parameters': True})
             connection.rollback()
         assert migration.migrate(engine)['lr_supported'] is False
         assert migration.migrate(engine)['recorded'] is False
@@ -299,7 +303,7 @@ def test_sql_editor_migration_preserves_images_and_matches_python_history(app, a
             connection.exec_driver_sql('DROP FUNCTION reject_lr_migration_history()')
         for _ in range(2):
             with engine.connect() as connection:
-                connection.exec_driver_sql(script)
+                connection.exec_driver_sql(script, execution_options={'no_parameters': True})
                 connection.commit()
         assert migration.migrate(engine)['lr_supported'] is True
         assert migration.migrate(engine, apply=True)['status'] == 'already_applied'
@@ -315,6 +319,32 @@ def test_sql_editor_migration_preserves_images_and_matches_python_history(app, a
     assert response.status_code == 200, response.json
     response = admin_client.get(f"/admin/consignments/{row['id']}/lr")
     assert response.status_code == 200 and response.mimetype == 'image/jpeg'
+
+
+@pytest.mark.parametrize('types', ["'POD', 'invoice', 'packing_list'", "'POD'"])
+def test_sql_editor_migration_rejects_unexpected_or_missing_types(app, admin_client, storage, types):
+    save(admin_client, **attachment('pod', image_bytes(), 'pod.png'))
+    baseline = dict(storage.objects)
+    script = (Path(__file__).resolve().parents[1] / 'migrations/sql/003_lorry_receipts.sql').read_text()
+    with app.app_context():
+        db.session.remove()
+        engine = db.engine
+        with engine.begin() as connection:
+            schema = connection.execute(text('SELECT current_schema()')).scalar_one()
+            connection.execute(text(f'ALTER TABLE shipment_documents DROP CONSTRAINT {migration.CONSTRAINT}'))
+            connection.execute(text(f'ALTER TABLE shipment_documents ADD CONSTRAINT {migration.CONSTRAINT} CHECK (document_type IN ({types}))'))
+            before = connection.execute(text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'shipment_documents'::regclass AND conname = :name"), {'name': migration.CONSTRAINT}).scalar_one()
+        script = script.replace('SET LOCAL search_path = public;', f'SET LOCAL search_path = "{schema}";')
+        with engine.connect() as connection:
+            with pytest.raises(DBAPIError, match='Unexpected document types:'):
+                connection.exec_driver_sql(script, execution_options={'no_parameters': True})
+            connection.rollback()
+        with engine.connect() as connection:
+            after = connection.execute(text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'shipment_documents'::regclass AND conname = :name"), {'name': migration.CONSTRAINT}).scalar_one()
+            assert after == before
+            assert connection.execute(select(RUNS.c.version).where(RUNS.c.version == migration.VERSION)).first() is None
+        assert db.session.query(ShipmentDocument).count() == 1
+    assert storage.objects == baseline
 
 
 def test_outdated_preview_and_viewer_cannot_replace_an_lr(app, admin_client, storage):

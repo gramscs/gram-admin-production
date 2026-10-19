@@ -31,8 +31,10 @@ BEGIN
     allowed_types := ARRAY(SELECT DISTINCT matched[1]
         FROM regexp_matches(definition, $pattern$'([^']+)'$pattern$, 'g') AS matched
         ORDER BY matched[1]);
-    IF allowed_types NOT IN (ARRAY['POD', 'invoice'], ARRAY['LR', 'POD', 'invoice']) THEN
-        RAISE EXCEPTION 'Unexpected document types. Review the constraint before migration.';
+    -- Compare membership rather than sort order, which varies by database collation.
+    IF NOT (allowed_types @> ARRAY['POD', 'invoice']
+            AND allowed_types <@ ARRAY['POD', 'invoice', 'LR']) THEN
+        RAISE EXCEPTION 'Unexpected document types: %. Review the constraint before migration.', allowed_types;
     END IF;
     SELECT target_digest INTO recorded_digest FROM admin_migration_runs
     WHERE version = '003_lorry_receipts';

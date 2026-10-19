@@ -43,6 +43,12 @@ it does not add an LR column or make Storage public. The final queries must
 show `'LR'` in the constraint and `003_lorry_receipts` in migration history.
 Then retry **Save All** with the LR image attached.
 
+If an earlier copy stops with **Unexpected document types**, use the current SQL
+file and rerun the entire transaction. The corrected check compares type
+membership independently of the database's text sorting rules. It still rejects
+additional or missing types; in that case, share the reported type list and the
+constraint definition from the verification query below before changing it.
+
 LR files use the private `lr-uploads` bucket by default. Set
 `SUPABASE_LR_BUCKET=lr-uploads` in the running app environment. Optional overrides
 must name another private bucket with the same server-side permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
