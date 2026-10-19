@@ -29,6 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function error(id, message) {
         part(id).textContent = message; part(id).classList.toggle('d-none', !message);
     }
+    function pdfBlob(encoded) {
+        return new Blob([Uint8Array.from(atob(encoded), char => char.charCodeAt(0))], {type: 'application/pdf'});
+    }
     function update() {
         checkboxes.forEach(input => {input.checked = selected.has(input.value);});
         const checked = checkboxes.filter(input => input.checked).length;
@@ -128,16 +131,22 @@ document.addEventListener('DOMContentLoaded', () => {
         part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = true;});
         part('lr-download').textContent = 'Generating…';
         try {
-            const ids = review.map(row => row.id), references = review.map(row => ({id: row.id, reference: row.lr_file || null}));
+            const ids = review.map(row => row.id);
             let blob;
             if (previewJob && previewJob.details === JSON.stringify(details)) blob = previewJob.blob;
             else {
-                const response = await fetch(workspace.dataset.generateUrl, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/pdf'}, body: JSON.stringify({consignment_ids: ids, lr_details: details, delivery, prepare_upload: delivery === 'preview', expected_references: references})});
+                const response = await fetch(workspace.dataset.generateUrl, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: delivery === 'preview' ? 'application/json' : 'application/pdf'}, body: JSON.stringify({consignment_ids: ids, lr_details: details, delivery, include_documents: delivery === 'preview'})});
                 if (!response.ok) {
                     const result = await response.json(); throw new Error(result.message || result.error || 'Could not generate LRs.');
                 }
-                blob = await response.blob();
-                if (delivery === 'preview') previewJob = {blob, token: response.headers.get('X-LR-Preview-Token'), ids, references, details: JSON.stringify(details)};
+                if (delivery === 'preview') {
+                    const result = await response.json();
+                    if (!result.success || !Array.isArray(result.documents) || result.documents.length !== review.length) throw new Error('Could not prepare the LR files.');
+                    blob = pdfBlob(result.preview_pdf);
+                    const documents = result.documents.map(item => ({id: item.id, filename: item.filename,
+                        blob: pdfBlob(item.pdf), reference: review.find(row => row.id === item.id).lr_file || null, uploaded: false}));
+                    previewJob = {blob, documents, details: JSON.stringify(details)};
+                } else blob = await response.blob();
             }
             if (!blob.type.includes('application/pdf')) throw new Error('A PDF was not returned. Try again.');
             const url = URL.createObjectURL(blob);
@@ -148,39 +157,43 @@ document.addEventListener('DOMContentLoaded', () => {
         finally {
             busy = false;
             part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = false;});
-            part('lr-upload').disabled = !previewJob || !previewJob.token;
+            part('lr-upload').disabled = !previewJob;
             part('lr-download').textContent = 'Download PDF';
         }
     }
     part('lr-upload').addEventListener('click', async () => {
-        if (busy || !previewJob || !previewJob.token) return;
+        if (busy || !previewJob) return;
         const job = previewJob;
         busy = true; error('lr-review-error', '');
         part('lr-upload-status').classList.add('d-none');
         part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = true;});
         part('lr-upload').textContent = 'Uploading…';
         try {
-            const body = new FormData();
-            body.append('file', job.blob, 'previewed-lorry-receipts.pdf'); body.append('preview_token', job.token);
-            body.append('consignment_ids', JSON.stringify(job.ids)); body.append('expected_references', JSON.stringify(job.references));
-            const response = await fetch(workspace.dataset.uploadUrl, {method: 'POST', headers: {Accept: 'application/json'}, body});
-            const result = await response.json();
-            if (!response.ok || !result.success) {
-                if (response.status === 400 || response.status === 409) invalidatePreview();
-                throw new Error(result.message || result.error || 'LR upload failed.');
+            for (const file of job.documents.filter(item => !item.uploaded)) {
+                const body = new FormData();
+                body.append('file', file.blob, file.filename);
+                body.append('expected_reference', file.reference || '');
+                const response = await fetch('/admin/consignments/' + encodeURIComponent(file.id) + '/lr',
+                    {method: 'POST', headers: {Accept: 'application/json'}, body});
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(file.filename + ': ' + (result.message || result.error || 'Document could not be saved.'));
+                file.uploaded = true;
+                const row = review.find(row => row.id === file.id); if (row) row.lr_file = result.lr_file;
+                document.dispatchEvent(new CustomEvent('shipment-documents-updated', {detail: [{
+                    id: file.id, kind: 'lr', reference: result.lr_file, original_name: file.filename,
+                }]}));
             }
-            result.documents.forEach(item => {
-                const row = review.find(row => row.id === item.id); if (row) row.lr_file = item.reference;
-            });
             invalidatePreview();
-            part('lr-upload-status').textContent = result.count + ' LR document(s) uploaded. Find them under Lorry Receipt in Documents.';
+            part('lr-upload-status').textContent = job.documents.length + ' LR document(s) uploaded. Find them under Lorry Receipt in Documents.';
             part('lr-upload-status').classList.remove('d-none');
-            document.dispatchEvent(new CustomEvent('shipment-documents-updated', {detail: result.documents}));
-        } catch (failure) {error('lr-review-error', failure.message);}
+        } catch (failure) {
+            const done = job.documents.filter(item => item.uploaded).length;
+            error('lr-review-error', done + ' of ' + job.documents.length + ' LRs uploaded. ' + failure.message + ' Retry to upload the remaining files.');
+        }
         finally {
             busy = false;
             part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = false;});
-            part('lr-upload').textContent = 'Upload LR'; part('lr-upload').disabled = !previewJob || !previewJob.token;
+            part('lr-upload').textContent = 'Upload LR'; part('lr-upload').disabled = !previewJob;
         }
     });
     part('lr-preview').addEventListener('click', () => generate('preview'));

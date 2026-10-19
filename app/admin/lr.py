@@ -1,18 +1,15 @@
 """Review LRs, preview PDFs and explicitly attach previewed receipts to shipments."""
-import hashlib
-import hmac
+import base64
 from io import BytesIO
-import json
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
 
-from flask import current_app, jsonify, render_template, request, send_file, session
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from flask import jsonify, render_template, request, send_file
 from pypdf import PdfReader, PdfWriter
 
-from app import limiter, orm as models
+from app import orm as models
 from app.admin import admin_bp
 from app.admin.auth import require_admin
 from app.admin.labels import _label_rows
@@ -20,20 +17,16 @@ from app.admin.lr_fields import FIELDS, FIELD_NAMES
 from app.admin.lr_pdf import generate_lr_pdf
 from app.admin.reporting import parse_date
 from app.shipment_packages import volume_ft3
-from app.models import db
-from app.admin.documents import validate_document, store_document_changes, cleanup_documents, document_name
-from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError
+from app.admin.documents import document_name
 
 MAX_RECEIPTS = 100
 
 
-def _selected_rows(values, *, lock=False):
+def _selected_rows(values):
     if not isinstance(values, list) or not 1 <= len(values) <= MAX_RECEIPTS:
         raise ValueError(f'Select between 1 and {MAX_RECEIPTS} saved shipments.')
     selected = list(dict.fromkeys(models.record_id(value) for value in values))
     query = models.shipment_query().filter(models.Consignment.id.in_(selected))
-    if lock:
-        query = query.order_by(models.Consignment.id).with_for_update(of=models.Consignment)
     found = {row.id: row for row in query.all()}
     if len(found) != len(selected):
         raise ValueError('A selected shipment no longer exists. Refresh the list and select again.')
@@ -159,93 +152,25 @@ def lr_generate():
         data = _payload()
         rows = _selected_rows(data.get('consignment_ids'))
         receipts = _review_details(data.get('lr_details'), rows)
-        if data.get('prepare_upload') is True and data.get('expected_references') != _references(rows):
-            return jsonify(success=False, message='An LR changed since review. Reopen the details before previewing.'), 409
         output = generate_lr_pdf(receipts)
     except (ValueError, TypeError) as error:
         return jsonify(success=False, message=str(error)), 400
-    response = send_file(output, as_attachment=data.get('delivery') != 'preview',
-                         download_name='lorry-receipts.pdf', mimetype='application/pdf')
-    response.headers['Cache-Control'] = 'no-store'
-    if data.get('prepare_upload') is True:
-        response.headers['X-LR-Preview-Token'] = _signer().dumps({
-            'owner': session.get('admin_username'), 'pdf': hashlib.sha256(output.getvalue()).hexdigest(),
-            'references': _digest(_references(rows)),
-        })
-    return response
-
-
-def _references(rows):
-    return [{'id': str(row.id), 'reference': getattr(row, 'lr_file', None)} for row in rows]
-
-
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-
-
-def _signer():
-    return URLSafeTimedSerializer(current_app.secret_key, salt='lr-preview-upload-v1')
-
-
-@admin_bp.post('/admin/lr-generator/upload')
-@limiter.limit('10 per minute')
-@require_admin
-def lr_upload():
-    """Bind the exact preview bytes to their selected shipments; commit as a batch."""
-    request.max_content_length = 51 * 1024 * 1024
-    created, obsolete = [], []
-    try:
-        origin = request.headers.get('Origin')
-        if origin and urlsplit(origin).netloc != request.host:
-            return jsonify(success=False, message='Upload LRs from this admin app.'), 403
-        try:
-            signed = _signer().loads(request.form.get('preview_token', ''), max_age=1800)
-        except (BadSignature, SignatureExpired):
-            return jsonify(success=False, message='Preview the LRs again; the upload authorisation is missing or expired.'), 400
-        if signed.get('owner') != session.get('admin_username'):
-            return jsonify(success=False, message='Preview these LRs in your current admin session.'), 403
-        ids = json.loads(request.form.get('consignment_ids', 'null'))
-        references = json.loads(request.form.get('expected_references', 'null'))
-        if not hmac.compare_digest(signed['references'], _digest(references)):
-            raise ValueError('The shipment selection changed. Preview the LRs again.')
-        uploaded = request.files.get('file')
-        if not uploaded:
-            raise ValueError('Preview an LR before uploading.')
-        content = uploaded.read(50 * 1024 * 1024 + 1)
-        if len(content) > 50 * 1024 * 1024 or not hmac.compare_digest(signed['pdf'], hashlib.sha256(content).hexdigest()):
-            raise ValueError('The PDF differs from its preview. Preview the LRs again.')
-        rows = _selected_rows(ids, lock=True)
-        current = _references(rows)
-        if current != references:
-            db.session.rollback()
-            return jsonify(success=False, message='An LR was already uploaded or changed. Reopen review to check its current document.'), 409
-        pdf = PdfReader(BytesIO(content))
-        if len(pdf.pages) != len(rows) * 2:
-            raise ValueError('Each selected shipment must have exactly two previewed pages.')
-        # Prepare every split PDF before writing any object to private storage.
+    if data.get('include_documents') is True:
+        # Prepare ordinary PDF files for the normal shipment-document uploader.
+        # No document is stored, signed or registered during generation.
+        batch = PdfReader(output)
         documents = []
         for index, row in enumerate(rows):
-            writer, output = PdfWriter(), BytesIO()
-            writer.add_page(pdf.pages[index * 2])
-            writer.add_page(pdf.pages[index * 2 + 1])
-            writer.write(output)
-            documents.append(validate_document(output.getvalue(), document_name(row.consignment_number, 'lr', '.pdf')))
-        for row, document in zip(rows, documents):
-            store_document_changes(row, [('lr', document)], created, obsolete)
-        commit_document_cleanup(obsolete)
-        return jsonify(success=True, count=len(rows), documents=[{
-            'id': str(row.id), 'kind': 'lr', 'reference': row.lr_file, 'original_name': row.lr_original_name,
-        } for row in rows])
-    except (ValueError, TypeError, KeyError) as error:
-        db.session.rollback()
-        cleanup_documents(created)
-        return jsonify(success=False, message=str(error)), 400
-    except StorageSyncError as error:
-        db.session.rollback()
-        cleanup_documents(created)
-        return jsonify(success=False, message=str(error)), 500
-    except Exception:
-        db.session.rollback()
-        cleanup_documents(created)
-        current_app.logger.exception('Unable to upload previewed LRs')
-        return jsonify(success=False, message='LRs could not be saved. Previous documents were preserved. Check storage and migration 003.'), 500
+            writer, document = PdfWriter(), BytesIO()
+            writer.add_page(batch.pages[index * 2])
+            writer.add_page(batch.pages[index * 2 + 1])
+            writer.write(document)
+            documents.append(dict(id=str(row.id), filename=document_name(row.consignment_number, 'lr', '.pdf'),
+                                  pdf=base64.b64encode(document.getvalue()).decode('ascii')))
+        response = jsonify(success=True, preview_pdf=base64.b64encode(output.getvalue()).decode('ascii'),
+                           documents=documents)
+    else:
+        response = send_file(output, as_attachment=data.get('delivery') != 'preview',
+                             download_name='lorry-receipts.pdf', mimetype='application/pdf')
+    response.headers['Cache-Control'] = 'no-store'
+    return response

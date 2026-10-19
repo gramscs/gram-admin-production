@@ -1,4 +1,5 @@
 """LR attachments share the real PostgreSQL document lifecycle and private storage."""
+import base64
 import importlib
 from io import BytesIO
 import json
@@ -8,12 +9,10 @@ import pytest
 from pypdf import PdfReader
 from sqlalchemy import event, select, text
 
-from app import orm as models
 from app.admin.reporting import analyze, normalize_filters
 from app.models import db
 from database.models import ShipmentDocument, File
 from migrations.shipment_v1 import RUNS
-from migrations.storage import MigrationError
 from test_document_deletion import storage
 from test_document_names import enable_listing
 from test_shipment_documents import attachment, pdf_bytes
@@ -41,18 +40,16 @@ def preview(client, rows):
                             chargeable_weight='25', cargo_value='1000', invoice_value='1000',
                             invoice_date='2026-10-19', invoice_number='INV-' + row['consignment_number']))
     payload = dict(consignment_ids=[row['id'] for row in rows], lr_details=details, delivery='preview',
-                   prepare_upload=True, expected_references=[{'id': row['id'], 'reference': row['lr_file']} for row in rows])
+                   include_documents=True)
     result = client.post('/admin/lr-generator/generate', json=payload)
     assert result.status_code == 200, result.data[:100]
     return result, payload
 
 
-def upload(client, pdf, payload, *, token=None, content=None):
-    return client.post('/admin/lr-generator/upload', data={
-        'file': (BytesIO(content if content is not None else pdf.data), 'preview.pdf'),
-        'preview_token': token if token is not None else pdf.headers['X-LR-Preview-Token'],
-        'consignment_ids': json.dumps(payload['consignment_ids']),
-        'expected_references': json.dumps(payload['expected_references']),
+def upload(client, document, *, expected_reference=None, content=None):
+    return client.post(f"/admin/consignments/{document['id']}/lr", data={
+        'file': (BytesIO(content if content is not None else base64.b64decode(document['pdf'])), document['filename']),
+        'expected_reference': expected_reference or '',
     })
 
 
@@ -76,77 +73,76 @@ def test_lr_manual_upload_versioning_and_removal_preserve_other_documents(app, a
         assert db.session.query(ShipmentDocument).filter_by(document_type='LR').count() == 0
 
 
-def test_preview_batch_upload_binds_correct_two_pages_to_each_shipment(app, admin_client, storage):
+def test_generated_files_use_standard_upload_and_match_preview(app, admin_client, storage):
     rows = [save(admin_client, f'LR-UP-{n}') for n in range(2)]
-    pdf, payload = preview(admin_client, rows)
-    assert len(storage.objects) == 0  # Preview has no storage side effects.
-    result = upload(admin_client, pdf, payload)
-    assert result.status_code == 200 and result.json['count'] == 2, result.json
-    assert all(item['reference'].startswith('supabase:lr-uploads/') for item in result.json['documents'])
-    for index, row in enumerate(rows):
+    response, _ = preview(admin_client, rows)
+    assert storage.objects == {}  # Preview has no storage or database document side effects.
+    with app.app_context():
+        assert db.session.query(ShipmentDocument).count() == 0
+    assert response.headers['Cache-Control'] == 'no-store'
+    generated = response.json
+    original = PdfReader(BytesIO(base64.b64decode(generated['preview_pdf'])))
+    assert len(original.pages) == 4
+    for index, (row, document) in enumerate(zip(rows, generated['documents'], strict=True)):
+        assert document['id'] == row['id']
+        assert document['filename'] == row['consignment_number'] + '_lr.pdf'
+        result = upload(admin_client, document)
+        assert result.status_code == 200, result.json
+        assert result.json['lr_file'].startswith('supabase:lr-uploads/')
         response = admin_client.get(f"/admin/consignments/{row['id']}/lr")
         reader = PdfReader(BytesIO(response.data))
         assert response.status_code == 200 and len(reader.pages) == 2
         assert row['consignment_number'] in reader.pages[0].extract_text()
         assert rows[1-index]['consignment_number'] not in reader.pages[0].extract_text()
         assert 'TERMS & CONDITIONS' in reader.pages[1].extract_text()
-        original = PdfReader(BytesIO(pdf.data))
         assert reader.pages[0].extract_text() == original.pages[index * 2].extract_text()
         assert reader.pages[1].extract_text() == original.pages[index * 2 + 1].extract_text()
-    assert upload(admin_client, pdf, payload).status_code == 409  # Retry cannot create a duplicate version.
-    assert len(storage.objects) == 2
+        # The ordinary endpoint prevents overwriting a document with a stale reference.
+        assert upload(admin_client, document).status_code == 409
+        replacement = upload(admin_client, document, expected_reference=result.json['lr_file'])
+        assert replacement.status_code == 200
     with app.app_context():
         assert {file.mime_type for file in db.session.query(File).all()} == {'application/pdf'}
         assert {file.storage_bucket for file in db.session.query(File).all()} == {'lr-uploads'}
-        assert db.session.query(ShipmentDocument).filter_by(document_type='LR', is_current=True).count() == 2
+        docs = db.session.query(ShipmentDocument).filter_by(document_type='LR').all()
+        assert sorted((doc.version, doc.is_current) for doc in docs) == [(1, False), (1, False), (2, True), (2, True)]
 
 
-@pytest.mark.parametrize('tamper', ['pdf', 'selection', 'token', 'owner', 'expired'])
-def test_preview_upload_rejects_tampering_before_storage(app, admin_client, storage, tamper, monkeypatch):
+@pytest.mark.parametrize('invalid', [b'not a PDF', pdf_bytes(script=True), pdf_bytes(encrypted=True)])
+def test_generated_upload_uses_standard_content_validation(app, admin_client, storage, invalid):
     row = save(admin_client)
-    pdf, payload = preview(admin_client, [row])
-    token = pdf.headers['X-LR-Preview-Token']
-    content = pdf.data
-    if tamper == 'pdf':
-        content += b'changed'
-    elif tamper == 'selection':
-        payload['expected_references'][0]['reference'] = 'supabase:pod-uploads/wrong.pdf'
-    elif tamper == 'token':
-        token = 'invalid'
-    elif tamper == 'owner':
-        from app.admin.lr import _signer
-        with app.app_context():
-            signer = _signer(); signed = signer.loads(token); signed['owner'] = 'another-admin'; token = signer.dumps(signed)
-    else:
-        from unittest.mock import patch
-        with patch('itsdangerous.timed.time.time', return_value=1):
-            from app.admin.lr import _signer
-            with app.app_context():
-                signer = _signer(); token = signer.dumps(signer.loads(token))
-    result = upload(admin_client, pdf, payload, token=token, content=content)
-    assert result.status_code in (400, 403), result.json
+    response, _ = preview(admin_client, [row])
+    result = upload(admin_client, response.json['documents'][0], content=invalid)
+    assert result.status_code == 400, result.json
     assert storage.objects == {}
+    with app.app_context():
+        assert db.session.query(ShipmentDocument).count() == 0
 
 
-def test_preview_conflict_and_atomic_failure_preserve_previous_lr(app, admin_client, storage, monkeypatch):
-    row = save(admin_client, **attachment('lr', pdf_bytes(), 'existing.pdf'))
-    second = save(admin_client, 'LR-DOC-002')
-    pdf, payload = preview(admin_client, [row, second])
+def test_generated_upload_failure_preserves_previous_and_other_completed_documents(app, admin_client, storage, monkeypatch):
+    rows = [save(admin_client, f'LR-RETRY-{n}', **attachment('lr', pdf_bytes(), 'existing.pdf')) for n in range(2)]
+    response, _ = preview(admin_client, rows)
+    documents = response.json['documents']
+    first = upload(admin_client, documents[0], expected_reference=rows[0]['lr_file'])
+    assert first.status_code == 200
     baseline = dict(storage.objects)
-    from app.admin import lr
-    original = lr.store_document_changes
-    calls = []
-    def fail_second(*args):
-        calls.append(1)
-        if len(calls) == 2:
-            raise RuntimeError('Simulated storage failure')
-        return original(*args)
-    monkeypatch.setattr(lr, 'store_document_changes', fail_second)
-    result = upload(admin_client, pdf, payload)
-    assert result.status_code == 500
-    assert storage.objects == baseline
-    current = admin_client.get('/admin/consignments/list', query_string={'search': row['consignment_number']}).json['rows'][0]
-    assert current['lr_file'] == row['lr_file']
+    from app.admin import documents as document_routes
+    original = document_routes.commit_document_cleanup
+    def fail_commit(*args):
+        raise RuntimeError('Simulated commit failure after storage upload')
+    monkeypatch.setattr(document_routes, 'commit_document_cleanup', fail_commit)
+    failed = upload(admin_client, documents[1], expected_reference=rows[1]['lr_file'])
+    assert failed.status_code == 500
+    assert storage.objects == baseline  # Failed upload is cleaned up; previous versions remain.
+    current = {row['id']: row for row in admin_client.get('/admin/consignments/list').json['rows']}
+    assert current[rows[0]['id']]['lr_file'] == first.json['lr_file']
+    assert current[rows[1]['id']]['lr_file'] == rows[1]['lr_file']
+    monkeypatch.setattr(document_routes, 'commit_document_cleanup', original)
+    retried = upload(admin_client, documents[1], expected_reference=rows[1]['lr_file'])
+    assert retried.status_code == 200
+    with app.app_context():
+        docs = db.session.query(ShipmentDocument).filter_by(document_type='LR').all()
+        assert sorted((doc.version, doc.is_current) for doc in docs) == [(1, False), (1, False), (2, True), (2, True)]
 
 
 def test_lr_bulk_documents_dashboard_mis_and_backup(app, admin_client, storage, monkeypatch):
@@ -223,17 +219,17 @@ def test_migration_preserves_documents_is_repeatable_and_rolls_back_on_error(app
 
 def test_outdated_preview_and_viewer_cannot_replace_an_lr(app, admin_client, storage):
     row = save(admin_client)
-    pdf, payload = preview(admin_client, [row])
+    response, _ = preview(admin_client, [row])
+    document = response.json['documents'][0]
     changed = admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'manual.pdf')})
     assert changed.status_code == 200
     baseline = dict(storage.objects)
-    assert upload(admin_client, pdf, payload).status_code == 409
-    assert admin_client.post('/admin/lr-generator/generate', json=payload).status_code == 409
+    assert upload(admin_client, document).status_code == 409
     from database.models import AdminUser
     with app.app_context():
         db.session.query(AdminUser).filter_by(username='admin').one().role = 'viewer'
         db.session.commit()
-    assert upload(admin_client, pdf, payload).status_code == 403
+    assert upload(admin_client, document).status_code == 403
     assert storage.objects == baseline
 
 

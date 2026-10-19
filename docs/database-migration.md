@@ -68,11 +68,13 @@ New uploads should show `storage_bucket = 'lr-uploads'` and `object_exists = tru
 Previously uploaded documents keep their original bucket references; they are
 not moved or deleted by changing the default bucket.
 
-After preview, **Upload LR** attaches each shipment's own two-page PDF. The
-preview authorisation expires after 30 minutes and binds the exact PDF bytes,
-shipment order, current LR references and admin session. Editing the form
-requires another preview. Existing LR versions are retained on replacement;
-explicit document removal purges that kind's history like POD and invoices.
+After preview, **Upload LR** submits each shipment's own two-page PDF through
+the same shipment-document upload endpoint used for manual POD, invoice and LR
+uploads. Standard file validation, permissions, stale-reference protection and
+version history apply. If one upload fails, already uploaded documents remain
+saved and the generator retries only the remaining files. Editing the form
+requires another preview. Files are stored in the private LR bucket and linked
+through the existing document tables, exactly like other document uploads.
 
 Application rollback can leave this backwards-compatible constraint in place.
 If a database rollback is needed, first verify there are no `LR` document rows;
