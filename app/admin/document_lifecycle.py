@@ -9,6 +9,7 @@ import click
 from flask import current_app
 from flask.cli import with_appcontext
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 
 from app import orm as models
 from app.models import db
@@ -16,6 +17,18 @@ from app.models import db
 
 class StorageSyncError(RuntimeError):
     """A safe message that can be shown without exposing provider credentials."""
+
+
+def document_save_error(error, fallback):
+    """Explain known document schema errors without exposing SQL or row values."""
+    original = getattr(error, 'orig', None)
+    diagnostic = getattr(original, 'diag', None)
+    if (isinstance(error, IntegrityError)
+            and getattr(original, 'pgcode', None) == '23514'
+            and getattr(diagnostic, 'constraint_name', None) == 'ck_shipment_documents_valid_type'):
+        return ('The database does not yet support this document type. Ask an administrator to apply '
+                'database migration 003 (Lorry Receipt documents), then retry. Your changes were not saved.')
+    return fallback
 
 
 def storage_object_missing(error):
@@ -157,7 +170,7 @@ def commit_document_cleanup(obsolete):
                     current_app.logger.error('Document storage restoration failed; manual recovery is required.')
             if restoration_failed:
                 raise StorageSyncError('Save failed and a stored file could not be restored. Database changes were rolled back. Check storage before retrying.') from None
-            raise StorageSyncError('Save failed. Your previous documents were preserved. Check database and Storage delete permissions, then try again.') from None
+            raise StorageSyncError(document_save_error(error, 'Save failed. Your previous documents were preserved. Check database and Storage delete permissions, then try again.')) from None
 
 
 @click.command('purge-removed-documents')

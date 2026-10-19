@@ -15,7 +15,7 @@ from app.admin.documents import (DOCUMENTS, MAX_DOCUMENT_BYTES, validate_documen
     store_document_changes, cleanup_documents, open_stored_document, document_name)
 from app.admin.reporting import filter_shipments, normalize_shipment_filters
 from app.models import db
-from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError
+from app.admin.document_lifecycle import commit_document_cleanup, StorageSyncError, document_save_error
 
 MAX_UPLOAD_FILES = 50
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -97,11 +97,11 @@ def bulk_document_upload():
         db.session.rollback()
         cleanup_documents(created)
         return jsonify(success=False, message=str(error), applied=False), 500
-    except Exception:
+    except Exception as error:
         db.session.rollback()
         cleanup_documents(created)
         current_app.logger.exception('Bulk documents could not be saved')
-        return jsonify(success=False, message='Upload failed. Previous documents were preserved. Try again.', applied=False), 500
+        return jsonify(success=False, message=document_save_error(error, 'Upload failed. Previous documents were preserved. Try again.'), applied=False), 500
     documents = [{'id': str(row.id), 'kind': kind, 'reference': getattr(row, DOCUMENTS[kind][0]),
                   'original_name': getattr(row, DOCUMENTS[kind][1])} for row, kind, _ in plans]
     return jsonify(success=True, count=len(review), review=review, applied=True, documents=documents)

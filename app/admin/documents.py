@@ -22,7 +22,7 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.admin.document_lifecycle import (commit_document_cleanup, document_is_retained,
-    purge_shipment_documents, storage_object_missing, StorageSyncError)
+    purge_shipment_documents, storage_object_missing, StorageSyncError, document_save_error)
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 DOCUMENTS = {'pod': ('pod_image', 'pod_original_name'), 'invoice': ('invoice_file', 'invoice_original_name'), 'lr': ('lr_file', 'lr_original_name')}
@@ -256,11 +256,11 @@ def consignment_document(consignment_id, kind):
             db.session.rollback()
             cleanup_documents(created)
             return _response_error(str(error), 500)
-        except Exception:
+        except Exception as error:
             db.session.rollback()
             cleanup_documents(created)
             current_app.logger.exception('Unable to update shipment document')
-            return _response_error('Document could not be saved. Your previous document was preserved.', 500)
+            return _response_error(document_save_error(error, 'Document could not be saved. Your previous document was preserved.'), 500)
         return jsonify(success=True, **{field: getattr(row, field)})
     value = getattr(row, field)
     if not value:

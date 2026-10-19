@@ -2,12 +2,14 @@
 import base64
 import importlib
 from io import BytesIO
+from pathlib import Path
 import json
 from zipfile import ZipFile
 
 import pytest
 from pypdf import PdfReader
 from sqlalchemy import event, select, text
+from sqlalchemy.exc import DBAPIError
 
 from app.admin.reporting import analyze, normalize_filters
 from app.models import db
@@ -15,7 +17,7 @@ from database.models import ShipmentDocument, File
 from migrations.shipment_v1 import RUNS
 from test_document_deletion import storage
 from test_document_names import enable_listing
-from test_shipment_documents import attachment, pdf_bytes
+from test_shipment_documents import attachment, image_bytes, pdf_bytes
 
 migration = importlib.import_module('migrations.003_lorry_receipts')
 
@@ -71,6 +73,54 @@ def test_lr_manual_upload_versioning_and_removal_preserve_other_documents(app, a
     assert len(storage.objects) == 2
     with app.app_context():
         assert db.session.query(ShipmentDocument).filter_by(document_type='LR').count() == 0
+
+
+@pytest.mark.parametrize('via', ['save_all', 'document', 'bulk'])
+def test_lr_image_upload_reports_old_schema_and_succeeds_after_migration(app, admin_client, storage, via):
+    row = save(admin_client, **attachment('pod', pdf_bytes(), 'pod.pdf'),
+               **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
+    baseline = dict(storage.objects)
+    with app.app_context():
+        db.session.remove()
+        with db.engine.begin() as connection:
+            connection.execute(text(f'ALTER TABLE shipment_documents DROP CONSTRAINT {migration.CONSTRAINT}'))
+            connection.execute(text(f"ALTER TABLE shipment_documents ADD CONSTRAINT {migration.CONSTRAINT} CHECK (document_type IN ('POD', 'invoice'))"))
+
+    def upload_image():
+        if via == 'save_all':
+            return admin_client.post('/admin/consignments/save', json={'rows': [{
+                'id': row['id'], 'consignment_number': row['consignment_number'], 'weight': '100',
+                **attachment('lr', image_bytes(), 'lr.png'),
+            }]})
+        if via == 'document':
+            return admin_client.post(f"/admin/consignments/{row['id']}/lr", data={
+                'file': (BytesIO(image_bytes()), 'lr.png'),
+            })
+        return admin_client.post('/admin/consignments/documents/bulk-upload', data={
+            'apply': 'true', 'files': [(BytesIO(image_bytes()), row['consignment_number'] + '_lr.png')],
+        })
+
+    failed = upload_image()
+    assert failed.status_code == 500
+    assert 'migration 003' in failed.json['message']
+    assert storage.objects == baseline
+    current = admin_client.get('/admin/consignments/list').json['rows'][0]
+    assert current['lr_file'] is None and current['weight'] == row['weight']
+    assert current['pod_image'] == row['pod_image'] and current['invoice_file'] == row['invoice_file']
+    with app.app_context():
+        assert db.session.query(ShipmentDocument).count() == 2
+        db.session.remove()
+        assert migration.migrate(db.engine, apply=True)['lr_supported'] is True
+    result = upload_image()
+    assert result.status_code == 200, result.json
+    current = admin_client.get('/admin/consignments/list').json['rows'][0]
+    assert current['lr_file'].startswith('supabase:lr-uploads/')
+    downloaded = admin_client.get(f"/admin/consignments/{row['id']}/lr")
+    assert downloaded.status_code == 200 and downloaded.mimetype == 'image/png'
+    assert downloaded.data.startswith(b'\x89PNG')
+    with app.app_context():
+        document = db.session.query(ShipmentDocument).filter_by(document_type='LR', is_current=True).one()
+        assert document.file.mime_type == 'image/png' and document.file.storage_bucket == 'lr-uploads'
 
 
 def test_generated_files_use_standard_upload_and_match_preview(app, admin_client, storage):
@@ -215,6 +265,56 @@ def test_migration_preserves_documents_is_repeatable_and_rolls_back_on_error(app
         assert db.session.execute(select(RUNS.c.version).where(RUNS.c.version == migration.VERSION)).scalar_one() == migration.VERSION
         assert storage.objects == before
     assert admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'lr.pdf')}).status_code == 200
+
+
+def test_sql_editor_migration_preserves_images_and_matches_python_history(app, admin_client, storage):
+    row = save(admin_client, **attachment('pod', image_bytes(), 'pod.png'),
+               **attachment('invoice', pdf_bytes(), 'invoice.pdf'))
+    baseline = dict(storage.objects)
+    script = (Path(__file__).resolve().parents[1] / 'migrations/sql/003_lorry_receipts.sql').read_text()
+    with app.app_context():
+        db.session.remove()
+        engine = db.engine
+        with engine.begin() as connection:
+            schema = connection.execute(text('SELECT current_schema()')).scalar_one()
+            connection.execute(text(f'ALTER TABLE shipment_documents DROP CONSTRAINT {migration.CONSTRAINT}'))
+            connection.execute(text(f"ALTER TABLE shipment_documents ADD CONSTRAINT {migration.CONSTRAINT} CHECK (document_type IN ('POD', 'invoice'))"))
+        # Run the exact SQL Editor transaction, changing only the target test schema.
+        script = script.replace('SET LOCAL search_path = public;', f'SET LOCAL search_path = "{schema}";')
+        # A history-write failure must also roll back the constraint change.
+        with engine.begin() as connection:
+            connection.exec_driver_sql("""CREATE FUNCTION reject_lr_migration_history() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Simulated ledger failure'; END $$""")
+            connection.exec_driver_sql("""CREATE TRIGGER reject_lr_migration_history BEFORE INSERT
+                ON admin_migration_runs FOR EACH ROW EXECUTE FUNCTION reject_lr_migration_history()""")
+        with engine.connect() as connection:
+            with pytest.raises(DBAPIError, match='Simulated ledger failure'):
+                connection.exec_driver_sql(script)
+            connection.rollback()
+        assert migration.migrate(engine)['lr_supported'] is False
+        assert migration.migrate(engine)['recorded'] is False
+        assert storage.objects == baseline
+        with engine.begin() as connection:
+            connection.exec_driver_sql('DROP TRIGGER reject_lr_migration_history ON admin_migration_runs')
+            connection.exec_driver_sql('DROP FUNCTION reject_lr_migration_history()')
+        for _ in range(2):
+            with engine.connect() as connection:
+                connection.exec_driver_sql(script)
+                connection.commit()
+        assert migration.migrate(engine)['lr_supported'] is True
+        assert migration.migrate(engine, apply=True)['status'] == 'already_applied'
+        record = db.session.execute(select(RUNS).where(RUNS.c.version == migration.VERSION)).mappings().one()
+        assert record['counts'] == {'shipment_documents': {'preserved_rows': 2}}
+        assert record['source_schema'] == {'allowed_types': ['POD', 'invoice']}
+        assert db.session.query(ShipmentDocument).count() == 2
+    assert storage.objects == baseline
+    response = admin_client.post('/admin/consignments/save', json={'rows': [{
+        'id': row['id'], 'consignment_number': row['consignment_number'],
+        **attachment('lr', image_bytes('JPEG'), 'receipt.jpg'),
+    }]})
+    assert response.status_code == 200, response.json
+    response = admin_client.get(f"/admin/consignments/{row['id']}/lr")
+    assert response.status_code == 200 and response.mimetype == 'image/jpeg'
 
 
 def test_outdated_preview_and_viewer_cannot_replace_an_lr(app, admin_client, storage):

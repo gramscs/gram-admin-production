@@ -20,7 +20,7 @@ from app import orm as models
 from app.shipment_packages import normalize_contents, volume_ft3, shared_contents
 from app.spreadsheets import save_workbook_in_memory
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
-from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
+from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError, document_save_error
 
 logger = logging.getLogger(__name__)
 
@@ -661,8 +661,8 @@ def consignments_save():
         db.session.rollback()
         cleanup_documents(created_files)
         return jsonify(success=False, message=str(error)), 500
-    except Exception:
+    except Exception as error:
         db.session.rollback()
         cleanup_documents(created_files)
         logger.exception("Failed to save consignments")
-        return jsonify({"success": False, "message": "Failed to save consignments."}), 500
+        return jsonify({"success": False, "message": document_save_error(error, "Failed to save consignments.")}), 500

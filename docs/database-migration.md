@@ -27,6 +27,22 @@ The first command is read-only. Application is idempotent; pulling code alone
 does not execute it. If the transaction fails, the old constraint and migration
 history remain intact. Do not run a one-time importer for this upgrade.
 
+If an LR image or PDF causes **Save failed. Failed to save consignments.**, the
+existing database may still permit only POD and invoice links. Creating the
+Storage bucket or pulling application code does not update that constraint.
+Apply migration 003 using the commands above, then retry the upload.
+
+If PostgreSQL is inaccessible from your terminal, open the **same project's
+Supabase SQL Editor**, paste the entire contents of
+[`migrations/sql/003_lorry_receipts.sql`](../migrations/sql/003_lorry_receipts.sql),
+and run it as the schema owner. This is an alternative way to apply the same
+revision, with compatible migration history. It requires the existing migration
+ledger and stops on unexpected constraints or a conflicting revision. The
+transaction preserves existing shipments, document versions and Storage files;
+it does not add an LR column or make Storage public. The final queries must
+show `'LR'` in the constraint and `003_lorry_receipts` in migration history.
+Then retry **Save All** with the LR image attached.
+
 LR files use the private `lr-uploads` bucket by default. Set
 `SUPABASE_LR_BUCKET=lr-uploads` in the running app environment. Optional overrides
 must name another private bucket with the same server-side permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
