@@ -2,35 +2,49 @@
 {% set active_page = 'lr-generator' %}
 {% block title %}LR Generator – Gram SCS{% endblock %}
 {% block topbar_title %}LR Generator{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-labels.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-lr.css') }}" />
+{% endblock %}
 {% block content %}
-<div class="page-heading">
-  <span class="page-eyebrow">DOCUMENTATION TOOLS</span>
-  <h1>LR Generator</h1>
-  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer gravida, eros non imperdiet elementum, erat tortor condimentum lorem, at iaculis neque massa a nunc.</p>
+<div class="page-heading"><span class="page-eyebrow">DOCUMENTATION TOOLS</span><h1>LR Generator</h1><p>Choose shipments, complete their lorry receipt details, then preview or download the two-page GRAM receipt.</p></div>
+<div class="label-workflow mb-4">
+  <div><span class="step-number">1</span><strong>Choose shipments</strong><p>Keep your selection across pages and searches.</p></div>
+  <div><span class="step-number">2</span><strong>Complete LR details</strong><p>Review shipment data and fill the remaining fields.</p></div>
+  <div><span class="step-number">3</span><strong>Generate receipts</strong><p>Original receipt and terms, ready for A4 printing.</p></div>
 </div>
-
-<div class="surface-panel p-4">
-  <h2 class="fs-5 mb-3">Draft workspace</h2>
-  <p class="text-muted mb-3">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse potenti. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.</p>
-
-  <div class="row g-3">
-    <div class="col-md-6">
-      <div class="border rounded p-3 h-100">
-        <h3 class="fs-6 mb-2">Generator Summary</h3>
-        <p class="mb-0">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent vitae lorem non turpis ultrices commodo.</p>
-      </div>
-    </div>
-    <div class="col-md-6">
-      <div class="border rounded p-3 h-100">
-        <h3 class="fs-6 mb-2">Next Action</h3>
-        <p class="mb-0">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec quis magna ut arcu luctus cursus sit amet nec velit.</p>
-      </div>
-    </div>
+<form method="get" class="surface-panel p-3 d-flex flex-wrap gap-2 mb-3"><label class="visually-hidden" for="lr-search">Search shipments</label><input id="lr-search" name="search" value="{{ search }}" class="form-control sheet-search" placeholder="Identifier, client company or route tag" /><button class="btn btn-outline-primary">Search</button><a class="btn btn-outline-secondary" href="{{ url_for('admin.lr_generator_panel') }}">Reset</a></form>
+<div id="lr-workspace" data-review-url="{{ url_for('admin.lr_review') }}" data-generate-url="{{ url_for('admin.lr_generate') }}" data-scope="{{ session.get('admin_username', 'admin') }}" data-id-format="{{ label_id_format }}">
+<div class="label-layout">
+  <div class="label-shipments">
+    <div class="surface-panel table-responsive"><table class="table mb-0"><thead><tr><th scope="col"><input id="lr-select-all" type="checkbox" aria-label="Select all shipments on this page" /></th><th scope="col">Shipment</th><th scope="col">Route</th><th scope="col">Packages</th><th scope="col">Weight / volume</th></tr></thead><tbody>
+    {% for row in label_page_rows %}<tr><td><input type="checkbox" name="lr_shipment" value="{{ row.id }}" aria-label="Select {{ row.consignment_number }}" /></td><td><strong>{{ row.consignment_number }}</strong><span class="d-block small text-muted">{{ row.identifier_type }}{% if row.company %} · {{ row.company }}{% endif %}</span></td><td><span class="small d-block">{{ row.pickup_tag or row.pickup_pincode or 'Pickup not set' }} → {{ row.drop_tag or row.drop_pincode or 'Drop not set' }}</span><span class="small text-muted d-block">{{ row.drop_address or 'No destination address' }}</span></td><td>{{ row.pieces }}</td><td class="small">{% if row.measurement_mode == 'volume' %}{{ row.volume if row.volume is not none else '—' }} ft³{% else %}{{ row.weight if row.weight is not none else '—' }} kg{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty-panel"><i class="fa fa-file-text-o" aria-hidden="true"></i><strong>No matching saved shipments</strong><span>Add and save shipments in Shipments first.</span></td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="list-pagination"><span>Page {{ page }} · {{ total }} shipments</span><div class="d-flex gap-2">{% if page > 1 %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.lr_generator_panel', page=page-1, search=search) }}">Previous</a>{% endif %}{% if page * 25 < total %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.lr_generator_panel', page=page+1, search=search) }}">Next</a>{% endif %}</div></div>
   </div>
-
-  <div class="mt-4">
-    <button type="button" class="btn btn-primary me-2">Generate draft</button>
-    <button type="button" class="btn btn-outline-secondary">Review output</button>
-  </div>
+  <aside class="label-controls"><div class="surface-panel print-settings p-3">
+    <h2 class="fs-6 fw-bold">Selected shipments <span id="lr-selected-count">0</span></h2>
+    <ul id="lr-selected-list" class="lr-selected-list"></ul>
+    <p class="small text-muted">One two-page A4 LR per shipment. Maximum 100 shipments per batch.</p>
+    <button type="button" class="btn btn-primary w-100" id="lr-review" disabled>Complete LR details</button>
+    <button type="button" class="btn btn-outline-secondary w-100 mt-2" id="lr-clear">Clear selection</button>
+    <div id="lr-error" class="alert alert-danger small mt-3 d-none" role="alert"></div>
+    <p class="small text-muted mt-3 mb-0">The company header, logo, contact details, PAN, GSTIN, authorised signatory and terms are included automatically.</p>
+  </div></aside>
+</div></div>
+<script type="application/json" id="lr-page-data">{{ label_page_rows|tojson }}</script>
+<script type="application/json" id="lr-field-data">{{ lr_fields|tojson }}</script>
+<div class="modal fade" id="lrReviewModal" tabindex="-1" aria-labelledby="lr-review-title" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><div><h2 class="modal-title fs-5" id="lr-review-title">Complete LR details</h2><p class="small text-muted mb-0" id="lr-review-summary"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <p class="small text-muted">Fields marked “From shipment” are prefilled for review. Changes here apply only to this download. Fields marked * are required; optional blank fields remain blank on the receipt.</p>
+      <div id="lr-review-error" class="alert alert-danger d-none" role="alert"></div>
+      <form id="lr-details-form"><div id="lr-review-rows"></div></form>
+    </div>
+    <div class="modal-footer label-review-footer"><span class="small text-muted">A4 · original + terms per shipment · print at 100%</span><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back</button><button type="button" class="btn btn-outline-primary" id="lr-preview">Preview PDF</button><button type="button" class="btn btn-primary" id="lr-download">Download PDF</button></div></div>
+  </div></div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin/lr-generator.js') }}"></script>{% endblock %}

@@ -52,6 +52,12 @@ database. Pulling the project does not execute the migration automatically.
 - Database-backed label numbering and shipment audit history.
 - Excel import/export, PDF reports and labels, bulk document tools, and complete
   downloadable backups.
+- LR Generator: select saved shipments, review prefilled details, and enter the
+  remaining vehicle, cargo, invoice and e-way bill information. Preview or download
+  one two-page A4 lorry receipt per shipment using the supplied GRAM template.
+  The company header, logo, PAN/GSTIN, signatory and terms are fixed. LR form
+  details stay in the current browser tab for convenience and are not saved to
+  the database; clearing the selection clears the drafts. No migration is needed.
 - Locally bundled interface assets; no CDN is required.
 
 ## Project structure
