@@ -17,6 +17,7 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.shipment_packages import normalize_contents, volume_ft3, shared_contents
+from app.spreadsheets import save_workbook_in_memory
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
 from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
 
@@ -68,7 +69,7 @@ def _store_mis_bytes(filename, content, mime):
     bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     document_buckets = {os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
                         os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
-                        os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads'}
+                        os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads'}
     if bucket in document_buckets:
         raise ValueError('Use a separate MIS bucket, rather than a POD, invoice or LR bucket.')
     return _store_pod_bytes(filename, content, mime, bucket_name=bucket,
@@ -281,7 +282,7 @@ def consignments_import_template_excel():
     ])
 
     buffer = io.BytesIO()
-    workbook.save(buffer)
+    save_workbook_in_memory(workbook, buffer)
     buffer.seek(0)
     return send_file(
         buffer,
@@ -404,7 +405,7 @@ def consignments_export_excel():
         ])
 
     buffer = io.BytesIO()
-    workbook.save(buffer)
+    save_workbook_in_memory(workbook, buffer)
     buffer.seek(0)
     return send_file(
         buffer,

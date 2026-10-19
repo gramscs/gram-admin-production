@@ -60,6 +60,7 @@ def test_lr_manual_upload_versioning_and_removal_preserve_other_documents(app, a
     row = save(admin_client, **attachment('pod', pdf_bytes(), 'pod.pdf'), **attachment('invoice', pdf_bytes(), 'invoice.pdf'),
                **attachment('lr', pdf_bytes(), 'lorry.pdf'))
     assert row['lr_file'] and row['lr_original_name'] == 'lorry.pdf'
+    assert row['lr_file'].startswith('supabase:lr-uploads/consignments/')
     result = admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'replacement.pdf')})
     assert result.status_code == 200, result.json
     assert result.json['lr_file'] != row['lr_file']
@@ -81,6 +82,7 @@ def test_preview_batch_upload_binds_correct_two_pages_to_each_shipment(app, admi
     assert len(storage.objects) == 0  # Preview has no storage side effects.
     result = upload(admin_client, pdf, payload)
     assert result.status_code == 200 and result.json['count'] == 2, result.json
+    assert all(item['reference'].startswith('supabase:lr-uploads/') for item in result.json['documents'])
     for index, row in enumerate(rows):
         response = admin_client.get(f"/admin/consignments/{row['id']}/lr")
         reader = PdfReader(BytesIO(response.data))
@@ -95,6 +97,8 @@ def test_preview_batch_upload_binds_correct_two_pages_to_each_shipment(app, admi
     assert len(storage.objects) == 2
     with app.app_context():
         assert {file.mime_type for file in db.session.query(File).all()} == {'application/pdf'}
+        assert {file.storage_bucket for file in db.session.query(File).all()} == {'lr-uploads'}
+        assert db.session.query(ShipmentDocument).filter_by(document_type='LR', is_current=True).count() == 2
 
 
 @pytest.mark.parametrize('tamper', ['pdf', 'selection', 'token', 'owner', 'expired'])
@@ -231,3 +235,41 @@ def test_outdated_preview_and_viewer_cannot_replace_an_lr(app, admin_client, sto
         db.session.commit()
     assert upload(admin_client, pdf, payload).status_code == 403
     assert storage.objects == baseline
+
+
+def test_large_lr_upload_download_and_backup_never_spool_to_disk(app, admin_client, storage, monkeypatch):
+    import tempfile
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, NameObject
+    from openpyxl.worksheet import _writer
+    enable_listing(storage, monkeypatch)
+    row = save(admin_client)
+    writer, output = PdfWriter(), BytesIO()
+    page = writer.add_blank_page(width=595, height=842)
+    stream = DecodedStreamObject()
+    stream.set_data(b'% Document buffer remains in memory\n' * 40000)
+    page[NameObject('/Contents')] = stream
+    writer.write(output)
+    content = output.getvalue()
+    assert len(content) > 1024 * 1024
+
+    def forbid_disk(*args, **kwargs):
+        raise AssertionError('Document processing must not create local temporary files.')
+    monkeypatch.setattr(tempfile, 'TemporaryFile', forbid_disk)
+    monkeypatch.setattr(tempfile, 'NamedTemporaryFile', forbid_disk)
+    monkeypatch.setattr(_writer, 'NamedTemporaryFile', forbid_disk)
+    # Raw multipart avoids the test client's own disk-spooling transport.
+    boundary = b'lr-memory-boundary'
+    body = (b'--' + boundary + b'\r\nContent-Disposition: form-data; name="file"; filename="lr.pdf"\r\n'
+            b'Content-Type: application/pdf\r\n\r\n' + content + b'\r\n--' + boundary + b'--\r\n')
+    result = admin_client.post(f"/admin/consignments/{row['id']}/lr", data=body,
+                              content_type='multipart/form-data; boundary=lr-memory-boundary')
+    assert result.status_code == 200, result.json
+    assert result.json['lr_file'].startswith('supabase:lr-uploads/')
+    assert len(admin_client.get(f"/admin/consignments/{row['id']}/lr").data) > 1024 * 1024
+    result = admin_client.post('/admin/consignments/documents/bulk-download', json={'ids': [row['id']], 'kind': 'lr'})
+    assert result.status_code == 200
+    result = admin_client.get('/admin/generate-backup')
+    assert result.status_code == 200
+    report = json.loads(ZipFile(BytesIO(result.data)).read('document_report.json'))
+    assert any(item['kind'] == 'lr' and item['status'] == 'included' for item in report['documents'])

@@ -3,7 +3,7 @@ from contextlib import ExitStack
 import hashlib
 import mimetypes
 import shutil
-from tempfile import SpooledTemporaryFile
+from io import BytesIO
 
 import click
 from flask import current_app
@@ -132,7 +132,7 @@ def commit_document_cleanup(obsolete):
             for value in sorted(set(filter(None, obsolete))):
                 if not _managed_reference(value) or document_is_retained(value):
                     continue
-                backup = stack.enter_context(SpooledTemporaryFile(max_size=5 * 1024 * 1024))
+                backup = stack.enter_context(BytesIO())
                 try:
                     with open_stored_document(value) as (source, _):
                         shutil.copyfileobj(source, backup)

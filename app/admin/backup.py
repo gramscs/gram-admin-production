@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from tempfile import SpooledTemporaryFile
+from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from flask import current_app
@@ -20,6 +20,7 @@ from app.admin.documents import DOCUMENTS, DOCUMENT_TYPES, open_stored_document,
 from app.models import db
 from app import orm as models
 from app.shipment_packages import volume_ft3
+from app.spreadsheets import save_workbook_in_memory
 
 TABLE_KEYS = {'consignment': 'consignments', 'company': 'companies', 'company_location': 'company_locations',
               'lead': 'leads', 'newsletter_subscriber': 'newsletter_subscribers'}
@@ -112,7 +113,7 @@ def _inventory(referenced, report):
                 report['inventory_errors'].append({'source': 'supabase_uploads', 'message': 'A legacy storage reference is invalid.'})
     buckets.update((os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
                     os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
-                    os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads'))
+                    os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads'))
     report_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     buckets.add(report_bucket)
     report_buckets.add(report_bucket)
@@ -137,7 +138,7 @@ def _inventory(referenced, report):
 
 def _pack_document(archive, reference, archive_path):
     """Finish reading before creating an entry, so read failures leave no partial file."""
-    with SpooledTemporaryFile(max_size=1024*1024, mode='w+b') as staged:
+    with BytesIO() as staged:
         size, digest = 0, hashlib.sha256()
         try:
             with open_stored_document(reference) as (source, _):
@@ -194,7 +195,8 @@ def _sheet(workbook, title, columns, rows):
 
 
 def _workbook(payload, report, table_columns):
-    workbook = Workbook(write_only=True)
+    workbook = Workbook()
+    workbook.remove(workbook.active)
     for key, rows in payload.items():
         if key == 'metadata':
             continue
@@ -217,7 +219,7 @@ def _workbook(payload, report, table_columns):
 
 
 def build_complete_backup(payload):
-    buffer = SpooledTemporaryFile(max_size=8*1024*1024, mode='w+b')
+    buffer = BytesIO()
     report = {'format_version': 2, 'generated_at': payload['metadata']['generated_at'], 'ordering': 'Consignments ordered by database ID ascending; numeric folder prefixes match backup_order in data and Excel.',
               'documents': [], 'inventory_errors': [], 'storage_scope': ['Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
     table_columns = {TABLE_KEYS.get(table.name, table.name): [column.key for column in table.columns] for table in models.tables()}
@@ -291,8 +293,8 @@ def build_complete_backup(payload):
             payload['metadata']['document_counts'] = counts
             archive.writestr('data.json', json.dumps(payload, ensure_ascii=False, indent=2))
             archive.writestr('document_report.json', json.dumps(report, ensure_ascii=False, indent=2))
-            with SpooledTemporaryFile(max_size=1024*1024, mode='w+b') as spreadsheet:
-                _workbook(payload, report, table_columns).save(spreadsheet)
+            with BytesIO() as spreadsheet:
+                save_workbook_in_memory(_workbook(payload, report, table_columns), spreadsheet)
                 spreadsheet.seek(0)
                 with archive.open('admin-data.xlsx', 'w', force_zip64=True) as target:
                     while chunk := spreadsheet.read(1024*1024):

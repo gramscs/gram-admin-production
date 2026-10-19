@@ -186,7 +186,7 @@ def store_document_changes(consignment, changes, created, obsolete):
             # the visible leaf always follows the bulk-upload naming convention.
             filename = f'{uuid4().hex}/{document_name(consignment.consignment_number, kind, ext)}'
             bucket = ((os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads') if kind == 'invoice'
-                      else (os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads') if kind == 'lr' else None)
+                      else (os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads') if kind == 'lr' else None)
             value = _store_pod_bytes(filename, content, mime, bucket_name=bucket)
             created.append(value)
             setattr(consignment, field, value)

@@ -27,10 +27,46 @@ The first command is read-only. Application is idempotent; pulling code alone
 does not execute it. If the transaction fails, the old constraint and migration
 history remain intact. Do not run a one-time importer for this upgrade.
 
-LR files use the existing private `pod-uploads` bucket by default. Optionally
-set `SUPABASE_LR_BUCKET` to a different private bucket with the same server-side
-permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
+LR files use the private `lr-uploads` bucket by default. Set
+`SUPABASE_LR_BUCKET=lr-uploads` in the running app environment. Optional overrides
+must name another private bucket with the same server-side permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
 bucket reads. No public bucket or automatic bucket creation is used.
+
+LR PDFs are processed in memory and persisted only in Supabase Storage. Their
+database links use `shipment_documents.document_type = 'LR'` and `file_id`, with
+bucket, object path and file metadata in `files`. There is no physical `lr`
+column to add to the ER `consignments` table; `lr_file` is the application's
+compatibility property for that relationship.
+
+In Supabase SQL Editor, verify that the type constraint permits LR:
+
+```sql
+SELECT conname, pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE conrelid = 'public.shipment_documents'::regclass
+  AND conname = 'ck_shipment_documents_valid_type';
+```
+
+The definition must include `'LR'`. After uploading an LR, verify its shipment
+link and the actual Storage object:
+
+```sql
+SELECT c.identifier_value AS shipment, d.document_type, d.version, d.is_current,
+       f.storage_bucket, f.storage_path,
+       EXISTS (
+           SELECT 1 FROM storage.objects o
+           WHERE o.bucket_id = f.storage_bucket AND o.name = f.storage_path
+       ) AS object_exists
+FROM public.shipment_documents d
+JOIN public.consignments c ON c.id = d.consignment_id
+JOIN public.files f ON f.id = d.file_id
+WHERE d.document_type = 'LR'
+ORDER BY f.uploaded_at DESC;
+```
+
+New uploads should show `storage_bucket = 'lr-uploads'` and `object_exists = true`.
+Previously uploaded documents keep their original bucket references; they are
+not moved or deleted by changing the default bucket.
 
 After preview, **Upload LR** attaches each shipment's own two-page PDF. The
 preview authorisation expires after 30 minutes and binds the exact PDF bytes,

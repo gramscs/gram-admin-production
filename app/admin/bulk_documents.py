@@ -1,7 +1,7 @@
 """Review bulk uploads before applying them; download named private documents."""
 import json
 from pathlib import Path
-from tempfile import SpooledTemporaryFile
+from io import BytesIO
 from urllib.parse import urlsplit
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -138,7 +138,7 @@ def bulk_document_download():
     if ids and len(rows) != len(ids):
         return jsonify(success=False, message='A selected shipment no longer exists. Refresh the table.'), 400
     kinds = tuple(DOCUMENTS) if kind == 'all' else ('pod', 'invoice') if kind == 'both' else (kind,)
-    buffer = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode='w+b')
+    buffer = BytesIO()
     manifest, names, total, downloaded = [], set(), 0, 0
     try:
         with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:

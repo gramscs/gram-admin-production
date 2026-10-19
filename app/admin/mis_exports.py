@@ -18,6 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from pypdf import PdfReader
 
 from app.admin.reporting import COLUMNS
+from app.spreadsheets import save_workbook_in_memory
 
 MIMES = {'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'csv': 'text/csv; charset=utf-8', 'pdf': 'application/pdf'}
 PALETTE = {'Pickup Scheduled': '#d3a14b', 'In Transit': '#6696ef', 'Out for Delivery': '#9774df', 'Delivered': '#358e71', 'No status': '#9ba7b0', 'Other': '#de7980'}
@@ -95,7 +96,7 @@ def excel(report, columns):
                 chart.series[0].graphicalProperties.line.solidFill = '358E71'
             summary.add_chart(chart, anchor)
     buffer = io.BytesIO()
-    book.save(buffer)
+    save_workbook_in_memory(book, buffer)
     return buffer.getvalue()
 
 

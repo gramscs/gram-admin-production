@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from app.models import db
+from app.upload_request import MemoryUploadRequest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 limiter = Limiter(key_func=get_remote_address)
@@ -29,6 +30,7 @@ def create_app(test_config=None):
     overrides = dict(test_config or {})
     overrides.pop("INSTANCE_PATH", None)
     app = Flask(__name__)
+    app.request_class = MemoryUploadRequest
     production = os.getenv("FLASK_ENV", "development").lower() == "production"
     secret_key = os.getenv("SECRET_KEY", "").strip()
     database_url = str(overrides.pop("SQLALCHEMY_DATABASE_URI", "")).strip() or os.getenv("DATABASE_URL", "").strip()
@@ -177,7 +179,7 @@ def create_app(test_config=None):
         mis_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
         if mis_bucket in buckets.values():
             raise click.ClickException('SUPABASE_MIS_BUCKET must be separate from the POD and invoice buckets. No files were changed.')
-        lr_bucket = os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads'
+        lr_bucket = os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads'
         if lr_bucket == mis_bucket:
             raise click.ClickException('SUPABASE_LR_BUCKET must be separate from the MIS bucket.')
         buckets['LR'] = lr_bucket
