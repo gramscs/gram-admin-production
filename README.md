@@ -56,8 +56,11 @@ database. Pulling the project does not execute the migration automatically.
   remaining vehicle, cargo, invoice and e-way bill information. Preview or download
   one two-page A4 lorry receipt per shipment using the supplied GRAM template.
   The company header, logo, PAN/GSTIN, signatory and terms are fixed. LR form
-  details stay in the current browser tab for convenience and are not saved to
-  the database; clearing the selection clears the drafts. No migration is needed.
+  details stay in the current browser tab until you explicitly click **Upload LR**
+  after preview. Each shipment receives its own original-and-terms PDF as a
+  versioned Lorry Receipt document. PODs, invoices and LRs can be managed, bulk
+  uploaded/downloaded and backed up together. Apply migration 003 before uploading
+  LRs to an existing database (see the migration guide).
 - Locally bundled interface assets; no CDN is required.
 
 ## Project structure

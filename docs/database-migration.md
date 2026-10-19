@@ -6,6 +6,45 @@ local persistence.
 
 ## Upgrade an existing application database
 
+### Version 003: Lorry Receipt documents
+
+LR attachments use the existing `shipment_documents` / `files` tables with
+`document_type = 'LR'`. No shipment columns or new tables are needed in the ER
+schema. The migration widens only the named document-type check constraint,
+verifies existing row counts, and records revision `003_lorry_receipts` in the
+same PostgreSQL transaction. Existing POD/invoice versions, current-version
+indexes, file records, foreign keys, RLS and uploaded objects are preserved.
+
+Using the existing securely configured `DATABASE_URL`:
+
+```bash
+python migrations/003_lorry_receipts.py
+python migrations/003_lorry_receipts.py --apply
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-db
+```
+
+The first command is read-only. Application is idempotent; pulling code alone
+does not execute it. If the transaction fails, the old constraint and migration
+history remain intact. Do not run a one-time importer for this upgrade.
+
+LR files use the existing private `pod-uploads` bucket by default. Optionally
+set `SUPABASE_LR_BUCKET` to a different private bucket with the same server-side
+permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
+bucket reads. No public bucket or automatic bucket creation is used.
+
+After preview, **Upload LR** attaches each shipment's own two-page PDF. The
+preview authorisation expires after 30 minutes and binds the exact PDF bytes,
+shipment order, current LR references and admin session. Editing the form
+requires another preview. Existing LR versions are retained on replacement;
+explicit document removal purges that kind's history like POD and invoices.
+
+Application rollback can leave this backwards-compatible constraint in place.
+If a database rollback is needed, first verify there are no `LR` document rows;
+otherwise reverting the check would reject existing records. Restore the old
+`CHECK (document_type IN ('POD', 'invoice'))` transactionally only after that
+verification and record the rollback in migration history. Never delete LR
+records or stored files merely to downgrade the application.
+
 ### Version 002: PostgreSQL label numbering
 
 [`002_label_runs.py`](../migrations/002_label_runs.py) adds the missing

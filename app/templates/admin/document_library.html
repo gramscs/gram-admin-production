@@ -8,7 +8,7 @@
 {% endblock %}
 {% block content %}
 <div class="page-heading d-flex flex-wrap justify-content-between align-items-start gap-3">
-  <div><span class="page-eyebrow">SHIPMENT DOCUMENTS</span><h1>Documents</h1><p>PODs and invoices, organized by shipment. Identifier types and company details come from your shipment records.</p></div>
+  <div><span class="page-eyebrow">SHIPMENT DOCUMENTS</span><h1>Documents</h1><p>PODs, invoices and lorry receipts, organized by shipment. Identifier types and company details come from your shipment records.</p></div>
   <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#bulkDocumentsModal"><i class="fa fa-upload me-2" aria-hidden="true"></i>Bulk documents <span id="bulk-selected-count" class="badge text-bg-secondary">0</span></button>
 </div>
 {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
@@ -16,8 +16,8 @@
 <div class="surface-panel overflow-hidden">
   {% include 'admin/_shipment_filters.html' %}
   <div class="table-responsive"><table class="table align-middle mb-0 document-library-table">
-    <caption class="visually-hidden">Current PODs and invoices linked to saved shipments, including shipments with missing documents.</caption>
-    <thead><tr><th scope="col"><input id="select-visible-shipments" type="checkbox" class="form-check-input" aria-label="Select shipments on this page" /></th><th scope="col">Shipment identifier</th><th scope="col">Identifier type</th><th scope="col">Company</th><th scope="col">POD</th><th scope="col">Invoice</th><th scope="col">Shipment</th></tr></thead>
+    <caption class="visually-hidden">Current PODs, invoices and lorry receipts linked to saved shipments, including shipments with missing documents.</caption>
+    <thead><tr><th scope="col"><input id="select-visible-shipments" type="checkbox" class="form-check-input" aria-label="Select shipments on this page" /></th><th scope="col">Shipment identifier</th><th scope="col">Identifier type</th><th scope="col">Company</th><th scope="col">POD</th><th scope="col">Invoice</th><th scope="col">Lorry Receipt</th><th scope="col">Shipment</th></tr></thead>
     <tbody id="sheet-body" data-list-url="{{ url_for('admin.consignments_list_api') }}" data-shipment-url="{{ url_for('admin.consignments_panel') }}"></tbody>
   </table></div>
   <div class="pagination-controls p-3 border-top">

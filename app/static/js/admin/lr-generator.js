@@ -7,7 +7,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const key = 'gram-lr-selection:' + workspace.dataset.scope + ':' + workspace.dataset.idFormat;
     const idPattern = workspace.dataset.idFormat === 'uuid' ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i : /^[1-9][0-9]*$/;
     const checkboxes = Array.from(document.querySelectorAll('[name=lr_shipment]'));
-    let selected = new Map(), drafts = {}, review = [], busy = false;
+    let selected = new Map(), drafts = {}, review = [], busy = false, previewJob = null;
+    function invalidatePreview() {
+        previewJob = null; part('lr-upload').disabled = true;
+        part('lr-upload-status').classList.add('d-none');
+    }
     try {
         const saved = JSON.parse(sessionStorage.getItem(key) || '{}');
         if (Array.isArray(saved.selected)) selected = new Map(saved.selected.filter(row => row && typeof row.id === 'string' && idPattern.test(row.id)).map(row => [row.id, row]));
@@ -61,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return item;
     }
     function render() {
+        invalidatePreview();
         const root = part('lr-review-rows'); root.replaceChildren();
         review.forEach((row, index) => {
             const card = node('section', 'label-review-card'); card.dataset.id = row.id;
@@ -93,8 +98,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (row.sources.includes(field.name)) wrapper.append(node('span', 'lr-field-source', 'From shipment · review before generating'));
                 group.append(wrapper);
             });
-            card.addEventListener('input', () => {drafts[row.id] = values(card); persist();});
-            card.addEventListener('change', () => {drafts[row.id] = values(card); persist();});
+            card.addEventListener('input', () => {invalidatePreview(); drafts[row.id] = values(card); persist();});
+            card.addEventListener('change', () => {invalidatePreview(); drafts[row.id] = values(card); persist();});
             root.append(card);
         });
         part('lr-review-summary').textContent = review.length + ' shipments · ' + review.length * 2 + ' A4 pages';
@@ -123,11 +128,17 @@ document.addEventListener('DOMContentLoaded', () => {
         part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = true;});
         part('lr-download').textContent = 'Generating…';
         try {
-            const response = await fetch(workspace.dataset.generateUrl, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/pdf'}, body: JSON.stringify({consignment_ids: review.map(row => row.id), lr_details: details, delivery})});
-            if (!response.ok) {
-                const result = await response.json(); throw new Error(result.message || result.error || 'Could not generate LRs.');
+            const ids = review.map(row => row.id), references = review.map(row => ({id: row.id, reference: row.lr_file || null}));
+            let blob;
+            if (previewJob && previewJob.details === JSON.stringify(details)) blob = previewJob.blob;
+            else {
+                const response = await fetch(workspace.dataset.generateUrl, {method: 'POST', headers: {'Content-Type': 'application/json', Accept: 'application/pdf'}, body: JSON.stringify({consignment_ids: ids, lr_details: details, delivery, prepare_upload: delivery === 'preview', expected_references: references})});
+                if (!response.ok) {
+                    const result = await response.json(); throw new Error(result.message || result.error || 'Could not generate LRs.');
+                }
+                blob = await response.blob();
+                if (delivery === 'preview') previewJob = {blob, token: response.headers.get('X-LR-Preview-Token'), ids, references, details: JSON.stringify(details)};
             }
-            const blob = await response.blob();
             if (!blob.type.includes('application/pdf')) throw new Error('A PDF was not returned. Try again.');
             const url = URL.createObjectURL(blob);
             if (delivery === 'preview' && previewWindow) previewWindow.location.replace(url);
@@ -137,9 +148,41 @@ document.addEventListener('DOMContentLoaded', () => {
         finally {
             busy = false;
             part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = false;});
+            part('lr-upload').disabled = !previewJob || !previewJob.token;
             part('lr-download').textContent = 'Download PDF';
         }
     }
+    part('lr-upload').addEventListener('click', async () => {
+        if (busy || !previewJob || !previewJob.token) return;
+        const job = previewJob;
+        busy = true; error('lr-review-error', '');
+        part('lr-upload-status').classList.add('d-none');
+        part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = true;});
+        part('lr-upload').textContent = 'Uploading…';
+        try {
+            const body = new FormData();
+            body.append('file', job.blob, 'previewed-lorry-receipts.pdf'); body.append('preview_token', job.token);
+            body.append('consignment_ids', JSON.stringify(job.ids)); body.append('expected_references', JSON.stringify(job.references));
+            const response = await fetch(workspace.dataset.uploadUrl, {method: 'POST', headers: {Accept: 'application/json'}, body});
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                if (response.status === 400 || response.status === 409) invalidatePreview();
+                throw new Error(result.message || result.error || 'LR upload failed.');
+            }
+            result.documents.forEach(item => {
+                const row = review.find(row => row.id === item.id); if (row) row.lr_file = item.reference;
+            });
+            invalidatePreview();
+            part('lr-upload-status').textContent = result.count + ' LR document(s) uploaded. Find them under Lorry Receipt in Documents.';
+            part('lr-upload-status').classList.remove('d-none');
+            document.dispatchEvent(new CustomEvent('shipment-documents-updated', {detail: result.documents}));
+        } catch (failure) {error('lr-review-error', failure.message);}
+        finally {
+            busy = false;
+            part('lrReviewModal').querySelectorAll('button, input, select, textarea').forEach(input => {input.disabled = false;});
+            part('lr-upload').textContent = 'Upload LR'; part('lr-upload').disabled = !previewJob || !previewJob.token;
+        }
+    });
     part('lr-preview').addEventListener('click', () => generate('preview'));
     part('lr-download').addEventListener('click', () => generate('download'));
     update();

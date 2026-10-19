@@ -53,7 +53,7 @@ def bulk_document_upload():
         number, separator, kind = stem.rpartition('_')
         kind = kind.lower()
         if not separator or kind not in DOCUMENTS:
-            errors.append({'filename': name, 'message': 'Use consignmentNum_pod.ext or consignmentNum_invoice.ext.'})
+            errors.append({'filename': name, 'message': 'Use consignmentNum_pod.ext, consignmentNum_invoice.ext or consignmentNum_lr.ext.'})
             continue
         candidates = exact.get(number.casefold(), []) + aliases.get(number.casefold(), [])
         matches = list({row.id: row for row in candidates}.values())
@@ -115,8 +115,8 @@ def bulk_document_download():
     if not isinstance(data, dict) or not _same_origin():
         return jsonify(success=False, message='Choose documents from this admin app.'), 400
     kind = data.get('kind', 'both')
-    if kind not in ('pod', 'invoice', 'both'):
-        return jsonify(success=False, message='Choose POD, invoices or both.'), 400
+    if kind not in (*DOCUMENTS, 'both', 'all'):
+        return jsonify(success=False, message='Choose POD, invoices, lorry receipts or all documents.'), 400
     ids = data.get('ids', [])
     if not isinstance(ids, list) or len(ids) > MAX_DOWNLOAD_SHIPMENTS:
         return jsonify(success=False, message='Select at most 200 shipments per download.'), 400
@@ -137,7 +137,7 @@ def bulk_document_download():
         return jsonify(success=False, message='More than 200 shipments match. Select shipments or narrow your search.'), 400
     if ids and len(rows) != len(ids):
         return jsonify(success=False, message='A selected shipment no longer exists. Refresh the table.'), 400
-    kinds = ('pod', 'invoice') if kind == 'both' else (kind,)
+    kinds = tuple(DOCUMENTS) if kind == 'all' else ('pod', 'invoice') if kind == 'both' else (kind,)
     buffer = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode='w+b')
     manifest, names, total, downloaded = [], set(), 0, 0
     try:

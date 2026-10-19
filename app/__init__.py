@@ -153,6 +153,10 @@ def create_app(test_config=None):
         click.echo(f"Connected to {db.engine.dialect.name}.")
         if missing:
             raise click.ClickException("Missing required database structure: " + ", ".join(missing))
+        document_types = next((item['sqltext'] for item in inspector.get_check_constraints('shipment_documents')
+                               if item['name'] == 'ck_shipment_documents_valid_type'), '')
+        if "'LR'" not in document_types:
+            raise click.ClickException('Lorry Receipt documents require migration 003. Run python migrations/003_lorry_receipts.py --apply against this database.')
         click.echo("All required admin tables and columns are present. No data was changed.")
 
     @app.cli.command("check-storage")
@@ -173,6 +177,10 @@ def create_app(test_config=None):
         mis_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
         if mis_bucket in buckets.values():
             raise click.ClickException('SUPABASE_MIS_BUCKET must be separate from the POD and invoice buckets. No files were changed.')
+        lr_bucket = os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads'
+        if lr_bucket == mis_bucket:
+            raise click.ClickException('SUPABASE_LR_BUCKET must be separate from the MIS bucket.')
+        buckets['LR'] = lr_bucket
         buckets['MIS'] = mis_bucket
         failed = []
         for kind, bucket in buckets.items():

@@ -8,7 +8,7 @@ from tempfile import SpooledTemporaryFile
 import click
 from flask import current_app
 from flask.cli import with_appcontext
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 
 from app import orm as models
 from app.models import db
@@ -43,9 +43,15 @@ def document_is_retained(value):
     canonical = value
     if models.using_er():
         from app.er_adapter import File
-        return db.session.query(File).filter_by(storage_path=canonical).first() is not None
+        from app.admin.consignment_controller import _parse_supabase_pod_value
+        if not _managed_reference(canonical):
+            return False
+        bucket, path = _parse_supabase_pod_value(canonical)
+        return db.session.query(File).filter(or_(File.storage_path == canonical,
+            and_(File.storage_bucket == bucket, File.storage_path == path))).first() is not None
     return (models.Consignment.query.filter(or_(models.Consignment.pod_image == canonical,
-                                              models.Consignment.invoice_file == canonical)).first() is not None
+                                              models.Consignment.invoice_file == canonical,
+                                              models.Consignment.lr_file == canonical)).first() is not None
             or models.MisReport.query.filter(models.MisReport.file_ref == canonical).first() is not None)
 
 
@@ -62,7 +68,8 @@ def purge_shipment_documents(row, obsolete, kind=None):
             setattr(row, name_field, None)
         return
     from app.er_adapter import File, MisReport, ShipmentDocument
-    types = {'POD' if item == 'pod' else 'invoice' for item in kinds}
+    from app.admin.documents import DOCUMENT_TYPES
+    types = {DOCUMENT_TYPES[item] for item in kinds}
     documents = [doc for doc in row.documents if doc.document_type in types]
     file_ids = {doc.file_id for doc in documents}
     for doc in documents:
@@ -76,7 +83,8 @@ def purge_shipment_documents(row, obsolete, kind=None):
     for file in db.session.query(File).filter(File.id.in_(file_ids)).order_by(File.id).with_for_update().all():
         if (not db.session.query(ShipmentDocument).filter_by(file_id=file.id).first()
                 and not db.session.query(MisReport).filter_by(file_id=file.id).first()):
-            obsolete.append(file.storage_path)
+            from app.admin.documents import storage_reference
+            obsolete.append(storage_reference(file.storage_bucket, file.storage_path))
             db.session.delete(file)
 
 
@@ -154,7 +162,7 @@ def commit_document_cleanup(obsolete):
 
 @click.command('purge-removed-documents')
 @click.option('--identifier', required=True, help='Exact shipment identifier, for example DEMO0017.')
-@click.option('--kind', type=click.Choice(['pod', 'invoice']), required=True)
+@click.option('--kind', type=click.Choice(['pod', 'invoice', 'lr']), required=True)
 @click.option('--apply', is_flag=True, help='Delete the already-removed document versions and unshared files.')
 @with_appcontext
 def purge_removed_documents(identifier, kind, apply):
@@ -167,7 +175,7 @@ def purge_removed_documents(identifier, kind, apply):
         raise click.ClickException('Shipment not found. No files were changed.')
     if getattr(row, DOCUMENTS[kind][0]):
         raise click.ClickException('This shipment has a current document of that type. Remove it in the portal first. No files were changed.')
-    documents = [doc for doc in row.documents if doc.document_type == ('POD' if kind == 'pod' else 'invoice')]
+    documents = [doc for doc in row.documents if doc.document_type == {'pod': 'POD', 'invoice': 'invoice', 'lr': 'LR'}[kind]]
     click.echo(f'{row.consignment_number}: {len(documents)} already-removed {kind.upper()} version(s).')
     if not apply:
         db.session.rollback()

@@ -1,0 +1,233 @@
+"""LR attachments share the real PostgreSQL document lifecycle and private storage."""
+import importlib
+from io import BytesIO
+import json
+from zipfile import ZipFile
+
+import pytest
+from pypdf import PdfReader
+from sqlalchemy import event, select, text
+
+from app import orm as models
+from app.admin.reporting import analyze, normalize_filters
+from app.models import db
+from database.models import ShipmentDocument, File
+from migrations.shipment_v1 import RUNS
+from migrations.storage import MigrationError
+from test_document_deletion import storage
+from test_document_names import enable_listing
+from test_shipment_documents import attachment, pdf_bytes
+
+migration = importlib.import_module('migrations.003_lorry_receipts')
+
+
+def save(client, identifier='LR-DOC-001', **fields):
+    result = client.post('/admin/consignments/save', json={'rows': [{
+        'consignment_number': identifier, 'pieces': 2, 'weight': '25',
+        'pickup_date': '2026-10-19', 'pickup_address': 'Dispatch warehouse',
+        'drop_address': 'Receiving warehouse', **fields,
+    }]})
+    assert result.status_code == 200, result.json
+    return client.get('/admin/consignments/list', query_string={'search': identifier}).json['rows'][0]
+
+
+def preview(client, rows):
+    reviewed = client.post('/admin/lr-generator/review', json={'consignment_ids': [row['id'] for row in rows]})
+    assert reviewed.status_code == 200, reviewed.json
+    details = []
+    for row in reviewed.json['shipments']:
+        details.append(dict(row['values'], id=row['id'], consignor_name='Sender', consignee_name='Receiver',
+                            vehicle_number='MH12AB1234', vehicle_type='32 Feet', goods_description='Packaged goods',
+                            chargeable_weight='25', cargo_value='1000', invoice_value='1000',
+                            invoice_date='2026-10-19', invoice_number='INV-' + row['consignment_number']))
+    payload = dict(consignment_ids=[row['id'] for row in rows], lr_details=details, delivery='preview',
+                   prepare_upload=True, expected_references=[{'id': row['id'], 'reference': row['lr_file']} for row in rows])
+    result = client.post('/admin/lr-generator/generate', json=payload)
+    assert result.status_code == 200, result.data[:100]
+    return result, payload
+
+
+def upload(client, pdf, payload, *, token=None, content=None):
+    return client.post('/admin/lr-generator/upload', data={
+        'file': (BytesIO(content if content is not None else pdf.data), 'preview.pdf'),
+        'preview_token': token if token is not None else pdf.headers['X-LR-Preview-Token'],
+        'consignment_ids': json.dumps(payload['consignment_ids']),
+        'expected_references': json.dumps(payload['expected_references']),
+    })
+
+
+def test_lr_manual_upload_versioning_and_removal_preserve_other_documents(app, admin_client, storage):
+    row = save(admin_client, **attachment('pod', pdf_bytes(), 'pod.pdf'), **attachment('invoice', pdf_bytes(), 'invoice.pdf'),
+               **attachment('lr', pdf_bytes(), 'lorry.pdf'))
+    assert row['lr_file'] and row['lr_original_name'] == 'lorry.pdf'
+    result = admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'replacement.pdf')})
+    assert result.status_code == 200, result.json
+    assert result.json['lr_file'] != row['lr_file']
+    with app.app_context():
+        docs = db.session.query(ShipmentDocument).filter_by(document_type='LR').order_by(ShipmentDocument.version).all()
+        assert [(doc.version, doc.is_current) for doc in docs] == [(1, False), (2, True)]
+    result = admin_client.delete(f"/admin/consignments/{row['id']}/lr", json={'expected_reference': result.json['lr_file']})
+    assert result.status_code == 200
+    current = admin_client.get('/admin/consignments/list').json['rows'][0]
+    assert current['lr_file'] is None and current['pod_image'] == row['pod_image'] and current['invoice_file'] == row['invoice_file']
+    assert len(storage.objects) == 2
+    with app.app_context():
+        assert db.session.query(ShipmentDocument).filter_by(document_type='LR').count() == 0
+
+
+def test_preview_batch_upload_binds_correct_two_pages_to_each_shipment(app, admin_client, storage):
+    rows = [save(admin_client, f'LR-UP-{n}') for n in range(2)]
+    pdf, payload = preview(admin_client, rows)
+    assert len(storage.objects) == 0  # Preview has no storage side effects.
+    result = upload(admin_client, pdf, payload)
+    assert result.status_code == 200 and result.json['count'] == 2, result.json
+    for index, row in enumerate(rows):
+        response = admin_client.get(f"/admin/consignments/{row['id']}/lr")
+        reader = PdfReader(BytesIO(response.data))
+        assert response.status_code == 200 and len(reader.pages) == 2
+        assert row['consignment_number'] in reader.pages[0].extract_text()
+        assert rows[1-index]['consignment_number'] not in reader.pages[0].extract_text()
+        assert 'TERMS & CONDITIONS' in reader.pages[1].extract_text()
+        original = PdfReader(BytesIO(pdf.data))
+        assert reader.pages[0].extract_text() == original.pages[index * 2].extract_text()
+        assert reader.pages[1].extract_text() == original.pages[index * 2 + 1].extract_text()
+    assert upload(admin_client, pdf, payload).status_code == 409  # Retry cannot create a duplicate version.
+    assert len(storage.objects) == 2
+    with app.app_context():
+        assert {file.mime_type for file in db.session.query(File).all()} == {'application/pdf'}
+
+
+@pytest.mark.parametrize('tamper', ['pdf', 'selection', 'token', 'owner', 'expired'])
+def test_preview_upload_rejects_tampering_before_storage(app, admin_client, storage, tamper, monkeypatch):
+    row = save(admin_client)
+    pdf, payload = preview(admin_client, [row])
+    token = pdf.headers['X-LR-Preview-Token']
+    content = pdf.data
+    if tamper == 'pdf':
+        content += b'changed'
+    elif tamper == 'selection':
+        payload['expected_references'][0]['reference'] = 'supabase:pod-uploads/wrong.pdf'
+    elif tamper == 'token':
+        token = 'invalid'
+    elif tamper == 'owner':
+        from app.admin.lr import _signer
+        with app.app_context():
+            signer = _signer(); signed = signer.loads(token); signed['owner'] = 'another-admin'; token = signer.dumps(signed)
+    else:
+        from unittest.mock import patch
+        with patch('itsdangerous.timed.time.time', return_value=1):
+            from app.admin.lr import _signer
+            with app.app_context():
+                signer = _signer(); token = signer.dumps(signer.loads(token))
+    result = upload(admin_client, pdf, payload, token=token, content=content)
+    assert result.status_code in (400, 403), result.json
+    assert storage.objects == {}
+
+
+def test_preview_conflict_and_atomic_failure_preserve_previous_lr(app, admin_client, storage, monkeypatch):
+    row = save(admin_client, **attachment('lr', pdf_bytes(), 'existing.pdf'))
+    second = save(admin_client, 'LR-DOC-002')
+    pdf, payload = preview(admin_client, [row, second])
+    baseline = dict(storage.objects)
+    from app.admin import lr
+    original = lr.store_document_changes
+    calls = []
+    def fail_second(*args):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError('Simulated storage failure')
+        return original(*args)
+    monkeypatch.setattr(lr, 'store_document_changes', fail_second)
+    result = upload(admin_client, pdf, payload)
+    assert result.status_code == 500
+    assert storage.objects == baseline
+    current = admin_client.get('/admin/consignments/list', query_string={'search': row['consignment_number']}).json['rows'][0]
+    assert current['lr_file'] == row['lr_file']
+
+
+def test_lr_bulk_documents_dashboard_mis_and_backup(app, admin_client, storage, monkeypatch):
+    enable_listing(storage, monkeypatch)
+    row = save(admin_client)
+    with app.app_context():
+        report = analyze(normalize_filters({'period': 'all'}))
+        assert report['metrics']['missing_lr'] == 1 and report['document_counts']['lr'] == 1
+        assert report['details'][0]['lr'] == 'No'
+    response = admin_client.post('/admin/consignments/documents/bulk-upload', data={
+        'apply': 'true', 'files': [(BytesIO(pdf_bytes()), row['consignment_number'] + '_lr.pdf')],
+    })
+    assert response.status_code == 200 and response.json['documents'][0]['kind'] == 'lr', response.json
+    with app.app_context():
+        report = analyze(normalize_filters({'period': 'all'}))
+        assert report['metrics']['missing_lr'] == 0 and report['details'][0]['lr'] == 'Yes'
+    for kind in ['lr', 'all']:
+        response = admin_client.post('/admin/consignments/documents/bulk-download', json={'ids': [row['id']], 'kind': kind})
+        assert response.status_code == 200
+        assert row['consignment_number'] + '_lr.pdf' in ZipFile(BytesIO(response.data)).namelist()
+    response = admin_client.get('/admin/generate-backup')
+    assert response.status_code == 200
+    archive = ZipFile(BytesIO(response.data))
+    report = json.loads(archive.read('document_report.json'))
+    assert any(item['kind'] == 'lr' and item['status'] == 'included' for item in report['documents'])
+    for fmt in ('csv', 'xlsx', 'pdf'):
+        response = admin_client.get('/admin/mis/export', query_string={'format': fmt, 'period': 'all'})
+        assert response.status_code == 200
+        if fmt == 'csv':
+            assert b'Lorry receipt uploaded' in response.data
+        elif fmt == 'xlsx':
+            from openpyxl import load_workbook
+            workbook = load_workbook(BytesIO(response.data))
+            assert any('Lorry receipt uploaded' in tuple(cell.value for cell in row)
+                       for sheet in workbook for row in sheet)
+        else:
+            assert 'LORRY RECEIPTS MISSING' in '\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.data)).pages)
+    assert b'Lorry Receipt' in admin_client.get('/admin/documents').data
+    assert b'modal-lr-file' in admin_client.get('/admin/consignments').data
+
+
+def test_migration_preserves_documents_is_repeatable_and_rolls_back_on_error(app, admin_client, storage):
+    row = save(admin_client, **attachment('pod', pdf_bytes(), 'pod.pdf'))
+    with app.app_context():
+        db.session.remove()
+        engine = db.engine
+        with engine.begin() as c:
+            c.execute(text(f'ALTER TABLE shipment_documents DROP CONSTRAINT {migration.CONSTRAINT}'))
+            c.execute(text(f"ALTER TABLE shipment_documents ADD CONSTRAINT {migration.CONSTRAINT} CHECK (document_type IN ('POD', 'invoice'))"))
+        before = dict(storage.objects)
+        checked = app.test_cli_runner().invoke(args=['check-db'])
+        assert checked.exit_code != 0 and 'migration 003' in checked.output
+        assert migration.migrate(engine)['lr_supported'] is False
+        assert migration.migrate(engine)['recorded'] is False
+        def fail_history(connection, cursor, statement, parameters, context, many):
+            if statement.startswith('INSERT INTO admin_migration_runs'):
+                raise RuntimeError('History insert failure')
+        event.listen(engine, 'before_cursor_execute', fail_history)
+        try:
+            with pytest.raises(RuntimeError, match='History insert failure'):
+                migration.migrate(engine, apply=True)
+        finally:
+            event.remove(engine, 'before_cursor_execute', fail_history)
+        assert migration.migrate(engine)['lr_supported'] is False
+        assert migration.migrate(engine, apply=True)['status'] == 'applied'
+        assert migration.migrate(engine, apply=True)['status'] == 'already_applied'
+        assert migration.migrate(engine)['lr_supported'] is True
+        assert app.test_cli_runner().invoke(args=['check-db']).exit_code == 0
+        assert db.session.query(ShipmentDocument).count() == 1
+        assert db.session.execute(select(RUNS.c.version).where(RUNS.c.version == migration.VERSION)).scalar_one() == migration.VERSION
+        assert storage.objects == before
+    assert admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'lr.pdf')}).status_code == 200
+
+
+def test_outdated_preview_and_viewer_cannot_replace_an_lr(app, admin_client, storage):
+    row = save(admin_client)
+    pdf, payload = preview(admin_client, [row])
+    changed = admin_client.post(f"/admin/consignments/{row['id']}/lr", data={'file': (BytesIO(pdf_bytes()), 'manual.pdf')})
+    assert changed.status_code == 200
+    baseline = dict(storage.objects)
+    assert upload(admin_client, pdf, payload).status_code == 409
+    assert admin_client.post('/admin/lr-generator/generate', json=payload).status_code == 409
+    from database.models import AdminUser
+    with app.app_context():
+        db.session.query(AdminUser).filter_by(username='admin').one().role = 'viewer'
+        db.session.commit()
+    assert upload(admin_client, pdf, payload).status_code == 403
+    assert storage.objects == baseline

@@ -67,9 +67,10 @@ def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None, 
 def _store_mis_bytes(filename, content, mime):
     bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     document_buckets = {os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
-                        os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads'}
+                        os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
+                        os.getenv('SUPABASE_LR_BUCKET', '').strip() or os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads'}
     if bucket in document_buckets:
-        raise ValueError('Use a separate MIS bucket, rather than the POD or invoice bucket.')
+        raise ValueError('Use a separate MIS bucket, rather than a POD, invoice or LR bucket.')
     return _store_pod_bytes(filename, content, mime, bucket_name=bucket,
                             remote_prefix='mis_reports')
 
@@ -171,6 +172,8 @@ def _serialize_consignment(consignment):
         "pod_original_name": consignment.pod_original_name,
         "invoice_file": consignment.invoice_file,
         "invoice_original_name": consignment.invoice_original_name,
+        "lr_file": consignment.lr_file,
+        "lr_original_name": consignment.lr_original_name,
         "pod_file_name": getattr(consignment, "pod_file_name", None),
         "pod_file_type": getattr(consignment, "pod_file_type", None),
         "pod_file_data": getattr(consignment, "pod_file_data", None),
