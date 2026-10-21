@@ -15,7 +15,7 @@ tables:
 | `consignments` | Shipment identifiers, status, pieces, weight, volume, dates, and address snapshots |
 | `shipment_events` | Shipment status history and event attribution |
 | `files` | Supabase bucket/path, filename, MIME type, byte size, checksum, and upload time |
-| `shipment_documents` | Versioned POD and invoice references |
+| `shipment_documents` | Versioned POD, invoice and lorry receipt (LR) references |
 | `mis_views` | Saved report filters, columns, format, and notes |
 | `mis_reports` | Generated report metadata and immutable snapshots |
 | `audit_logs` | Change actor, entity, action, before/after values, and time |

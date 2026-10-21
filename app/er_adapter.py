@@ -6,6 +6,7 @@ untouched. Canonical file metadata and versioned documents use the ER tables.
 """
 from datetime import UTC, date, datetime
 import json
+import mimetypes
 from uuid import UUID, uuid4
 
 from flask import current_app, session, has_request_context
@@ -151,7 +152,7 @@ def register_file(reference, original_name=None, mime=None):
     content, _ = _download_supabase_pod_file(reference)
     row = File(id=uuid4(), uploaded_by=actor_id(), storage_bucket=bucket,
         storage_path=path, original_filename=original_name or path.rsplit('/', 1)[-1],
-        mime_type=mime or 'application/octet-stream', size_bytes=len(content),
+        mime_type=mime or mimetypes.guess_type(path)[0] or 'application/octet-stream', size_bytes=len(content),
         checksum=hashlib.sha256(content).hexdigest(), uploaded_at=datetime.now(UTC))
     db.session.add(row)
     return row
@@ -175,8 +176,9 @@ def set_document(row, kind, file):
 
 def _document_fields(kind, field, name_field):
     def get(row):
+        from app.admin.documents import storage_reference
         doc = current_document(row, kind)
-        return doc.file.storage_path if doc else None
+        return storage_reference(doc.file.storage_bucket, doc.file.storage_path) if doc else None
     def set_reference(row, reference):
         set_document(row, kind, register_file(reference) if reference else None)
     def get_name(row):
@@ -192,7 +194,15 @@ def _document_fields(kind, field, name_field):
 
 _document_fields('POD', 'pod_image', 'pod_original_name')
 _document_fields('invoice', 'invoice_file', 'invoice_original_name')
-MisReport.file_ref = property(lambda row: row.file.storage_path if row.file else None,
+_document_fields('LR', 'lr_file', 'lr_original_name')
+
+
+def _report_reference(row):
+    from app.admin.documents import storage_reference
+    return storage_reference(row.file.storage_bucket, row.file.storage_path) if row.file else None
+
+
+MisReport.file_ref = property(_report_reference,
     lambda row, value: setattr(row, 'file', register_file(value)))
 MisReport.file_name = property(lambda row: row.file.original_filename if row.file else None,
     lambda row, value: setattr(row.file, 'original_filename', value))

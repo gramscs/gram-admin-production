@@ -7,6 +7,28 @@ from app.admin import consignment_controller as controller
 from test_shipment_documents import attachment, image_bytes
 
 
+def test_opaque_proxy_binding_uses_official_storage_client(monkeypatch):
+    from types import SimpleNamespace
+    import storage3
+    import supabase
+    from supabase._sync.client import SupabaseException
+    monkeypatch.setenv('SUPABASE_URL', 'https://storage-test.supabase.co')
+    monkeypatch.setenv('SUPABASE_KEY', 'opaque-test-binding')
+    def reject_format(*args):
+        raise SupabaseException('Invalid API key')
+    monkeypatch.setattr(supabase, 'create_client', reject_format)
+    seen = {}
+    storage = SimpleNamespace()
+    def create(url, headers, **options):
+        seen.update(url=url, headers=headers, options=options)
+        return storage
+    monkeypatch.setattr(storage3, 'create_client', create)
+    assert controller._get_supabase_client().storage is storage
+    assert seen == {'url': 'https://storage-test.supabase.co/storage/v1',
+                    'headers': {'apikey': 'opaque-test-binding', 'Authorization': 'Bearer opaque-test-binding'},
+                    'options': {'is_async': False}}
+
+
 @pytest.mark.parametrize("url,key", [("https://test.supabase.co", ""), ("", "test-key")])
 @pytest.mark.parametrize("kind", ["pod", "invoice"])
 def test_incomplete_settings_reject_upload_without_local_fallback(

@@ -93,7 +93,7 @@
     window.shipmentDocumentEditor = {
         open(row, kind, onSaved) {
             if (editor && editor.busy) return;
-            editor = {kind, reference: row[kind === 'pod' ? 'pod_image' : 'invoice_file'] || null,
+            editor = {kind, reference: row[{pod: 'pod_image', invoice: 'invoice_file', lr: 'lr_file'}[kind]] || null,
                 name: row[kind + '_original_name'] || 'Attached ' + kind.toUpperCase(),
                 url: '/admin/consignments/' + encodeURIComponent(row.id) + '/' + kind,
                 file: null, remove: false, changed: false, error: '', pending: false, busy: false, sequence: 0, onSaved};

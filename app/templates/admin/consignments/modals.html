@@ -75,11 +75,11 @@
           <h3 class="fs-6 fw-bold" id="shipment-documents-heading">Shipment documents</h3>
           <p class="small text-muted">PDF, JPG, PNG or WebP · up to 5 MB each. Changes are applied with Save All.</p>
           <div class="row g-3">
-            {% for kind, title, icon in [('pod', 'Proof of delivery (POD)', 'check-square-o'), ('invoice', 'Invoice', 'file-text-o')] %}
+            {% for kind, title, icon in [('pod', 'Proof of delivery (POD)', 'check-square-o'), ('invoice', 'Invoice', 'file-text-o'), ('lr', 'Lorry Receipt (LR)', 'file-text-o')] %}
             <div class="col-md-6"><fieldset class="document-card" data-document="{{ kind }}">
               <legend class="fs-6"><i class="fa fa-{{ icon }} me-2" aria-hidden="true"></i>{{ title }}</legend>
               <p class="document-status small text-muted" id="modal-{{ kind }}-status" aria-live="polite">No document attached.</p>
-              <label for="modal-{{ kind }}-file" class="form-label small">Choose {{ 'POD' if kind == 'pod' else 'invoice' }}</label>
+              <label for="modal-{{ kind }}-file" class="form-label small">Choose {{ {'pod': 'POD', 'invoice': 'invoice', 'lr': 'lorry receipt'}[kind] }}</label>
               <input type="file" id="modal-{{ kind }}-file" accept=".pdf,.jpg,.jpeg,.png,.webp" class="form-control form-control-sm" aria-describedby="modal-{{ kind }}-error" />
               <p id="modal-{{ kind }}-error" class="text-danger small mt-2 mb-0" role="alert"></p>
               <img class="document-image d-none" id="modal-{{ kind }}-image" alt="{{ title }} preview" />

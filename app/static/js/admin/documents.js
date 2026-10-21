@@ -1,7 +1,7 @@
 (function () {
     'use strict';
-    const kinds = ['pod', 'invoice'];
-    const fields = {pod: 'pod_image', invoice: 'invoice_file'};
+    const kinds = ['pod', 'invoice', 'lr'];
+    const fields = {pod: 'pod_image', invoice: 'invoice_file', lr: 'lr_file'};
     const state = {};
     let shipmentId = null;
     const element = (kind, part) => document.getElementById('modal-' + kind + '-' + part);

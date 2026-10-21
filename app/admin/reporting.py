@@ -18,9 +18,9 @@ COLUMNS = {
     'pickup_tag': 'Pickup location', 'pickup_pincode': 'Pickup pincode', 'pickup_address': 'Pickup address',
     'drop_tag': 'Drop location', 'drop_pincode': 'Drop pincode', 'drop_address': 'Drop address',
     'pieces': 'Boxes / pallets', 'measurement_mode': 'Measurement basis', 'weight': 'Weight (kg)', 'volume': 'Volume (ft³)',
-    'pod': 'POD uploaded', 'invoice': 'Invoice uploaded', 'issues': 'Attention flags',
+    'pod': 'POD uploaded', 'invoice': 'Invoice uploaded', 'lr': 'Lorry receipt uploaded', 'issues': 'Attention flags',
 }
-DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'weight', 'volume', 'measurement_mode', 'pod', 'invoice', 'issues']
+DEFAULT_COLUMNS = ['consignment_number', 'identifier_type', 'client', 'status', 'pickup_date', 'drop_date', 'pickup_tag', 'drop_tag', 'pieces', 'weight', 'volume', 'measurement_mode', 'pod', 'invoice', 'lr', 'issues']
 DEFINITION = 'Current status of shipments grouped by pickup date. Expected drop dates are estimates; no actual delivery time or on-time delivery metric is recorded. Document indicators show attached references, not file availability.'
 
 
@@ -162,7 +162,7 @@ def analyze(filters, today=None):
                 continue
         shipments.append(row)
     counts = {key: 0 for key in (*STATUSES, 'No status', 'Other')}
-    totals = {'total': len(shipments), 'pieces': 0, 'weight': Decimal(0), 'volume': Decimal(0), 'weight_recorded': 0, 'volume_recorded': 0, 'past_expected': 0, 'missing_pod': 0, 'missing_invoice': 0, 'undated': 0, 'unassigned': 0, 'invalid_measurements': 0}
+    totals = {'total': len(shipments), 'pieces': 0, 'weight': Decimal(0), 'volume': Decimal(0), 'weight_recorded': 0, 'volume_recorded': 0, 'past_expected': 0, 'missing_pod': 0, 'missing_invoice': 0, 'missing_lr': 0, 'undated': 0, 'unassigned': 0, 'invalid_measurements': 0}
     clients, routes, dates, details, exceptions = {}, {}, {}, [], []
     missing_documents = []
     for row in shipments:
@@ -171,11 +171,11 @@ def analyze(filters, today=None):
         pickup, expected = parse_date(row.pickup_date), parse_date(row.drop_date) or parse_date(row.eta)
         client = row.company.name if row.company else 'Unassigned client'
         client_key = str(row.company_id) if row.company else 'unassigned'
-        if not row.pod_image or not row.invoice_file:
+        if not row.pod_image or not row.invoice_file or not row.lr_file:
             missing_documents.append({
                 'identifier': row.consignment_number, 'identifier_type': row.identifier_type or 'LRN',
                 'company': client, 'company_id': client_key, 'status': row.status or 'No status',
-                'missing_pod': not bool(row.pod_image), 'missing_invoice': not bool(row.invoice_file),
+                'missing_pod': not bool(row.pod_image), 'missing_invoice': not bool(row.invoice_file), 'missing_lr': not bool(row.lr_file),
             })
         pieces = row.pieces if isinstance(row.pieces, int) and row.pieces > 0 else 0
         weight = number(row.weight)
@@ -190,6 +190,9 @@ def analyze(filters, today=None):
         if not row.invoice_file:
             totals['missing_invoice'] += 1
             flags.append('Invoice missing')
+        if not row.lr_file:
+            totals['missing_lr'] += 1
+            flags.append('Lorry receipt missing')
         if not pickup:
             totals['undated'] += 1
             flags.append('Pickup date missing or invalid')
@@ -213,7 +216,7 @@ def analyze(filters, today=None):
         if pickup:
             dates[pickup] = dates.get(pickup, 0) + 1
         detail = {key: getattr(row, key, '') or '' for key in COLUMNS if hasattr(row, key)}
-        detail.update(client=client, status=row.status or 'No status', pieces=pieces, weight=float(weight) if weight is not None else '', volume=float(volume) if volume is not None else '', pod='Yes' if row.pod_image else 'No', invoice='Yes' if row.invoice_file else 'No', issues='; '.join(flags))
+        detail.update(client=client, status=row.status or 'No status', pieces=pieces, weight=float(weight) if weight is not None else '', volume=float(volume) if volume is not None else '', pod='Yes' if row.pod_image else 'No', invoice='Yes' if row.invoice_file else 'No', lr='Yes' if row.lr_file else 'No', issues='; '.join(flags))
         detail['measurement_mode'] = 'Volume (ft³)' if (row.measurement_mode or ('volume' if volume is not None and weight is None else 'weight')) == 'volume' else 'Weight (kg)'
         details.append(detail)
         if flags:
@@ -260,7 +263,7 @@ def analyze(filters, today=None):
     company_label = next((item.name for item in models.Company.query.all() if str(item.id) == filters['company']), 'Unassigned client' if filters['company'] else 'All clients')
     period_label = f'{filters["start"]} to {filters["end"]}' if filters['start'] else 'All time'
     missing_documents.sort(key=lambda item: (item['identifier'].casefold(), item['identifier_type'], item['company']))
-    return {'missing_documents': missing_documents, 'document_counts': {'any': len(missing_documents), 'pod': sum(item['missing_pod'] for item in missing_documents), 'invoice': sum(item['missing_invoice'] for item in missing_documents), 'both': sum(item['missing_pod'] and item['missing_invoice'] for item in missing_documents)}, 'metrics': totals, 'saved_total': models.shipment_query().count(), 'statuses': [{'label': key, 'count': value} for key, value in counts.items() if value], 'trend': trend, 'grain': grain, 'clients': clients, 'routes': [{'label': key, 'count': value} for key, value in sorted(routes.items(), key=lambda item: (-item[1], item[0]))], 'exceptions': exceptions, 'details': details, 'recent': list(reversed(shipments[-5:])), 'filters': filters, 'period_label': period_label, 'client_label': company_label, 'status_label': filters['status'] or 'All statuses', 'generated_at': datetime.now(IST).strftime('%d %b %Y, %I:%M %p IST'), 'definition': DEFINITION}
+    return {'missing_documents': missing_documents, 'document_counts': {'any': len(missing_documents), 'pod': sum(item['missing_pod'] for item in missing_documents), 'invoice': sum(item['missing_invoice'] for item in missing_documents), 'lr': sum(item['missing_lr'] for item in missing_documents), 'all': sum(item['missing_pod'] and item['missing_invoice'] and item['missing_lr'] for item in missing_documents), 'both': sum(item['missing_pod'] and item['missing_invoice'] for item in missing_documents)}, 'metrics': totals, 'saved_total': models.shipment_query().count(), 'statuses': [{'label': key, 'count': value} for key, value in counts.items() if value], 'trend': trend, 'grain': grain, 'clients': clients, 'routes': [{'label': key, 'count': value} for key, value in sorted(routes.items(), key=lambda item: (-item[1], item[0]))], 'exceptions': exceptions, 'details': details, 'recent': list(reversed(shipments[-5:])), 'filters': filters, 'period_label': period_label, 'client_label': company_label, 'status_label': filters['status'] or 'All statuses', 'generated_at': datetime.now(IST).strftime('%d %b %Y, %I:%M %p IST'), 'definition': DEFINITION}
 
 
 def filter_options():

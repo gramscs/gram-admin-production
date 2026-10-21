@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from tempfile import SpooledTemporaryFile
+from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from flask import current_app
@@ -16,10 +16,11 @@ from openpyxl.cell import WriteOnlyCell
 from sqlalchemy import select
 from werkzeug.utils import secure_filename
 
-from app.admin.documents import DOCUMENTS, open_stored_document, document_name, document_extension
+from app.admin.documents import DOCUMENTS, DOCUMENT_TYPES, open_stored_document, document_name, document_extension, storage_reference
 from app.models import db
 from app import orm as models
 from app.shipment_packages import volume_ft3
+from app.spreadsheets import save_workbook_in_memory
 
 TABLE_KEYS = {'consignment': 'consignments', 'company': 'companies', 'company_location': 'company_locations',
               'lead': 'leads', 'newsletter_subscriber': 'newsletter_subscribers'}
@@ -111,7 +112,8 @@ def _inventory(referenced, report):
             except ValueError:
                 report['inventory_errors'].append({'source': 'supabase_uploads', 'message': 'A legacy storage reference is invalid.'})
     buckets.update((os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
-                    os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads'))
+                    os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
+                    os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads'))
     report_bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     buckets.add(report_bucket)
     report_buckets.add(report_bucket)
@@ -136,7 +138,7 @@ def _inventory(referenced, report):
 
 def _pack_document(archive, reference, archive_path):
     """Finish reading before creating an entry, so read failures leave no partial file."""
-    with SpooledTemporaryFile(max_size=1024*1024, mode='w+b') as staged:
+    with BytesIO() as staged:
         size, digest = 0, hashlib.sha256()
         try:
             with open_stored_document(reference) as (source, _):
@@ -193,7 +195,8 @@ def _sheet(workbook, title, columns, rows):
 
 
 def _workbook(payload, report, table_columns):
-    workbook = Workbook(write_only=True)
+    workbook = Workbook()
+    workbook.remove(workbook.active)
     for key, rows in payload.items():
         if key == 'metadata':
             continue
@@ -205,7 +208,7 @@ def _workbook(payload, report, table_columns):
                 row['volume'] = str(volume_ft3(SimpleNamespace(**row))) if row.get('volume') is not None else None
                 row['volume_unit'] = 'ft3'
             columns += [name for name in ('volume_unit', 'package_contents') if name not in columns]
-            columns = ['backup_order'] + columns + ['pod_backup_path', 'pod_backup_status', 'invoice_backup_path', 'invoice_backup_status']
+            columns = ['backup_order'] + columns + [name for kind in DOCUMENTS for name in (kind + '_backup_path', kind + '_backup_status')]
         if key in ('mis_report', 'mis_reports'):
             columns += ['file_backup_path', 'file_backup_status']
         _sheet(workbook, key, columns, rows)
@@ -216,7 +219,7 @@ def _workbook(payload, report, table_columns):
 
 
 def build_complete_backup(payload):
-    buffer = SpooledTemporaryFile(max_size=8*1024*1024, mode='w+b')
+    buffer = BytesIO()
     report = {'format_version': 2, 'generated_at': payload['metadata']['generated_at'], 'ordering': 'Consignments ordered by database ID ascending; numeric folder prefixes match backup_order in data and Excel.',
               'documents': [], 'inventory_errors': [], 'storage_scope': ['Supabase buckets: consignments/ and mis_reports/ namespaces and all directly referenced files']}
     table_columns = {TABLE_KEYS.get(table.name, table.name): [column.key for column in table.columns] for table in models.tables()}
@@ -234,10 +237,10 @@ def build_complete_backup(payload):
                 for kind, (field, name_field) in DOCUMENTS.items():
                     value, mime_type = row.get(field), None
                     if er:
-                        doc_type = 'POD' if kind == 'pod' else 'invoice'
+                        doc_type = DOCUMENT_TYPES[kind]
                         doc = current_documents.get((row['id'], doc_type))
                         file = files_by_id.get(doc['file_id']) if doc else None
-                        value = file['storage_path'] if file else None
+                        value = storage_reference(file['storage_bucket'], file['storage_path']) if file else None
                         if file:
                             row[name_field] = file['original_filename']
                             mime_type = file['mime_type']
@@ -254,7 +257,7 @@ def build_complete_backup(payload):
                 value = row.get('file_ref')
                 if er:
                     file = files_by_id.get(row['file_id'])
-                    value = file['storage_path'] if file else None
+                    value = storage_reference(file['storage_bucket'], file['storage_path']) if file else None
                     if file:
                         row['file_name'] = file['original_filename']
                 if value:
@@ -269,13 +272,13 @@ def build_complete_backup(payload):
                 shipments = {row['id']: row for row in payload['consignments']}
                 document_files = {item['file_id']: item for item in reversed(payload['shipment_documents'])}
                 for index, file in enumerate(payload['files'], start=1):
-                    value = file['storage_path']
+                    value = storage_reference(file['storage_bucket'], file['storage_path'])
                     if _reference_key(value) not in referenced:
                         doc = document_files.get(file['id'])
                         shipment = shipments.get(doc['consignment_id']) if doc else None
                         name = _safe_name(file['original_filename'])
                         if shipment:
-                            kind = 'pod' if doc['document_type'] == 'POD' else 'invoice'
+                            kind = {value: key for key, value in DOCUMENT_TYPES.items()}[doc['document_type']]
                             name = document_name(shipment.get('identifier_value') or shipment.get('consignment_number'), kind,
                                                  document_extension(value, file['original_filename'], file['mime_type']))
                         _add_document(archive, report, value, f"file_history/{index:06d}/" + name, source='file_record', kind='retained_file', file_id=file['id'], original_name=file['original_filename'])
@@ -290,8 +293,8 @@ def build_complete_backup(payload):
             payload['metadata']['document_counts'] = counts
             archive.writestr('data.json', json.dumps(payload, ensure_ascii=False, indent=2))
             archive.writestr('document_report.json', json.dumps(report, ensure_ascii=False, indent=2))
-            with SpooledTemporaryFile(max_size=1024*1024, mode='w+b') as spreadsheet:
-                _workbook(payload, report, table_columns).save(spreadsheet)
+            with BytesIO() as spreadsheet:
+                save_workbook_in_memory(_workbook(payload, report, table_columns), spreadsheet)
                 spreadsheet.seek(0)
                 with archive.open('admin-data.xlsx', 'w', force_zip64=True) as target:
                     while chunk := spreadsheet.read(1024*1024):
@@ -309,8 +312,8 @@ and retained legacy records. Saved MIS files are in mis_reports/.
 JSON is the authoritative full-data copy; Excel is for browsing the records.
 
 Consignment folders start with the same backup_order number as the consignment
-data/Excel sheet (database ID ascending). Each contains POD and invoice files
-named consignmentNum_pod.ext and consignmentNum_invoice.ext when attached.
+data/Excel sheet (database ID ascending). Each contains POD, invoice and LR files
+named consignmentNum_pod.ext, consignmentNum_invoice.ext and consignmentNum_lr.ext when attached.
 Retained versions use separate file_history/ folders with the same filenames.
 Unlinked uploaded files are in other_uploads/ with their stored basenames.
 Files are copied

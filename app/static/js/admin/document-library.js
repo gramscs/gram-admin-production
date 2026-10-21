@@ -24,7 +24,7 @@
     }
     function documentCell(row, kind) {
         const cell = node('td');
-        const reference = row[kind === 'pod' ? 'pod_image' : 'invoice_file'];
+        const reference = row[{pod: 'pod_image', invoice: 'invoice_file', lr: 'lr_file'}[kind]];
         if (!reference) {
             const missing = node('span', 'document-missing', 'Not uploaded');
             cell.append(missing);
@@ -80,7 +80,7 @@
         const identity = node('td', 'shipment-identity');
         identity.append(node('strong', '', row.consignment_number), node('span', 'd-block small text-muted mt-1', row.status || 'No status'));
         tr.append(identity, node('td', '', row.identifier_type || 'LRN'), node('td', 'document-company', row.company_name || 'Unassigned company'));
-        tr.append(documentCell(row, 'pod'), documentCell(row, 'invoice'));
+        tr.append(documentCell(row, 'pod'), documentCell(row, 'invoice'), documentCell(row, 'lr'));
         const action = node('td'), shipment = node('a', 'btn btn-outline-secondary document-icon-action');
         shipment.title = 'View shipment'; shipment.setAttribute('aria-label', 'View shipment');
         const eye = node('i', 'fa fa-eye'); eye.setAttribute('aria-hidden', 'true'); shipment.append(eye);
@@ -101,7 +101,7 @@
         body.replaceChildren();
         data.rows.forEach(row => body.append(render(row)));
         if (!data.rows.length) {
-            const tr = node('tr'), cell = node('td', 'empty-panel'); cell.colSpan = 7;
+            const tr = node('tr'), cell = node('td', 'empty-panel'); cell.colSpan = 8;
             cell.append(node('strong', '', 'No matching shipments'), node('span', '', 'Change your filters, or create and save a shipment first.')); tr.append(cell); body.append(tr);
         }
         body.querySelectorAll('tr[data-id]').forEach(tr => window.shipmentBulkDocuments.restore(tr));

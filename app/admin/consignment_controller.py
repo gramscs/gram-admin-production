@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from types import SimpleNamespace
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from openpyxl import Workbook, load_workbook
@@ -17,8 +18,9 @@ from app.admin.auth import require_admin
 from app.models import db
 from app import orm as models
 from app.shipment_packages import normalize_contents, volume_ft3, shared_contents
+from app.spreadsheets import save_workbook_in_memory
 from app.admin.documents import prepare_row_documents, store_document_changes, cleanup_documents
-from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError
+from app.admin.document_lifecycle import commit_document_cleanup, purge_shipment_documents, StorageSyncError, document_save_error
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +35,23 @@ def _get_supabase_client():
         raise RuntimeError('Set both SUPABASE_URL and SUPABASE_KEY to use Supabase Storage.')
     try:
         from supabase import create_client
+        from supabase._sync.client import SupabaseException
     except Exception:
         raise RuntimeError('Supabase Storage requires the Supabase package. Install the app requirements.') from None
     try:
-        return create_client(url, key)
+        try:
+            return create_client(url, key)
+        except SupabaseException as error:
+            if str(error) != 'Invalid API key':
+                raise
+            # The older general SDK validates JWT syntax locally. Proxy-backed
+            # keys can be opaque until HTTPS egress substitutes the real key.
+            # The official Storage client sends that binding to the same project;
+            # Supabase still validates credentials and permissions on every call.
+            from storage3 import create_client as create_storage_client
+            storage = create_storage_client(url.rstrip('/') + '/storage/v1',
+                {'apikey': key, 'Authorization': 'Bearer ' + key}, is_async=False)
+            return SimpleNamespace(storage=storage)
     except Exception:
         raise RuntimeError('Supabase Storage could not initialize. Check SUPABASE_URL and use the legacy service_role key for SUPABASE_KEY.') from None
 
@@ -67,9 +82,10 @@ def _store_pod_bytes(filename, file_bytes, content_type=None, bucket_name=None, 
 def _store_mis_bytes(filename, content, mime):
     bucket = os.getenv('SUPABASE_MIS_BUCKET', '').strip() or 'mis-reports'
     document_buckets = {os.getenv('SUPABASE_BUCKET', '').strip() or 'pod-uploads',
-                        os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads'}
+                        os.getenv('SUPABASE_INVOICE_BUCKET', '').strip() or 'invoice-uploads',
+                        os.getenv('SUPABASE_LR_BUCKET', '').strip() or 'lr-uploads'}
     if bucket in document_buckets:
-        raise ValueError('Use a separate MIS bucket, rather than the POD or invoice bucket.')
+        raise ValueError('Use a separate MIS bucket, rather than a POD, invoice or LR bucket.')
     return _store_pod_bytes(filename, content, mime, bucket_name=bucket,
                             remote_prefix='mis_reports')
 
@@ -171,6 +187,8 @@ def _serialize_consignment(consignment):
         "pod_original_name": consignment.pod_original_name,
         "invoice_file": consignment.invoice_file,
         "invoice_original_name": consignment.invoice_original_name,
+        "lr_file": consignment.lr_file,
+        "lr_original_name": consignment.lr_original_name,
         "pod_file_name": getattr(consignment, "pod_file_name", None),
         "pod_file_type": getattr(consignment, "pod_file_type", None),
         "pod_file_data": getattr(consignment, "pod_file_data", None),
@@ -278,7 +296,7 @@ def consignments_import_template_excel():
     ])
 
     buffer = io.BytesIO()
-    workbook.save(buffer)
+    save_workbook_in_memory(workbook, buffer)
     buffer.seek(0)
     return send_file(
         buffer,
@@ -401,7 +419,7 @@ def consignments_export_excel():
         ])
 
     buffer = io.BytesIO()
-    workbook.save(buffer)
+    save_workbook_in_memory(workbook, buffer)
     buffer.seek(0)
     return send_file(
         buffer,
@@ -643,8 +661,8 @@ def consignments_save():
         db.session.rollback()
         cleanup_documents(created_files)
         return jsonify(success=False, message=str(error)), 500
-    except Exception:
+    except Exception as error:
         db.session.rollback()
         cleanup_documents(created_files)
         logger.exception("Failed to save consignments")
-        return jsonify({"success": False, "message": "Failed to save consignments."}), 500
+        return jsonify({"success": False, "message": document_save_error(error, "Failed to save consignments.")}), 500
