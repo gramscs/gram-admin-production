@@ -6,6 +6,105 @@ local persistence.
 
 ## Upgrade an existing application database
 
+### Version 003: Lorry Receipt documents
+
+LR attachments use the existing `shipment_documents` / `files` tables with
+`document_type = 'LR'`. No shipment columns or new tables are needed in the ER
+schema. The migration widens only the named document-type check constraint,
+verifies existing row counts, and records revision `003_lorry_receipts` in the
+same PostgreSQL transaction. Existing POD/invoice versions, current-version
+indexes, file records, foreign keys, RLS and uploaded objects are preserved.
+
+Using the existing securely configured `DATABASE_URL`:
+
+```bash
+python migrations/003_lorry_receipts.py
+python migrations/003_lorry_receipts.py --apply
+AUTO_CREATE_TABLES=false python -m flask --app wsgi:app check-db
+```
+
+The first command is read-only. Application is idempotent; pulling code alone
+does not execute it. If the transaction fails, the old constraint and migration
+history remain intact. Do not run a one-time importer for this upgrade.
+
+If an LR image or PDF causes **Save failed. Failed to save consignments.**, the
+existing database may still permit only POD and invoice links. Creating the
+Storage bucket or pulling application code does not update that constraint.
+Apply migration 003 using the commands above, then retry the upload.
+
+If PostgreSQL is inaccessible from your terminal, open the **same project's
+Supabase SQL Editor**, paste the entire contents of
+[`migrations/sql/003_lorry_receipts.sql`](../migrations/sql/003_lorry_receipts.sql),
+and run it as the schema owner. This is an alternative way to apply the same
+revision, with compatible migration history. It requires the existing migration
+ledger and stops on unexpected constraints or a conflicting revision. The
+transaction preserves existing shipments, document versions and Storage files;
+it does not add an LR column or make Storage public. The final queries must
+show `'LR'` in the constraint and `003_lorry_receipts` in migration history.
+Then retry **Save All** with the LR image attached.
+
+If an earlier copy stops with **Unexpected document types**, use the current SQL
+file and rerun the entire transaction. The corrected check compares type
+membership independently of the database's text sorting rules. It still rejects
+additional or missing types; in that case, share the reported type list and the
+constraint definition from the verification query below before changing it.
+
+LR files use the private `lr-uploads` bucket by default. Set
+`SUPABASE_LR_BUCKET=lr-uploads` in the running app environment. Optional overrides
+must name another private bucket with the same server-side permissions. Keep MIS reports in a separate bucket. `check-storage` includes LR
+bucket reads. No public bucket or automatic bucket creation is used.
+
+LR PDFs are processed in memory and persisted only in Supabase Storage. Their
+database links use `shipment_documents.document_type = 'LR'` and `file_id`, with
+bucket, object path and file metadata in `files`. There is no physical `lr`
+column to add to the ER `consignments` table; `lr_file` is the application's
+compatibility property for that relationship.
+
+In Supabase SQL Editor, verify that the type constraint permits LR:
+
+```sql
+SELECT conname, pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE conrelid = 'public.shipment_documents'::regclass
+  AND conname = 'ck_shipment_documents_valid_type';
+```
+
+The definition must include `'LR'`. After uploading an LR, verify its shipment
+link and the actual Storage object:
+
+```sql
+SELECT c.identifier_value AS shipment, d.document_type, d.version, d.is_current,
+       f.storage_bucket, f.storage_path,
+       EXISTS (
+           SELECT 1 FROM storage.objects o
+           WHERE o.bucket_id = f.storage_bucket AND o.name = f.storage_path
+       ) AS object_exists
+FROM public.shipment_documents d
+JOIN public.consignments c ON c.id = d.consignment_id
+JOIN public.files f ON f.id = d.file_id
+WHERE d.document_type = 'LR'
+ORDER BY f.uploaded_at DESC;
+```
+
+New uploads should show `storage_bucket = 'lr-uploads'` and `object_exists = true`.
+Previously uploaded documents keep their original bucket references; they are
+not moved or deleted by changing the default bucket.
+
+After preview, **Upload LR** submits each shipment's own two-page PDF through
+the same shipment-document upload endpoint used for manual POD, invoice and LR
+uploads. Standard file validation, permissions, stale-reference protection and
+version history apply. If one upload fails, already uploaded documents remain
+saved and the generator retries only the remaining files. Editing the form
+requires another preview. Files are stored in the private LR bucket and linked
+through the existing document tables, exactly like other document uploads.
+
+Application rollback can leave this backwards-compatible constraint in place.
+If a database rollback is needed, first verify there are no `LR` document rows;
+otherwise reverting the check would reject existing records. Restore the old
+`CHECK (document_type IN ('POD', 'invoice'))` transactionally only after that
+verification and record the rollback in migration history. Never delete LR
+records or stored files merely to downgrade the application.
+
 ### Version 002: PostgreSQL label numbering
 
 [`002_label_runs.py`](../migrations/002_label_runs.py) adds the missing

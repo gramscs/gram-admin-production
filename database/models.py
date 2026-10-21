@@ -214,7 +214,7 @@ class File(UUIDRecord, Base):
 class ShipmentDocument(UUIDRecord, Base):
     __tablename__ = "shipment_documents"
     __table_args__ = (
-        CheckConstraint("document_type IN ('POD', 'invoice')", name="valid_type"),
+        CheckConstraint("document_type IN ('POD', 'invoice', 'LR')", name="valid_type"),
         CheckConstraint("version >= 1", name="positive_version"),
         UniqueConstraint("consignment_id", "document_type", "version", name="uq_shipment_documents_version"),
         Index("uq_shipment_documents_current", "consignment_id", "document_type", unique=True,

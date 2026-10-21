@@ -299,6 +299,12 @@ document.addEventListener("DOMContentLoaded", function () {
             invoice_file_type: data.invoice_file_type || null,
             invoice_file_data: data.invoice_file_data || null,
             invoice_remove: !!data.invoice_remove,
+            lr_file: data.lr_file || null,
+            lr_original_name: data.lr_original_name || null,
+            lr_file_name: data.lr_file_name || null,
+            lr_file_type: data.lr_file_type || null,
+            lr_file_data: data.lr_file_data || null,
+            lr_remove: !!data.lr_remove,
             pod_file_name: data.pod_file_name || null,
             pod_file_type: data.pod_file_type || null,
             pod_file_data: data.pod_file_data || null
@@ -783,7 +789,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Event Listeners
     document.addEventListener('shipment-documents-updated', function (event) {
         event.detail.forEach(function (update) {
-            var field = update.kind === 'pod' ? 'pod_image' : 'invoice_file';
+            var field = {pod: 'pod_image', invoice: 'invoice_file', lr: 'lr_file'}[update.kind];
             function merge(row) { row[field] = update.reference; row[update.kind + '_original_name'] = update.original_name; }
             document.querySelectorAll('#sheet-body tr').forEach(function (tr) {
                 if (tr.dataset.id !== String(update.id)) return;

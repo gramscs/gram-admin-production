@@ -1,0 +1,15 @@
+.lr-selected-list { list-style: none; padding: 0; max-height: 22rem; overflow-y: auto; margin: 1rem 0; }
+.lr-selected-list li { display: flex; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--admin-border); padding: .35rem 0; font-size: .8rem; overflow-wrap: anywhere; }
+.lr-review-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem; }
+.lr-field { min-width: 0; }
+.lr-field textarea { resize: vertical; min-height: 5rem; }
+.lr-review-group { border: 0; padding: .75rem 0; margin: 0; min-width: 0; }
+.lr-review-group legend { float: none; font-size: .85rem; font-weight: 700; border-bottom: 1px solid var(--admin-border); padding-bottom: .4rem; }
+.lr-field-source { display: block; color: var(--admin-muted); font-size: .7rem; margin-top: .25rem; }
+#lrReviewModal .modal-content { max-height: calc(100dvh - 2rem); }
+#lrReviewModal .modal-header, #lrReviewModal .modal-footer { flex-shrink: 0; }
+#lrReviewModal .modal-body { overflow-y: auto; }
+@media (max-width: 767.98px) {
+  .lr-review-fields { grid-template-columns: minmax(0, 1fr); }
+  #lrReviewModal .modal-content { max-height: calc(100dvh - 1rem); }
+}

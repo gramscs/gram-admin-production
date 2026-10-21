@@ -21,10 +21,6 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Render uses Python 3.12 as pinned in `.python-version` and the `Procfile` WSGI
-entry point (`wsgi:app`). The `app:app` target also works for Render services
-with that start command configured.
-
 Schema creation is not automatic on startup. For an existing compatible ER
 database, run the additive support-table upgrade and verify the schema:
 
@@ -56,6 +52,15 @@ database. Pulling the project does not execute the migration automatically.
 - Database-backed label numbering and shipment audit history.
 - Excel import/export, PDF reports and labels, bulk document tools, and complete
   downloadable backups.
+- LR Generator: select saved shipments, review prefilled details, and enter the
+  remaining vehicle, cargo, invoice and e-way bill information. Preview or download
+  one two-page A4 lorry receipt per shipment using the supplied GRAM template.
+  The company header, logo, PAN/GSTIN, signatory and terms are fixed. LR form
+  details stay in the current browser tab until you explicitly click **Upload LR**
+  after preview. Each shipment receives its own original-and-terms PDF as a
+  versioned Lorry Receipt document. PODs, invoices and LRs can be managed, bulk
+  uploaded/downloaded and backed up together. Apply migration 003 before uploading
+  LRs to an existing database (see the migration guide).
 - Locally bundled interface assets; no CDN is required.
 
 ## Project structure

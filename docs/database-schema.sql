@@ -190,7 +190,7 @@ CREATE TABLE shipment_documents (
 	is_current BOOLEAN DEFAULT true NOT NULL,
 	id UUID DEFAULT gen_random_uuid() NOT NULL,
 	CONSTRAINT pk_shipment_documents PRIMARY KEY (id),
-	CONSTRAINT ck_shipment_documents_valid_type CHECK (document_type IN ('POD', 'invoice')),
+	CONSTRAINT ck_shipment_documents_valid_type CHECK (document_type IN ('POD', 'invoice', 'LR')),
 	CONSTRAINT ck_shipment_documents_positive_version CHECK (version >= 1),
 	CONSTRAINT uq_shipment_documents_version UNIQUE (consignment_id, document_type, version),
 	CONSTRAINT fk_shipment_documents_consignment_id_consignments FOREIGN KEY(consignment_id) REFERENCES consignments (id) ON DELETE CASCADE,
