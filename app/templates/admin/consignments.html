@@ -3,7 +3,7 @@
 {% block title %}Shipment Tracker – Gram SCS{% endblock %}
 {% block topbar_title %}Shipments{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='centralized-lr-1') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='centralized-lr-auto-ready-1') }}" />
 {% endblock %}
 
 {% macro sort_button(column, label) -%}
@@ -90,6 +90,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
 {% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/lr-control.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'admin/package-contents.js', 'consignments.js'] %}
-<script src="{{ url_for('static', filename='js/' ~ script, v='centralized-lr-1') }}"></script>
+<script src="{{ url_for('static', filename='js/' ~ script, v='centralized-lr-auto-ready-1') }}"></script>
 {% endfor %}
 {% endblock %}

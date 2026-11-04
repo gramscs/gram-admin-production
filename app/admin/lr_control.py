@@ -66,7 +66,8 @@ def issuing_locations():
 def issuing_location_options():
     rows = db.session.scalars(select(IssuingLocation).order_by(IssuingLocation.location_code)).all()
     return jsonify(locations=[dict(id=str(row.id), location_name=row.location_name, location_code=row.location_code,
-                                   is_active=row.is_active, reconciled=bool(row.reconciliation_digest)) for row in rows])
+                                   is_active=row.is_active, reconciled=bool(row.reconciliation_digest),
+                                   code_locked=bool(row.reconciliation_digest)) for row in rows])
 
 
 @admin_bp.post('/admin/issuing-locations')
@@ -88,6 +89,7 @@ def save_issuing_location():
     row.location_name, row.location_code, row.is_active = name, code, data.get('is_active', True)
     db.session.add(row)
     db.session.flush()
+    issuance.initialize_location(row)
     db.session.add(AuditLog(actor_id=current_admin_user().id, entity_type='issuing_locations', entity_id=row.id,
         action='update' if before else 'create', before_values=before,
         after_values=dict(location_name=name, location_code=code, is_active=row.is_active)))

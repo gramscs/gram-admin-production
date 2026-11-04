@@ -228,7 +228,7 @@ document.addEventListener("DOMContentLoaded", function () {
         window.lrControl.locations.then(function (locations) {
             locationSelect.replaceChildren(new Option('Choose issuing location', ''));
             locations.filter(function (l) { return l.is_active || l.id === row.location_id; }).forEach(function (l) {
-                locationSelect.add(new Option(l.location_code + ' — ' + l.location_name + (!l.reconciled ? ' (awaiting review)' : ''), l.id));
+                locationSelect.add(new Option(l.location_code + ' — ' + l.location_name, l.id));
             });
             locationSelect.value = row.location_id || '';
             locationSelect.disabled = !!(row.id && !String(row.id).startsWith('-'));

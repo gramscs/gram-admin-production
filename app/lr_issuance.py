@@ -4,7 +4,7 @@ import json
 import re
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from sqlalchemy import text
+from sqlalchemy import select, text
 from app.models import db
 from database.models import Consignment
 from database.lr import IssuingLocation, LRRequest
@@ -42,16 +42,44 @@ def begin_request(user, key, payload):
 def finish_request(user, key, fingerprint, response):
     db.session.add(LRRequest(actor_id=user.id, request_key=key, digest=fingerprint, response=response))
 
+def initialize_location(location):
+    """Initialize an administrator-managed location without an approval workflow.
+
+    Caller holds the location row lock (or just inserted it). Historical numbers
+    only establish the opening floor; normal issuance still uses the DB counter.
+    Never reset an existing initialization or reserve a new number here.
+    """
+    if location.reconciliation_digest:
+        return
+    numbers = db.session.scalars(select(Consignment.identifier_value).where(
+        Consignment.identifier_value.ilike(location.location_code + '%'))).all()
+    counters, recognized = {}, []
+    pattern = re.compile(re.escape(location.location_code) + r'(\d{4})(\d{6})', re.ASCII)
+    for number in numbers:
+        match = pattern.fullmatch(number.upper())
+        if match and int(match[2]) > 0:
+            counters[match[1]] = max(counters.get(match[1], 0), int(match[2]))
+            recognized.append(number)
+    db.session.execute(text("""UPDATE issuing_locations
+        SET reconciliation_digest=:digest, reconciliation_reason=:reason,
+            opening_counters=CAST(:counters AS jsonb)
+        WHERE id=:id AND reconciliation_digest IS NULL"""),
+        dict(id=location.id, digest=digest(sorted(recognized)), counters=json.dumps(counters),
+             reason='Automatically initialized for an administrator-managed location from existing LR history.'))
+    db.session.refresh(location)
+
+
 def location_id(value):
     try:
         identifier = UUID(str(value))
     except (ValueError, TypeError):
         raise ValueError('Choose a registered issuing location.') from None
-    location = db.session.get(IssuingLocation, identifier)
+    location = db.session.scalar(select(IssuingLocation).where(IssuingLocation.id == identifier)
+        .with_for_update().execution_options(populate_existing=True))
     if not location or not location.is_active:
         raise ValueError('Choose an active issuing location.')
-    if not location.reconciliation_digest:
-        raise ValueError('Opening LR counters require administrative reconciliation before issuance.')
+    # Also handles locations left pending by an earlier application version.
+    initialize_location(location)
     return identifier
 
 def validate_identity(data, existing=None):
@@ -102,7 +130,7 @@ def public_error(error):
     if 'capacity exhausted' in primary:
         return 'LR sequence capacity exhausted. Contact an administrator. No shipments were issued.'
     if 'reconciled issuing location' in primary:
-        return 'Issuing location is inactive or requires reviewed opening counters. Nothing was issued.'
+        return 'Issuing location is unavailable. Refresh and choose an active location. Nothing was issued.'
     if getattr(getattr(error, 'orig', None), 'pgcode', '') == '23505':
-        return 'LR or location collision. Ask an administrator to review registered codes and opening counters. Nothing was issued.'
-    return 'LR transaction failed. Check migration 005, permissions and opening counters. Retry the same request key after correction.'
+        return 'LR or location collision. Ask an administrator to check registered codes and historical LR numbers. Nothing was issued.'
+    return 'LR transaction failed. Check migration 005, permissions and location configuration. Retry the same request key after correction.'

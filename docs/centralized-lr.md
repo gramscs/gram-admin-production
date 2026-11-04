@@ -35,7 +35,7 @@ shipments are read-only and cannot generate replacement LRs or labels.
 - `/admin/issuing-locations`: Location Master; `/options` supplies registered
   locations. Administrators can add, rename and activate/deactivate locations.
   Codes use 2–10 ASCII letters, normalized to uppercase, and are frozen at
-  reconciliation (which is stricter than freezing at first issuance).
+  the administrator save (which is stricter than freezing at first issuance).
 - `/admin/consignments/save`: accepts 1–100 rows and a persistent UUID
   `idempotency_key`. New rows require `location_id` and `status`, and must not
   supply an identifier. The same actor/key/payload replays the committed response;
@@ -87,57 +87,34 @@ identical payload/key after a transport timeout; do not create a new key for an
 uncertain request. This deliberately changes the old manual-number save/import
 contracts. External clients and automation must migrate before enabling writes.
 
-## Historical reconciliation and opening counters
+## Automatic location readiness and historical counters
 
-**No historical numbers are automatically renumbered or mapped. No location is
-allowed to issue until a reviewed reconciliation manifest is applied.**
+Saving a location as an active administrator is sufficient authorization. There
+is no separate review status, approval button or required CLI manifest. New
+locations are immediately usable. Locations left pending by an older release
+initialize automatically on their next administrator save or first normal use.
 
-1. Take a verified backup, including documents, existing grants/RLS policies and
-   cancelled or discarded historical LRs held outside this application's tables.
-2. Apply migration 005 in staging and create the intended issuing locations.
-3. Generate a read-only report from the existing configured database:
+Initialization holds the location row lock and derives opening floors from exact
+matching historical LR numbers for that code and each FY. Cancelled shipments
+are included. Only recognized location + FY + six-digit numbers are used; other
+historical formats are left unchanged. An unused location starts at 000001.
+Initialization never reserves a new number. Once initialized, existing counters
+and metadata are preserved; subsequent saves do not reset or reseed them. Normal
+issuance still increments the database counter atomically and unique constraints
+still reject collisions. Existing inactive locations cannot be used for issuance.
 
-   ```sh
-   .venv/bin/python -m flask --app wsgi:app lr-reconciliation-report --location-code HQ
-   ```
+The migration 005 compatibility fields named `reconciliation_digest`,
+`reconciliation_reason` and `opening_counters` are initialized automatically. They
+are implementation bookkeeping, not an approval workflow. This application
+change requires **no additional database migration** and does not change 005's
+checksum, tables or triggers. Do not rerun or edit an applied migration for it.
+The older report/approval CLI remains available for compatibility with existing
+administrative tooling, but is not required by the UI or normal issuance.
 
-   The report lists recognized numbers, unmapped historical records, a digest
-   of the complete current shipment history, and minimum counters. These are
-   candidates for review, never automatic approval. Other formats, ambiguous
-   historical tags, invalid FYs, external history and previously cancelled
-   numbers require administrative reconciliation.
-4. Review all records and external history. Prepare a non-secret JSON manifest:
-
-   ```json
-   {
-     "location_code": "HQ",
-     "history_digest": "<digest from the current report>",
-     "history_reviewed": true,
-     "external_history_reviewed": true,
-     "reason": "Reviewed historical registers and cancelled LRs; approved by ...",
-     "opening_counters": {"2627": 123}
-   }
-   ```
-
-   Counters must be at least the highest verified historical issuance per FY,
-   including cancelled numbers. Unused FYs can be omitted. The location-wide
-   approval authorizes later empty FY counters to begin at 1. A genuinely unused
-   location uses `{}` after confirming there is no historical issuance.
-5. After review, apply the manifest explicitly:
-
-   ```sh
-   .venv/bin/python -m flask --app wsgi:app lr-approve-opening-counters /secure/path/hq-review.json
-   ```
-
-   The command locks shipment history and the location, rejects a stale digest
-   or a counter below a recognized historical number, then records reviewed
-   counters and reason. It never changes historical shipments. Approval is
-   immutable; corrections after issuance need a separately reviewed forward
-   migration. Do not guess values or use this command as an automatic setup step.
-
-The database cannot verify external historical registers. The explicit review
-and accurate manifest are required operational prerequisites, not a claim that
-all historical data has already been reconciled.
+Only history present in the configured database can establish automatic floors.
+Records held exclusively outside this system are not imported or guessed. No
+historical identifier, cancellation or stored document is modified by readiness
+initialization.
 
 ## Migrations, security review and staging
 
@@ -182,7 +159,7 @@ SELECT current_schema(), to_regclass('public.issuing_locations');
 If unrecorded LR tables remain, the exported script stops with an explicit
 partial-migration message. Do not drop tables, counters, shipments or ledger
 rows to force a retry; inspect the existing schema and review a recovery first.
-This export does not approve opening counters or enable an unreconciled location.
+This export installs the database controls. The current application initializes locations automatically when administrators save them or when an older pending location is first used.
 
 Validation: `tests/test_lr_sql_editor.py` exercises the original failure and
 transaction rollback, exported creation and actual issuance, shared Python/SQL
@@ -232,7 +209,7 @@ Stage with a dedicated PostgreSQL/Supabase project and reviewed access:
 .venv/bin/python -m flask --app wsgi:app check-storage
 ```
 
-Reconcile location counters and review administrator assignments, then test
+Confirm administrator assignments and save a location, then test
 manual creation, concurrent retries, imports, cancellation, existing documents,
 backups and PDF printing with actual staging credentials. Stop old clients from
 writing during the database/app rollout; the old manual-number code will be
@@ -240,7 +217,7 @@ rejected by the new database triggers. Deploy the migration before activating
 new app code, since the new model queries require the new columns.
 
 For production, repeat the backup, role/RLS review, maintenance window,
-read-only preflight, explicit approval, migration, code release, reconciliation,
+read-only preflight, migration approval, migration, code release, location creation,
 and readiness checks. Do not run remote migrations or enable production writes
 solely because local tests passed. No production deployment or Supabase migration
 has been performed as part of this implementation.
@@ -351,3 +328,18 @@ initial-filter loading fix and additional XLSX/malformed-request checks; the aff
 - `tests/browser/serve.py`
 - `tests/test_lr_generator.py`
 - `tests/test_lr_issuance.py`
+
+## Administrator-created location readiness update
+
+Location Master no longer displays a review/counter approval column, and shipment
+location choices no longer display an awaiting-review label. Administrator saves
+initialize location bookkeeping automatically. Existing pending locations are
+handled on use, without SQL updates or a CLI approval step. Tests cover immediate
+issuance, old pending records, preservation across renames, cancelled historical
+counter floors and concurrent first use. No remote configuration or database
+changes are performed by installing this code update.
+
+Validation for this update: 42 targeted PostgreSQL/Python tests passed, including
+new/pending location readiness, historical cancellation floors, concurrency and
+existing issuance/SQL-export checks. Both JavaScript unit runners and syntax/
+whitespace checks passed. Live Supabase state was not changed during validation.

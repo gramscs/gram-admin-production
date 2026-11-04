@@ -46,7 +46,7 @@
         if (!body || !form) return;
         rows.forEach(row => {
             const tr = document.createElement('tr');
-            [row.location_code, row.location_name, row.is_active ? 'Active' : 'Inactive', row.reconciled ? 'Reviewed' : 'Review required'].forEach(value => {
+            [row.location_code, row.location_name, row.is_active ? 'Active' : 'Inactive'].forEach(value => {
                 const td = document.createElement('td'); td.textContent = value; tr.append(td);
             });
             const td = document.createElement('td'), edit = document.createElement('button');
@@ -54,7 +54,7 @@
             edit.onclick = () => {
                 for (const key of ['id','location_name','location_code']) form.elements[key].value = row[key];
                 form.elements.is_active.checked = row.is_active;
-                form.elements.location_code.readOnly = row.reconciled;
+                form.elements.location_code.readOnly = row.code_locked;
             };
             td.append(edit); tr.append(td); body.append(tr);
         });

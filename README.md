@@ -114,7 +114,9 @@ this removal. Pull the update and restart the app.
 New shipments use registered issuing locations and automatic Indian-financial-year
 LR numbers. Manual number entry/import and permanent shipment deletion are disabled.
 Import files are previewed before confirmation; cancellation preserves numbers and
-history. This release requires **migration 005 and reviewed opening counters** before
-new issuance. Existing identifiers and documents are preserved. See the
-[implementation, reconciliation, staging and rollback guide](docs/centralized-lr.md).
+history. This release requires **migration 005**. Locations created by an
+administrator are ready immediately; no separate approval is needed. Existing
+identifiers and documents are preserved, and opening counters initialize from
+matching historical numbers automatically. See the
+[implementation, staging and rollback guide](docs/centralized-lr.md).
 No schema migration is applied automatically on startup.

@@ -39,15 +39,6 @@ def panel(lr_app):
     response = client.post('/admin/issuing-locations', json={'location_name':'Head Office','location_code':'hq'}, headers=headers)
     assert response.status_code == 200, response.json
     identifier = response.json['id']
-    report = lr_app.test_cli_runner().invoke(args=['lr-reconciliation-report','--location-code','HQ'])
-    assert report.exit_code == 0, report.output
-    from tempfile import NamedTemporaryFile
-    with NamedTemporaryFile(mode='w',suffix='.json') as output:
-        json.dump(dict(location_code='HQ',history_digest=json.loads(report.output)['history_digest'],
-            history_reviewed=True,external_history_reviewed=True,reason='Reviewed empty fixture history',opening_counters={}),output)
-        output.flush()
-        approved = lr_app.test_cli_runner().invoke(args=['lr-approve-opening-counters',output.name])
-        assert approved.exit_code == 0, approved.output
     return client, headers, identifier
 
 def save(panel, **changes):
