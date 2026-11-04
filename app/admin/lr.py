@@ -123,6 +123,11 @@ def _review_details(items, rows):
         if values['lr_number'].casefold() in numbers:
             raise ValueError('Each shipment in this batch needs a different LR number.')
         numbers.add(values['lr_number'].casefold())
+        shipment = next(row for row in rows if str(row.id) == identifier)
+        if getattr(shipment, 'lr_status', 'legacy') == 'cancelled':
+            raise ValueError('Cancelled LRs cannot be regenerated. Historical PDFs remain available.')
+        if values['lr_number'] != shipment.consignment_number:
+            raise ValueError('LR number must match the immutable shipment number.')
         if values['eway_bill_date'] and values['eway_valid_until'] and values['eway_valid_until'] < values['eway_bill_date']:
             raise ValueError('E-way bill validity must not end before its issue date.')
         result[identifier] = values

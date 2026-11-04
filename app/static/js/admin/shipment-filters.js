@@ -7,6 +7,8 @@
             search: document.getElementById('search-input').value.trim(),
             company: document.getElementById('company-filter').value,
             identifier_type: document.getElementById('identifier-type-filter').value,
+            issuing_location: (() => { const f = document.getElementById('issuing-location-filter'); return f?.dataset.loaded === 'true' ? f.value : f?.dataset.selected || ''; })(),
+            financial_year: document.getElementById('financial-year-filter')?.value || '',
         };
         if (shipmentId && Object.entries(filters).some(([key, value]) => value !== (initial.get(key) || ''))) shipmentId = null;
         if (shipmentId) filters.shipment_id = shipmentId;
@@ -22,7 +24,7 @@
     }
     function clear() {
         shipmentId = null;
-        for (const id of ['search-input', 'company-filter', 'identifier-type-filter']) document.getElementById(id).value = '';
+        for (const id of ['search-input', 'company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter']) { if (document.getElementById(id)) { document.getElementById(id).value = ''; document.getElementById(id).dataset.selected = ''; } }
     }
     window.shipmentFilters = {read, url, clear, remember(filters) { history.replaceState(null, '', url(location.href, filters)); }};
 })();

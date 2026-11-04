@@ -30,9 +30,10 @@
           <div class="row g-3">
             <div class="col-sm-4">
               <label for="modal-identifier-type" class="form-label">Identifier Type</label>
-              <select id="modal-identifier-type" class="form-select">{% for type in ['LRN', 'Order ID', 'AWB'] %}<option>{{ type }}</option>{% endfor %}</select>
+              <select id="modal-identifier-type" class="form-select" disabled>{% for type in ['LRN', 'Order ID', 'AWB'] %}<option>{{ type }}</option>{% endfor %}</select>
             </div>
-            <div class="col-sm-8">{{ text_field('modal-consignment-number', 'Consignment #', maxlength=64) }}</div>
+            <div class="col-sm-12"><label for="modal-location-id" class="form-label">Issuing Location</label><select id="modal-location-id" class="form-select"><option value="">Choose issuing location</option></select></div>
+            <div class="col-sm-8"><label class="form-label" for="modal-consignment-number">LR Number</label><input id="modal-consignment-number" class="form-control" readonly placeholder="Generated when saved"></div>
             <div class="col-sm-6">
               <label for="modal-status" class="form-label">Status</label>
               <select id="modal-status" class="form-select">
@@ -117,14 +118,15 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p class="small text-muted">Use the import template to prepare your shipments. Imported rows are saved immediately.</p>
+        <p class="small text-muted">Use the import template to prepare your shipments. Preview and confirm to generate LR numbers. LR/Consignment Number columns are not accepted.</p>
         <a href="{{ url_for('admin.consignments_import_template_excel') }}" class="d-inline-block mb-3">Download Import Template</a>
-        <label for="import-file" class="form-label">Excel file (.xlsx)</label>
-        <input id="import-file" name="file" type="file" accept=".xlsx" class="form-control" required />
+        <input type="hidden" name="csrf_token" value="{{ auth_csrf_token() }}"><label>Issuing location for all rows (or use location_code column)<select id="import-location-code" name="location_code" class="form-select"><option value="">Use file location_code</option></select></label>
+        <label for="import-file" class="form-label">Excel/CSV file (.xlsx, .csv)</label>
+        <input id="import-file" name="file" type="file" accept=".xlsx,.csv" class="form-control" required />
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" class="btn btn-primary">Import Excel</button>
+        <button type="submit" class="btn btn-primary">Preview import</button>
       </div>
     </form>
   </div>

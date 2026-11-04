@@ -93,6 +93,8 @@ def create_app(test_config=None):
 
     from app.admin import admin_bp
     app.register_blueprint(admin_bp)
+    from app.admin.lr_reconciliation import register as register_lr_commands
+    register_lr_commands(app)
     from app.admin.auth import csrf_token
     app.context_processor(lambda: {'auth_csrf_token': csrf_token})
     from app.admin.document_lifecycle import purge_removed_documents

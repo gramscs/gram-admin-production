@@ -7,7 +7,9 @@ It does not keep application data in local database or file storage.
 ## Configure and run
 
 Register through **Create account** and sign in using Supabase Auth email/password.
-Every confirmed user has full panel access. Audit profiles are created automatically;
+Confirmed users can sign in. LR issuance requires an active operator or administrator
+profile; issuing-location management and cancellation require an active administrator.
+Audit profiles are created automatically;
 credentials and account status stay in Supabase Auth. Apply migration 004 if needed
 and enable signup using [the Supabase Auth setup guide](docs/supabase-authentication.md).
 
@@ -106,3 +108,13 @@ removed. Old overrides cannot affect new labels or normal Excel exports and
 are discarded when a shipment is saved or imported. Historical backup records
 and already generated PDFs are preserved. No schema migration is needed for
 this removal. Pull the update and restart the app.
+
+## Centralized LR numbers
+
+New shipments use registered issuing locations and automatic Indian-financial-year
+LR numbers. Manual number entry/import and permanent shipment deletion are disabled.
+Import files are previewed before confirmation; cancellation preserves numbers and
+history. This release requires **migration 005 and reviewed opening counters** before
+new issuance. Existing identifiers and documents are preserved. See the
+[implementation, reconciliation, staging and rollback guide](docs/centralized-lr.md).
+No schema migration is applied automatically on startup.

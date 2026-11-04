@@ -9,7 +9,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey,
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, FetchedValue,
     ForeignKeyConstraint, Index, Integer, JSON, MetaData, Numeric, String,
     Text, UniqueConstraint, Uuid, false, func, text, true,
 )
@@ -159,7 +159,16 @@ class Consignment(UUIDRecord, Base):
     pickup_location_id: Mapped[UUID | None] = mapped_column(ForeignKey("company_locations.id", ondelete="RESTRICT"), index=True)
     drop_location_id: Mapped[UUID | None] = mapped_column(ForeignKey("company_locations.id", ondelete="RESTRICT"), index=True)
     identifier_type: Mapped[str] = mapped_column(String(12), default="LRN", server_default="LRN")
-    identifier_value: Mapped[str] = mapped_column(String(64), unique=True)
+    identifier_value: Mapped[str] = mapped_column(String(64), unique=True, server_default=FetchedValue())
+    location_id: Mapped[UUID | None] = mapped_column(Uuid)
+    lr_sequence: Mapped[int | None] = mapped_column(Integer, server_default=FetchedValue())
+    financial_year: Mapped[str | None] = mapped_column(String(4), server_default=FetchedValue())
+    created_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), server_default=FetchedValue())
+    lr_issued_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), server_default=FetchedValue())
+    lr_status: Mapped[str] = mapped_column(String(16), server_default="legacy")
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    cancelled_by: Mapped[UUID | None] = mapped_column(Uuid)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
     current_status: Mapped[str] = mapped_column(String(200), default="Pickup Scheduled", server_default="Pickup Scheduled")
     pieces: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     weight: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))

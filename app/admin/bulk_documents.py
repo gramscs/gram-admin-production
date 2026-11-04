@@ -82,6 +82,8 @@ def bulk_document_upload():
     matched = {row.id: row for row in models.shipment_query().filter(models.Consignment.id.in_(matched_ids)).all()}
     if set(matched) != matched_ids:
         return jsonify(success=False, message='A matched consignment was removed. Check the files again.'), 400
+    if any(row.lr_status == 'cancelled' for row in matched.values()):
+        return jsonify(success=False, message='Cancelled shipment documents are read-only.'), 409
     plans = [(matched[row.id], kind, document) for row, kind, document in plans]
     review = [{'filename': document[3], 'consignment_number': row.consignment_number,
                'kind': kind, 'replaces_existing': bool(getattr(row, DOCUMENTS[kind][0]))}

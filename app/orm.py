@@ -65,4 +65,5 @@ def tables():
         return list(legacy.db.metadata.sorted_tables)
     from app.er_adapter import Base, ExtraBase
     from migrations.shipment_v1 import LEDGER
-    return [*Base.metadata.sorted_tables, *ExtraBase.metadata.sorted_tables, *LEDGER.sorted_tables]
+    from database.lr import LRBase
+    return [*Base.metadata.sorted_tables, *ExtraBase.metadata.sorted_tables, *LEDGER.sorted_tables, *LRBase.metadata.sorted_tables]

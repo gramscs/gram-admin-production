@@ -224,6 +224,15 @@ document.addEventListener("DOMContentLoaded", function () {
         packageStep(false);
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
+        var locationSelect = document.getElementById('modal-location-id');
+        window.lrControl.locations.then(function (locations) {
+            locationSelect.replaceChildren(new Option('Choose issuing location', ''));
+            locations.filter(function (l) { return l.is_active || l.id === row.location_id; }).forEach(function (l) {
+                locationSelect.add(new Option(l.location_code + ' — ' + l.location_name + (!l.reconciled ? ' (awaiting review)' : ''), l.id));
+            });
+            locationSelect.value = row.location_id || '';
+            locationSelect.disabled = !!(row.id && !String(row.id).startsWith('-'));
+        });
         ['identifier_type', 'pieces', 'weight', 'volume'].forEach(function (name) {
             document.getElementById('modal-' + name.replaceAll('_', '-')).value = row[name] ?? (name === 'identifier_type' ? 'LRN' : name === 'pieces' ? 1 : '');
         });
@@ -231,7 +240,7 @@ document.addEventListener("DOMContentLoaded", function () {
         updateModalMeasurement();
         // Ensure the input is editable (some scripts may toggle readOnly)
         try {
-            consInput.readOnly = false;
+            consInput.readOnly = true;
         } catch (e) {
             // ignore
         }
@@ -274,6 +283,8 @@ document.addEventListener("DOMContentLoaded", function () {
         var data = source || {};
         return {
             id: data.id || fallbackId ? String(data.id || fallbackId) : null,
+            location_id: data.location_id || null, lr_status: data.lr_status || '',
+            client_row_key: data.client_row_key || crypto.randomUUID(),
             company_id: data.company_id ?? null, company_name: data.company_name || '',
             consignment_number: data.consignment_number || "",
             identifier_type: data.identifier_type || "LRN", pieces: data.pieces ?? 1,
@@ -334,8 +345,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         tr.innerHTML =
             '<td><input type="checkbox" class="form-check-input select-shipment" aria-label="Select ' + escapeHtml(source.consignment_number || 'shipment') + '"' + (!source.id || source.id.startsWith('-') ? ' disabled' : '') + ' /></td>' +
-            '<td><div class="cell-stack">' + buildIdentifierSelect(source.identifier_type) +
-                buildTextInput("consignment_number", source.consignment_number || "", "Identifier", 64) +
+            '<td><div class="cell-stack">' + '<span>' + escapeHtml(source.identifier_type || 'LRN') + '</span>' +
+                '<input class="form-control form-control-sm consignment_number" readonly placeholder="Generated on save" value="' + escapeHtml(source.consignment_number || '') + '">' +
+                (source.lr_status === 'cancelled' ? '<strong class="text-danger">CANCELLED</strong>' : '') +
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
             '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBFT)</option></select>' +
@@ -347,7 +359,8 @@ document.addEventListener("DOMContentLoaded", function () {
             '<td><div class="cell-stack">' + buildTextInput("drop_pincode", source.drop_pincode || "", "Drop pin", 6) +
                 buildTextInput("drop_date", source.drop_date || source.eta || "", "Drop estimated") + '</div></td>' +
             '<td><div class="d-flex justify-content-center gap-1"><button type="button" class="btn btn-sm btn-outline-primary edit-row" title="Edit" aria-label="Edit consignment"><i class="fa fa-pencil" aria-hidden="true"></i></button>' +
-                '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Delete" aria-label="Delete consignment"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
+                (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary lr-history-row">History</button>' : '') +
+                '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Cancel / discard" aria-label="Cancel shipment or discard draft"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
 
         if (rowClass) {
             tr.className = rowClass;
@@ -356,6 +369,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var editButton = tr.querySelector(".edit-row");
         if (editButton) {
             editButton.addEventListener("click", function () {
+                if (source.lr_status === 'cancelled') { window.lrControl.history(source.id); return; }
                 isCreatingRow = false;
                 document.getElementById('editConsignmentLabel').textContent = 'Edit Shipment';
                 currentEditingRow = tr;
@@ -364,12 +378,27 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }
 
+        var historyButton = tr.querySelector('.lr-history-row');
+        if (historyButton) historyButton.onclick = function () { window.lrControl.history(source.id); };
         var deleteButton = tr.querySelector(".delete-row");
         if (deleteButton) {
-            deleteButton.addEventListener("click", function () {
+            deleteButton.addEventListener("click", async function () {
                 var existingId = tr.dataset.id ? String(tr.dataset.id) : null;
                 if (existingId && !String(existingId).startsWith('-')) {
-                    adminState.addDeleted(existingId);
+                    if (!confirm('Cancel this shipment? Its LR and documents will be retained.')) return;
+                    var reason = prompt('Cancellation reason (required):');
+                    if (!reason || !reason.trim()) return;
+                    deleteButton.disabled = true;
+                    try {
+                        await window.lrControl.post('/admin/consignments/' + existingId + '/cancel', {reason: reason, confirmed: true});
+                        adminState.pendingRows.delete(existingId);
+                        adminState.modifiedRowIds.delete(existingId);
+                        source.lr_status = 'cancelled';
+                        tr.dataset.row = JSON.stringify(source);
+                        tr.classList.add('table-warning');
+                        deleteButton.textContent = 'CANCELLED';
+                    } catch (error) { showStatus(escapeHtml(error.message), 'danger'); deleteButton.disabled = false; }
+                    return;
                 }
                 // Remove from local tracking
                 adminState.removeLocalRowById(existingId);
@@ -397,12 +426,9 @@ document.addEventListener("DOMContentLoaded", function () {
         var pickupPincode = document.getElementById("modal-pickup-pincode").value.trim();
         var dropPincode = document.getElementById("modal-drop-pincode").value.trim();
 
-        if (!consignmentNumber) {
-            showModalError("Consignment number cannot be empty.", document.getElementById('modal-consignment-number'));
-            return false;
-        }
-        if (!/^[\x20-\x7E]{1,64}$/.test(consignmentNumber)) {
-            showModalError("Identifier must contain 1–64 printable ASCII characters.", document.getElementById('modal-consignment-number'));
+        var issuingLocation = document.getElementById('modal-location-id');
+        if (!consignmentNumber && !issuingLocation.value) {
+            showModalError('Choose an issuing location.', issuingLocation);
             return false;
         }
 
@@ -436,6 +462,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         source.consignment_number = consignmentNumber;
+        source.location_id = document.getElementById('modal-location-id').value || null;
         source.company_id = document.getElementById('modal-company-id').value || null;
         source.measurement_mode = document.getElementById('modal-measurement-mode').value;
         source.volume_unit = 'ft3';
@@ -493,7 +520,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         tableRows.forEach(function (tr) {
             var rowData = getRowDataFromTr(tr);
-            if (rowData.consignment_number && rowData.consignment_number.trim()) {
+            if ((rowData.consignment_number || rowData.location_id) && rowData.lr_status !== 'cancelled' && (String(rowData.id).startsWith('-') || adminState.modifiedRowIds.has(String(rowData.id)))) {
                 rows.push(rowData);
             }
         });
@@ -502,6 +529,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     async function saveSheet() {
+        if (saveButton.disabled) return;
         if (!saveUrl) {
             showStatus("Save endpoint is missing.", "danger");
             return;
@@ -534,11 +562,19 @@ document.addEventListener("DOMContentLoaded", function () {
             saveButton.textContent = "Saving...";
             showStatus('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving rows to database...', "info");
 
-            // Delegate network call to adminAPI
+            var outgoing = rawRows.map(function (row) {
+                var copy = Object.assign({}, row, {id: String(row.id || '').startsWith('-') ? null : row.id});
+                ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason'].forEach(function(k) { delete copy[k]; });
+                return copy;
+            });
+            // Keep the key across timeouts/reloads; identical retries replay the committed response.
+            var serialized = JSON.stringify(outgoing);
+            var prior = JSON.parse(sessionStorage.getItem('lr-pending-save') || 'null');
+            var requestKey = prior && prior.rows === serialized ? prior.key : crypto.randomUUID();
+            sessionStorage.setItem('lr-pending-save', JSON.stringify({rows: serialized, key: requestKey}));
             var data = await adminAPI.saveRows(saveUrl, {
-                rows: rawRows.map(function (row) {
-                    return Object.assign({}, row, {id: String(row.id || '').startsWith('-') ? null : row.id});
-                }),
+                rows: outgoing,
+                idempotency_key: requestKey,
                 deleted_ids: Array.from(adminState.deletedIds)
             });
 
@@ -585,7 +621,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 throw new Error((data && data.message) || "Save failed.");
             }
 
-            showStatus("<strong>Saved successfully.</strong> Your internal database has been updated.", "success");
+            showStatus(escapeHtml(data.message || "Saved successfully."), "success");
             adminState.resetAfterSave();
             setTimeout(function () {
                 // Prefer server-provided total (after commit) to compute the
@@ -800,14 +836,18 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
     modalSaveBtn.addEventListener("click", async function () {
+        if (modalSaveBtn.disabled) return;
+        modalSaveBtn.disabled = true;
         clearModalValidation();
         try {
             await window.shipmentDocuments.ready();
         } catch (error) {
+            modalSaveBtn.disabled = false;
             showModalError('Check the selected documents. ' + (error.message || 'Please select the file again.'));
             return;
         }
 
+        modalSaveBtn.disabled = false;
         if (isCreatingRow) {
             var newId = adminState.nextLocalId();
             var newSource = buildRowData({}, newId);
@@ -877,7 +917,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 500);
     });
 
-    ['company-filter', 'identifier-type-filter'].forEach(function (id) {
+    ['company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter'].forEach(function (id) {
         document.getElementById(id).addEventListener('change', function () {
             clearTimeout(searchTimeout);
             loadPage(1, searchInput.value.trim(), currentPerPage, currentSortBy, currentSortOrder);

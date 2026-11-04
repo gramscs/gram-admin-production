@@ -3,5 +3,9 @@
   <label class="shipment-search-label" for="search-input">Search shipments<input type="search" id="search-input" class="form-control form-control-sm mt-1" maxlength="200" value="{{ filters.get('search', '') }}" placeholder="Identifier, status, route or address…" /></label>
   <label class="shipment-filter-label" for="company-filter">Company<select id="company-filter" class="form-select form-select-sm mt-1"><option value="">All companies</option><option value="unassigned" {% if filters.get('company') == 'unassigned' %}selected{% endif %}>Unassigned company</option>{% for company in companies %}<option value="{{ company.id }}" {% if filters.get('company') == company.id|string %}selected{% endif %}>{{ company.name }}{% if not company.active %} (archived){% endif %}</option>{% endfor %}</select></label>
   <label class="shipment-filter-label" for="identifier-type-filter">Identifier type<select id="identifier-type-filter" class="form-select form-select-sm mt-1"><option value="">All identifier types</option>{% for type in ['LRN', 'Order ID', 'AWB'] %}<option value="{{ type }}" {% if filters.get('identifier_type') == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>
+  {% if request.endpoint == 'admin.consignments_panel' %}
+  <label>Issuing location<select id="issuing-location-filter" class="form-select form-select-sm" data-selected="{{ filters.get('issuing_location','') }}"><option value="">All issuing locations</option></select></label>
+  <label>Financial year<input id="financial-year-filter" class="form-control form-control-sm" maxlength="4" pattern="[0-9]{4}" placeholder="2627" value="{{ filters.get('financial_year','') }}"></label>
+  {% endif %}
   <button id="clear-filters-btn" type="button" class="btn btn-outline-secondary btn-sm">Clear Filters</button>
 </div>
