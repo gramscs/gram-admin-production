@@ -152,6 +152,44 @@ SQL uses the connection's existing schema and no hard-coded Supabase endpoint.
 Do not execute the SQL template directly: the runner safely substitutes its
 `__SCHEMA__` token and records migration history in the same transaction.
 
+### Supabase SQL Editor: migration 005 schema error
+
+The raw `005_centralized_lr.sql` is a runner template. Pasting it directly into
+SQL Editor leaves `SET search_path = __SCHEMA__, pg_temp` unresolved. Compiling
+`gram_lr_identity_guard` then cannot resolve `issuing_locations%ROWTYPE`, even
+though the template created the table earlier in the request.
+
+For SQL Editor use **`migrations/sql/005_centralized_lr_supabase.sql`**, selecting
+and running its entire contents. It targets `public`, wraps DDL and migration
+history in one transaction, pins function schemas, and retains the original
+005 checksum. Existing 005 migrations are not rewritten. A successful replay
+of an already recorded matching migration is a no-op.
+
+To regenerate the export (no database connection or credentials needed):
+
+```sh
+.venv/bin/python migrations/export_lr_sql.py --schema public --output migrations/sql/005_centralized_lr_supabase.sql
+```
+
+For another deployment schema, export using that actual schema name. Before
+retrying a failed manual migration, this read-only query shows whether the table
+survived in the usual Supabase schema:
+
+```sql
+SELECT current_schema(), to_regclass('public.issuing_locations');
+```
+
+If unrecorded LR tables remain, the exported script stops with an explicit
+partial-migration message. Do not drop tables, counters, shipments or ledger
+rows to force a retry; inspect the existing schema and review a recovery first.
+This export does not approve opening counters or enable an unreconciled location.
+
+Validation: `tests/test_lr_sql_editor.py` exercises the original failure and
+transaction rollback, exported creation and actual issuance, shared Python/SQL
+migration history, safe replay, preservation of partial state and deterministic
+export generation on disposable PostgreSQL. No hosted migration was applied.
+
+
 Before applying, inspect the actual target's RLS, policies and inherited grants:
 
 ```sql
