@@ -63,6 +63,35 @@ Python runner, and refuses unrecorded partial archive tables rather than
 recreating or deleting them. The raw `006_shipment_archives.sql` remains a Python
 runner template and must not be pasted directly into SQL Editor.
 
+### Existing archive table without a migration-history entry
+
+If the normal SQL Editor file reports `Unrecorded archive table exists`, do not
+remove the table or manually insert a ledger row. Inspect its schema first. For
+a table with exactly migration 006's four columns and PK/FK/check constraints,
+use `migrations/sql/006_shipment_archives_recover_supabase.sql` after review.
+Run the entire recovery file in SQL Editor; it targets `public`.
+
+Recovery validates column types/nullability/defaults, constraints, existing
+function bodies, triggers, index and RLS policies. It refuses conflicting
+objects. It installs missing known controls, fixes the pinned schema on matching
+functions, enables protection triggers/RLS, revokes browser-role write access,
+and records the original migration checksum only after validation. It never
+drops/recreates the table or changes shipment/archive rows, IDs or timestamps.
+Existing snapshots are retained. A conflicting recorded checksum also stops
+recovery. A successful recovery makes the normal 006 runner a safe no-op.
+
+Regenerate this reviewed recovery export without database access:
+
+```sh
+.venv/bin/python migrations/recover_006_shipment_archives.py --output migrations/sql/006_shipment_archives_recover_supabase.sql
+```
+
+Seven PostgreSQL regression tests passed: existing-record preservation,
+restoration after recovery, table-only completion, wrong-schema repair, safe
+replay, deterministic export, and rejection of incompatible columns, functions,
+constraints or policies. These tests used disposable schemas; no recovery was
+executed against the hosted Supabase database.
+
 The archive migration can be exported again without database access:
 
 ```sh
