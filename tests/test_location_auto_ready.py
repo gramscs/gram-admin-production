@@ -55,6 +55,7 @@ def test_cancelled_historical_number_sets_floor(app, create_via_admin):
             connection.execute(text('INSERT INTO consignments(identifier_value) VALUES(:number)'),
                                {'number': 'PUN'+fy+'000042'})
         migration.migrate(db.engine, apply=True)
+        __import__('importlib').import_module('migrations.006_shipment_archives').migrate(db.engine, apply=True)
         with db.engine.begin() as connection:
             connection.execute(text("SELECT set_config('gram.actor_id', :actor, true)"), {'actor': str(user)})
             connection.execute(text("UPDATE consignments SET lr_status='cancelled', cancellation_reason='Historical cancellation' WHERE identifier_value=:number"),

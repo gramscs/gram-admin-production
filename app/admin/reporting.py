@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 
 from app import orm as models
 from app.shipment_packages import volume_ft3
@@ -75,7 +75,10 @@ def normalize_shipment_filters(values):
             raise ValueError('Choose a registered issuing location.') from None
     if fy and (len(fy) != 4 or not fy.isascii() or not fy.isdigit()):
         raise ValueError('Financial year must contain four digits, for example 2627.')
-    filters = {'search': search.strip(), 'company': company, 'identifier_type': identifier_type,
+    archive = values.get('archive', 'active') or 'active'
+    if archive not in ('active', 'archived'):
+        raise ValueError('Choose Active or Archived shipments.')
+    filters = {'archive': archive, 'search': search.strip(), 'company': company, 'identifier_type': identifier_type,
                'issuing_location': location, 'financial_year': fy}
     if values.get('shipment_id'):
         try:
@@ -86,6 +89,9 @@ def normalize_shipment_filters(values):
 
 
 def filter_shipments(query, filters):
+    from database.lr import ShipmentArchive
+    exists = select(ShipmentArchive.shipment_id).where(ShipmentArchive.shipment_id == models.Consignment.id).exists()
+    query = query.filter(exists if filters.get('archive') == 'archived' else ~exists)
     query = search_shipments(query, filters.get('search', ''))
     company = filters.get('company', '')
     if company == 'unassigned':

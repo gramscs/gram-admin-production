@@ -120,3 +120,11 @@ identifiers and documents are preserved, and opening counters initialize from
 matching historical numbers automatically. See the
 [implementation, staging and rollback guide](docs/centralized-lr.md).
 No schema migration is applied automatically on startup.
+
+## Shipment form and archive update
+
+Modal **Save** persists immediately and shows the LR number. Cancelled shipments
+are grey, and cancellation requires confirmation without a reason prompt.
+Administrators can archive/restore shipments; archived records are hidden until
+**Archived shipments** is selected in the Register dropdown. This update requires
+**migration 006**. See [archive storage and deployment instructions](docs/shipment-archives.md).

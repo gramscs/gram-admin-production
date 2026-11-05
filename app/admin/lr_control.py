@@ -102,12 +102,15 @@ def save_issuing_location():
 @mutation('administrator')
 def cancel_lr(identifier):
     data = json_object()
-    reason = str(data.get('reason','')).strip()
+    reason = str(data.get('reason') or 'Cancelled by administrator.').strip()
     if data.get('confirmed') is not True or not 1 <= len(reason) <= 1000:
-        raise ValueError('Confirm cancellation and provide a reason (1–1000 characters).')
-    row = db.session.get(Consignment, identifier, with_for_update=True)
+        raise ValueError('Confirm cancellation. An optional reason must be 1–1000 characters.')
+    from app import orm as models
+    row = db.session.get(models.Consignment, identifier, with_for_update=True)
     if row is None:
         raise ValueError('Shipment not found.')
+    if row.archive_record is not None:
+        raise ValueError('Restore the archived shipment before cancelling it.')
     if row.lr_status != 'cancelled':
         row.lr_status, row.cancellation_reason = 'cancelled', reason
         db.session.flush()

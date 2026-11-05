@@ -27,6 +27,7 @@ def lr_app(app):
         assert migration.migrate(db.engine)['status'] == 'ready'
         assert migration.migrate(db.engine, apply=True)['status'] == 'applied'
         assert migration.migrate(db.engine, apply=True)['status'] == 'already_applied'
+        importlib.import_module('migrations.006_shipment_archives').migrate(db.engine, apply=True)
     yield app
 
 @pytest.fixture
@@ -282,6 +283,8 @@ def test_empty_migration_can_be_rolled_back(lr_app):
     with lr_app.app_context():
         from sqlalchemy import inspect
         with db.engine.begin() as connection:
+            archive_rollback=(Path(__file__).resolve().parents[1]/'migrations/sql/006_shipment_archives_rollback.sql').read_text().replace('BEGIN;','',1).replace('\nCOMMIT;','')
+            connection.exec_driver_sql(archive_rollback,execution_options={'no_parameters':True})
             connection.exec_driver_sql(script,execution_options={'no_parameters':True})
         assert 'lr_sequences' not in inspect(db.engine).get_table_names()
 

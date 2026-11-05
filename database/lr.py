@@ -55,3 +55,12 @@ class LRAudit(LRBase):
     before_values: Mapped[dict | None] = mapped_column(JSON_DATA)
     after_values: Mapped[dict] = mapped_column(JSON_DATA)
     reason: Mapped[str | None] = mapped_column(Text)
+
+
+class ShipmentArchive(LRBase):
+    """Archive snapshot; canonical shipment identities/documents remain intact."""
+    __tablename__ = 'shipment_archives'
+    shipment_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    archived_by: Mapped[UUID] = mapped_column(Uuid)
+    archived_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+    snapshot: Mapped[dict] = mapped_column(JSON_DATA)

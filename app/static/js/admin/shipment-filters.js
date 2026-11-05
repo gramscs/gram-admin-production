@@ -8,9 +8,10 @@
             company: document.getElementById('company-filter').value,
             identifier_type: document.getElementById('identifier-type-filter').value,
             issuing_location: (() => { const f = document.getElementById('issuing-location-filter'); return f?.dataset.loaded === 'true' ? f.value : f?.dataset.selected || ''; })(),
+            archive: document.getElementById('archive-filter')?.value || 'active',
             financial_year: document.getElementById('financial-year-filter')?.value || '',
         };
-        if (shipmentId && Object.entries(filters).some(([key, value]) => value !== (initial.get(key) || ''))) shipmentId = null;
+        if (shipmentId && Object.entries(filters).some(([key, value]) => value !== (initial.get(key) || (key === 'archive' ? 'active' : '')))) shipmentId = null;
         if (shipmentId) filters.shipment_id = shipmentId;
         return filters;
     }
@@ -24,7 +25,7 @@
     }
     function clear() {
         shipmentId = null;
-        for (const id of ['search-input', 'company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter']) { if (document.getElementById(id)) { document.getElementById(id).value = ''; document.getElementById(id).dataset.selected = ''; } }
+        for (const id of ['search-input', 'company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter', 'archive-filter']) { if (document.getElementById(id)) { document.getElementById(id).value = id === 'archive-filter' ? 'active' : ''; document.getElementById(id).dataset.selected = ''; } }
     }
     window.shipmentFilters = {read, url, clear, remember(filters) { history.replaceState(null, '', url(location.href, filters)); }};
 })();

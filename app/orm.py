@@ -54,7 +54,7 @@ def shipment_query():
     if using_er():
         from sqlalchemy.orm import selectinload
         from database.models import ShipmentDocument
-        query = query.options(selectinload(model.company),
+        query = query.options(selectinload(model.archive_record), selectinload(model.company),
                               selectinload(model.extra_record),
                               selectinload(model.documents).selectinload(ShipmentDocument.file))
     return query

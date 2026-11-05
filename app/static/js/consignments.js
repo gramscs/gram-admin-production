@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var listUrl = tableBody.dataset.listUrl || "";
     var currentEditingRow = null;
     var isCreatingRow = false;
+    var modalDraft = null;
     var searchTimeout;
     var currentPage = 1;
     var currentPerPage = perPageSelect ? (parseInt(perPageSelect.value, 10) || 10) : 10;
@@ -283,7 +284,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var data = source || {};
         return {
             id: data.id || fallbackId ? String(data.id || fallbackId) : null,
-            location_id: data.location_id || null, lr_status: data.lr_status || '',
+            location_id: data.location_id || null, lr_status: data.lr_status || '', is_archived: !!data.is_archived,
             client_row_key: data.client_row_key || crypto.randomUUID(),
             company_id: data.company_id ?? null, company_name: data.company_name || '',
             consignment_number: data.consignment_number || "",
@@ -347,7 +348,6 @@ document.addEventListener("DOMContentLoaded", function () {
             '<td><input type="checkbox" class="form-check-input select-shipment" aria-label="Select ' + escapeHtml(source.consignment_number || 'shipment') + '"' + (!source.id || source.id.startsWith('-') ? ' disabled' : '') + ' /></td>' +
             '<td><div class="cell-stack">' + '<span>' + escapeHtml(source.identifier_type || 'LRN') + '</span>' +
                 '<input class="form-control form-control-sm consignment_number" readonly placeholder="Generated on save" value="' + escapeHtml(source.consignment_number || '') + '">' +
-                (source.lr_status === 'cancelled' ? '<strong class="text-danger">CANCELLED</strong>' : '') +
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
             '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBFT)</option></select>' +
@@ -360,6 +360,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 buildTextInput("drop_date", source.drop_date || source.eta || "", "Drop estimated") + '</div></td>' +
             '<td><div class="d-flex justify-content-center gap-1"><button type="button" class="btn btn-sm btn-outline-primary edit-row" title="Edit" aria-label="Edit consignment"><i class="fa fa-pencil" aria-hidden="true"></i></button>' +
                 (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary lr-history-row">History</button>' : '') +
+                (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary archive-row">' + (source.is_archived ? 'Restore' : 'Archive') + '</button>' : '') +
                 '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Cancel / discard" aria-label="Cancel shipment or discard draft"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
 
         if (rowClass) {
@@ -369,7 +370,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var editButton = tr.querySelector(".edit-row");
         if (editButton) {
             editButton.addEventListener("click", function () {
-                if (source.lr_status === 'cancelled') { window.lrControl.history(source.id); return; }
+                if (source.lr_status === 'cancelled' || source.is_archived) { window.lrControl.history(source.id); return; }
                 isCreatingRow = false;
                 document.getElementById('editConsignmentLabel').textContent = 'Edit Shipment';
                 currentEditingRow = tr;
@@ -380,23 +381,36 @@ document.addEventListener("DOMContentLoaded", function () {
 
         var historyButton = tr.querySelector('.lr-history-row');
         if (historyButton) historyButton.onclick = function () { window.lrControl.history(source.id); };
+        var archiveButton = tr.querySelector('.archive-row');
+        if (archiveButton) archiveButton.onclick = async function () {
+            if (adminState.modifiedRowIds.has(String(source.id))) { showStatus('Save this shipment’s inline edits before archiving.', 'warning'); return; }
+            const action = source.is_archived ? 'restore' : 'archive';
+            if (!confirm((source.is_archived ? 'Restore this shipment to the active register?' : 'Archive this shipment? It will be hidden from the active register.'))) return;
+            archiveButton.disabled = true;
+            try {
+                await window.lrControl.post('/admin/consignments/' + source.id + '/' + action, {confirmed:true});
+                adminState.pendingRows.delete(String(source.id)); adminState.modifiedRowIds.delete(String(source.id));
+                window.shipmentBulkDocuments.forget(String(source.id));
+                await loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
+            } catch (error) { showStatus(escapeHtml(error.message), 'danger'); archiveButton.disabled = false; }
+        };
         var deleteButton = tr.querySelector(".delete-row");
         if (deleteButton) {
             deleteButton.addEventListener("click", async function () {
                 var existingId = tr.dataset.id ? String(tr.dataset.id) : null;
                 if (existingId && !String(existingId).startsWith('-')) {
                     if (!confirm('Cancel this shipment? Its LR and documents will be retained.')) return;
-                    var reason = prompt('Cancellation reason (required):');
-                    if (!reason || !reason.trim()) return;
                     deleteButton.disabled = true;
                     try {
-                        await window.lrControl.post('/admin/consignments/' + existingId + '/cancel', {reason: reason, confirmed: true});
+                        await window.lrControl.post('/admin/consignments/' + existingId + '/cancel', {confirmed: true});
                         adminState.pendingRows.delete(existingId);
                         adminState.modifiedRowIds.delete(existingId);
+                        window.shipmentBulkDocuments.forget(existingId);
                         source.lr_status = 'cancelled';
                         tr.dataset.row = JSON.stringify(source);
-                        tr.classList.add('table-warning');
-                        deleteButton.textContent = 'CANCELLED';
+                        tr.classList.add('shipment-cancelled');
+                        tr.setAttribute('aria-label', 'Cancelled shipment ' + source.consignment_number);
+                        tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
                     } catch (error) { showStatus(escapeHtml(error.message), 'danger'); deleteButton.disabled = false; }
                     return;
                 }
@@ -413,6 +427,13 @@ document.addEventListener("DOMContentLoaded", function () {
             field.addEventListener('change', function () { adminState.rememberRow(syncRowDataset(tr)); });
         });
 
+        if (source.lr_status === 'cancelled' || source.is_archived) {
+            if (source.lr_status === 'cancelled') {
+                tr.classList.add('shipment-cancelled');
+                tr.setAttribute('aria-label', 'Cancelled shipment ' + source.consignment_number);
+            }
+            tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
+        }
         tableBody.appendChild(tr);
         window.shipmentBulkDocuments.restore(tr);
         updateMeasurementControls(tr, source.measurement_mode);
@@ -520,7 +541,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         tableRows.forEach(function (tr) {
             var rowData = getRowDataFromTr(tr);
-            if ((rowData.consignment_number || rowData.location_id) && rowData.lr_status !== 'cancelled' && (String(rowData.id).startsWith('-') || adminState.modifiedRowIds.has(String(rowData.id)))) {
+            if ((rowData.consignment_number || rowData.location_id) && rowData.lr_status !== 'cancelled' && !rowData.is_archived && (String(rowData.id).startsWith('-') || adminState.modifiedRowIds.has(String(rowData.id)))) {
                 rows.push(rowData);
             }
         });
@@ -632,7 +653,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         ? data.total
                         : (totalRows + (adminState.locallyAddedRows ? adminState.locallyAddedRows.length : 0) - (data.deleted_count || 0));
                     // The save total covers all rows, while a search may have only one page.
-                    var filtered = Object.values(window.shipmentFilters.read()).some(Boolean);
+                    var filtered = Object.entries(window.shipmentFilters.read()).some(function (entry) { return entry[0] === 'archive' ? entry[1] === 'archived' : Boolean(entry[1]); });
                     var lastPage = filtered ? 1 : Math.max(1, Math.ceil(totalAfter / currentPerPage));
                     loadPage(lastPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
                 } catch (e) {
@@ -835,62 +856,58 @@ document.addEventListener("DOMContentLoaded", function () {
             if (pending) merge(pending);
         });
     });
+    editModalEl.addEventListener('hide.bs.modal', function (event) {
+        if (editModalEl.dataset.saving === 'true') event.preventDefault();
+    });
     modalSaveBtn.addEventListener("click", async function () {
-        if (modalSaveBtn.disabled) return;
+        if (modalSaveBtn.disabled || saveButton.disabled) return;
         modalSaveBtn.disabled = true;
+        saveButton.disabled = true;
         clearModalValidation();
         try {
             await window.shipmentDocuments.ready();
+            var source;
+            if (isCreatingRow) {
+                modalDraft = modalDraft || buildRowData({}, null);
+                source = modalDraft;
+            } else if (currentEditingRow) {
+                source = getRowDataFromTr(currentEditingRow);
+            } else return;
+            // Validate without staging or altering the register before commit.
+            if (!updateRowFromModal(null, source)) return;
+            var copy = Object.assign({}, source);
+            ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason','is_archived'].forEach(function (key) { delete copy[key]; });
+            var serialized = JSON.stringify([copy]);
+            var previous = JSON.parse(sessionStorage.getItem('lr-modal-pending') || 'null');
+            var requestKey = previous && previous.rows === serialized ? previous.key : crypto.randomUUID();
+            sessionStorage.setItem('lr-modal-pending', JSON.stringify({rows:serialized,key:requestKey}));
+            editModalEl.dataset.saving = 'true';
+            var result = await adminAPI.saveRows(saveUrl, {rows:[copy],idempotency_key:requestKey});
+            if (!result.success) throw new Error(result.message || 'Save failed. Retry to safely recover the same LR number.');
+            var shipment = result.shipments[0];
+            adminState.pendingRows.delete(String(source.id));
+            adminState.modifiedRowIds.delete(String(source.id));
+            document.getElementById('modal-consignment-number').value = shipment.lr_number;
+            editModalEl.dataset.saving = 'false';
+            editModal.hide();
+            showStatus(escapeHtml('Shipment saved successfully. LR Number: ' + shipment.lr_number), 'success');
+            modalDraft = null;
+            currentEditingRow = null;
+            isCreatingRow = false;
+            await loadPage(currentPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
         } catch (error) {
+            showModalError(error.message || 'Unable to save shipment. Please retry.');
+        } finally {
+            editModalEl.dataset.saving = 'false';
             modalSaveBtn.disabled = false;
-            showModalError('Check the selected documents. ' + (error.message || 'Please select the file again.'));
-            return;
-        }
-
-        modalSaveBtn.disabled = false;
-        if (isCreatingRow) {
-            var newId = adminState.nextLocalId();
-            var newSource = buildRowData({}, newId);
-            if (updateRowFromModal(null, newSource)) {
-                // Stage row in admin state and show it immediately if possible.
-                adminState.pushLocalRow(newSource);
-
-                // Update totals and pagination UI
-                totalRows = (typeof totalRows === "number" ? totalRows : 0) + 1;
-                totalPages = Math.max(1, Math.ceil(totalRows / currentPerPage));
-                updatePaginationUI();
-
-                // If the new row belongs on the current page, render it immediately.
-                if (currentPage === totalPages) {
-                    addRow(newSource, true);
-                } else {
-                    // Otherwise navigate to the page that will contain the new staged row.
-                    loadPage(totalPages, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                }
-
-                showStatus("Row staged locally. Click 'Save All' to persist changes.", "info");
-
-                // Close modal and reset local editing state
-                editModal.hide();
-                currentEditingRow = null;
-                isCreatingRow = false;
-            }
-            return;
-        }
-
-        if (currentEditingRow) {
-            var source = getRowDataFromTr(currentEditingRow);
-            if (updateRowFromModal(currentEditingRow, source)) {
-                editModal.hide();
-                currentEditingRow = null;
-                isCreatingRow = false;
-            }
+            saveButton.disabled = false;
         }
     });
 
     addRowButton.addEventListener("click", function () {
         currentEditingRow = null;
         isCreatingRow = true;
+        modalDraft = null;
         clearModal();
         document.getElementById('editConsignmentLabel').textContent = 'Add Shipment';
         editModal.show();
@@ -917,7 +934,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 500);
     });
 
-    ['company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter'].forEach(function (id) {
+    ['company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter', 'archive-filter'].forEach(function (id) {
         document.getElementById(id).addEventListener('change', function () {
             clearTimeout(searchTimeout);
             loadPage(1, searchInput.value.trim(), currentPerPage, currentSortBy, currentSortOrder);

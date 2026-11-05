@@ -1,5 +1,9 @@
 # Centralized LR issuance — implementation and rollout
 
+The newer [shipment form and archive update](shipment-archives.md) supersedes the
+original modal staging and mandatory cancellation-reason UI described here.
+Migration 006 adds archive storage; cancellation auditing remains enforced.
+
 ## Scope and architecture
 
 This is an extension to the existing Flask/PostgreSQL/Supabase admin panel. No

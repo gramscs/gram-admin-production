@@ -167,6 +167,7 @@ def _serialize_consignment(consignment):
         "location_id": str(consignment.location_id) if consignment.location_id else None,
         "financial_year": consignment.financial_year,
         "lr_status": consignment.lr_status,
+        "is_archived": consignment.archive_record is not None,
         "lr_issued_at": consignment.lr_issued_at.isoformat() if consignment.lr_issued_at else None,
         "cancellation_reason": consignment.cancellation_reason,
         "identifier_type": consignment.identifier_type or "LRN",
@@ -528,7 +529,7 @@ def consignments_save():
     if not check_csrf():
         return jsonify(success=False, message='Refresh the page and retry (CSRF token required).'), 403
     if deleted_ids:
-        return jsonify(success=False, message='Permanent deletion is disabled. Use cancellation with a reason.'), 400
+        return jsonify(success=False, message='Permanent deletion is disabled. Use cancellation or archiving.'), 400
     if not 1 <= len(rows) <= 100:
         return jsonify(success=False, message='Save between 1 and 100 shipments per request.'), 400
     created_files, obsolete_files, document_plans, saved = [], [], [], []
@@ -570,8 +571,9 @@ def consignments_save():
         for consignment, changes in document_plans:
             store_document_changes(consignment, changes, created_files, obsolete_files)
         db.session.flush()
+        from app.admin.reporting import filter_shipments
         result = dict(success=True, message='Saved. LR numbers: ' + ', '.join(row.consignment_number for _, row in saved),
-                      saved_count=len(saved), deleted_count=0, total=models.shipment_query().count(),
+                      saved_count=len(saved), deleted_count=0, total=filter_shipments(models.shipment_query(), {}).count(),
                       shipments=[dict(id=str(row.id), lr_number=row.consignment_number) for _, row in sorted(saved)])
         issuance.finish_request(user, key, fingerprint, result)
         commit_document_cleanup(obsolete_files)

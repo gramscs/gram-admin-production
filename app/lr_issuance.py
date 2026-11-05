@@ -101,6 +101,8 @@ def validate_identity(data, existing=None):
         raise ValueError('Issuing location cannot change after issuance.')
     if existing and 'identifier_type' in data and data['identifier_type'] != existing.identifier_type:
         raise ValueError('Identifier type cannot change after issuance.')
+    if existing and existing.archive_record is not None:
+        raise ValueError('Restore the archived shipment before editing it.')
     if existing and existing.lr_status == 'cancelled':
         raise ValueError('Cancelled shipments are read-only.')
 

@@ -100,6 +100,7 @@ def main():
     from migrations.shipment_v1 import LEDGER
     LEDGER.create_all(engine)
     migration.migrate(engine, apply=True)
+    importlib.import_module('migrations.006_shipment_archives').migrate(engine, apply=True)
     with engine.begin() as connection:
         location = connection.execute(text("INSERT INTO issuing_locations(location_name,location_code) VALUES('Test HQ','HQ') RETURNING id")).scalar_one()
         connection.execute(text("UPDATE issuing_locations SET reconciliation_digest=:digest,reconciliation_reason='Reviewed disposable browser fixtures',opening_counters='{}' WHERE id=:id"),
