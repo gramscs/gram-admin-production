@@ -22,6 +22,49 @@ document.addEventListener("DOMContentLoaded", function () {
     var currentEditingRow = null;
     var isCreatingRow = false;
     var modalDraft = null;
+    var invalidInlineRows = new Map();
+    var inlineVersions = new Map();
+    var autosaveStatus = document.getElementById('autosave-status');
+    function saveIndicator(message, failed) {
+        autosaveStatus.textContent = message;
+        autosaveStatus.className = failed ? 'small text-danger' : 'small text-muted';
+    }
+    var inlineAutosave = createShipmentAutosave({
+        pending: adminState.pendingRows,
+        version: function (id) { return inlineVersions.get(id) || 0; },
+        paused: function () { return editModalEl.classList.contains('show') || editModalEl.dataset.saving === 'true'; },
+        validate: function (row) {
+            if (!row.id || String(row.id).startsWith('-') || row.lr_status === 'cancelled' || row.is_archived) return 'Only saved, active shipments can be edited inline.';
+            var validation = adminValidation.validateRow(row);
+            return invalidInlineRows.get(String(row.id)) || (!validation.valid && validation.errors[0].message) || '';
+        },
+        pendingChanged: function () { saveIndicator('Unsaved changes'); },
+        start: function () { saveButton.disabled = true; saveIndicator('Saving…'); },
+        finish: function () { saveButton.disabled = false; },
+        acknowledged: function (id) { adminState.modifiedRowIds.delete(id); invalidInlineRows.delete(id); },
+        success: function (result, pending) {
+            saveIndicator(pending ? 'New edits waiting to save…' : 'Saved');
+        },
+        invalid: function (errors) { saveIndicator('Not saved: ' + errors[0], true); },
+        error: function (error) { saveIndicator('Not saved: ' + error.message + ' Your edits are kept; correct them or click Save All to retry.', true); },
+        empty: function () { saveIndicator('All changes saved'); },
+        send: async function (rows) {
+            var outgoing = rows.map(function (row) {
+                var copy = Object.assign({}, row);
+                ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason','is_archived'].forEach(function (key) { delete copy[key]; });
+                return copy;
+            });
+            var serialized = JSON.stringify(outgoing), previous = null;
+            try { previous = JSON.parse(sessionStorage.getItem('lr-inline-pending') || 'null'); } catch (_) {}
+            var key = previous && previous.rows === serialized ? previous.key : crypto.randomUUID();
+            sessionStorage.setItem('lr-inline-pending', JSON.stringify({rows:serialized,key:key}));
+            return adminAPI.saveRows(saveUrl, {rows:outgoing,idempotency_key:key});
+        }
+    });
+    window.addEventListener('beforeunload', function (event) {
+        if (adminState.pendingRows.size || inlineAutosave.busy()) { event.preventDefault(); event.returnValue = ''; }
+    });
+
     var searchTimeout;
     var currentPage = 1;
     var currentPerPage = perPageSelect ? (parseInt(perPageSelect.value, 10) || 10) : 10;
@@ -383,7 +426,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (historyButton) historyButton.onclick = function () { window.lrControl.history(source.id); };
         var archiveButton = tr.querySelector('.archive-row');
         if (archiveButton) archiveButton.onclick = async function () {
-            if (adminState.modifiedRowIds.has(String(source.id))) { showStatus('Save this shipment’s inline edits before archiving.', 'warning'); return; }
+            if (adminState.modifiedRowIds.has(String(source.id))) { await inlineAutosave.flush(true); if (adminState.modifiedRowIds.has(String(source.id))) return; }
             const action = source.is_archived ? 'restore' : 'archive';
             if (!confirm((source.is_archived ? 'Restore this shipment to the active register?' : 'Archive this shipment? It will be hidden from the active register.'))) return;
             archiveButton.disabled = true;
@@ -402,9 +445,14 @@ document.addEventListener("DOMContentLoaded", function () {
                     if (!confirm('Cancel this shipment? Its LR and documents will be retained.')) return;
                     deleteButton.disabled = true;
                     try {
+                        inlineAutosave.cancelTimer();
+                        await inlineAutosave.idle();
                         await window.lrControl.post('/admin/consignments/' + existingId + '/cancel', {confirmed: true});
                         adminState.pendingRows.delete(existingId);
                         adminState.modifiedRowIds.delete(existingId);
+                        invalidInlineRows.delete(existingId);
+                        saveIndicator(adminState.pendingRows.size ? 'Unsaved changes' : 'All changes saved');
+                        if (adminState.pendingRows.size) inlineAutosave.schedule();
                         window.shipmentBulkDocuments.forget(existingId);
                         source.lr_status = 'cancelled';
                         tr.dataset.row = JSON.stringify(source);
@@ -423,10 +471,22 @@ document.addEventListener("DOMContentLoaded", function () {
 
         Array.prototype.forEach.call(tr.querySelectorAll('input:not(.select-shipment), select'), function (field) {
             if (field.classList.contains('measurement_mode')) field.addEventListener('change', function () { updateMeasurementControls(tr, field.value); });
-            field.addEventListener('input', function () { adminState.rememberRow(syncRowDataset(tr)); });
-            field.addEventListener('change', function () { adminState.rememberRow(syncRowDataset(tr)); });
+            function edited() {
+                var row = syncRowDataset(tr);
+                adminState.rememberRow(row);
+                inlineVersions.set(String(row.id), (inlineVersions.get(String(row.id)) || 0) + 1);
+                var invalid = Array.from(tr.querySelectorAll('input,select')).find(function (input) { return !input.checkValidity(); });
+                if (invalid) invalidInlineRows.set(String(row.id), 'Check the highlighted shipment value.');
+                else invalidInlineRows.delete(String(row.id));
+                inlineAutosave.schedule();
+            }
+            field.addEventListener('input', edited);
+            field.addEventListener('change', edited);
         });
 
+        tableBody.appendChild(tr);
+        window.shipmentBulkDocuments.restore(tr);
+        updateMeasurementControls(tr, source.measurement_mode);
         if (source.lr_status === 'cancelled' || source.is_archived) {
             if (source.lr_status === 'cancelled') {
                 tr.classList.add('shipment-cancelled');
@@ -434,9 +494,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
         }
-        tableBody.appendChild(tr);
-        window.shipmentBulkDocuments.restore(tr);
-        updateMeasurementControls(tr, source.measurement_mode);
         syncRowDataset(tr);
 
     }
@@ -535,137 +592,8 @@ document.addEventListener("DOMContentLoaded", function () {
         return true;
     }
 
-    function collectRows() {
-        var rows = [];
-        var tableRows = document.querySelectorAll("#sheet-body tr");
-
-        tableRows.forEach(function (tr) {
-            var rowData = getRowDataFromTr(tr);
-            if ((rowData.consignment_number || rowData.location_id) && rowData.lr_status !== 'cancelled' && !rowData.is_archived && (String(rowData.id).startsWith('-') || adminState.modifiedRowIds.has(String(rowData.id)))) {
-                rows.push(rowData);
-            }
-        });
-
-        return rows;
-    }
-
-    async function saveSheet() {
-        if (saveButton.disabled) return;
-        if (!saveUrl) {
-            showStatus("Save endpoint is missing.", "danger");
-            return;
-        }
-
-        // A list refresh can replace a row while its edit modal is open.
-        // Pending edits remain authoritative even if the visible row is older.
-        var rawRows = collectRows().map(function (row) {
-            return adminState.pendingRows.get(String(row.id)) || row;
-        });
-        adminState.pendingRows.forEach(function (row, id) {
-            if (!adminState.deletedIds.has(id) && !rawRows.some(item => String(item.id) === String(id))) rawRows.push(row);
-        });
-        // Include staged local rows that may not be present in DOM (user hasn't navigated to last page)
-        try {
-            var staged = (adminState && adminState.locallyAddedRows) ? adminState.locallyAddedRows : [];
-            staged.forEach(function (s) {
-                var exists = rawRows.some(function (r) { return String(r.id) === String(s.id); });
-                if (!exists) rawRows.push(s);
-            });
-        } catch (e) {}
-        if (!rawRows.length && adminState.deletedIds.size === 0) {
-            showStatus("No changes to save.", "warning");
-            return;
-        }
-
-        try {
-            saveButton.disabled = true;
-            var originalButtonText = saveButton.textContent;
-            saveButton.textContent = "Saving...";
-            showStatus('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving rows to database...', "info");
-
-            var outgoing = rawRows.map(function (row) {
-                var copy = Object.assign({}, row, {id: String(row.id || '').startsWith('-') ? null : row.id});
-                ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason'].forEach(function(k) { delete copy[k]; });
-                return copy;
-            });
-            // Keep the key across timeouts/reloads; identical retries replay the committed response.
-            var serialized = JSON.stringify(outgoing);
-            var prior = JSON.parse(sessionStorage.getItem('lr-pending-save') || 'null');
-            var requestKey = prior && prior.rows === serialized ? prior.key : crypto.randomUUID();
-            sessionStorage.setItem('lr-pending-save', JSON.stringify({rows: serialized, key: requestKey}));
-            var data = await adminAPI.saveRows(saveUrl, {
-                rows: outgoing,
-                idempotency_key: requestKey,
-                deleted_ids: Array.from(adminState.deletedIds)
-            });
-
-            // Handle structured per-row validation errors from the server
-            var validationErrors = data && (data.errors || (data.body && data.body.errors));
-            if (Array.isArray(validationErrors) && validationErrors.length) {
-                // Clear any previous row error markers
-                document.querySelectorAll('#sheet-body tr .row-error').forEach(function (el) { el.remove(); });
-                document.querySelectorAll('#sheet-body .row-error-row').forEach(function (el) { el.remove(); });
-                var trs = Array.from(document.querySelectorAll('#sheet-body tr'));
-                var firstTr = null;
-                validationErrors.forEach(function (err) {
-                    var idx = err.index || 0;
-                    var msg = err.message || 'Invalid value';
-                    var row = rawRows[idx];
-                    var tr = row && trs.find(function (item) { return item.dataset.id === String(row.id); });
-                    if (!tr) return;
-                    firstTr = firstTr || tr;
-                    tr.classList.add('table-danger');
-                    // insert or update an inline error element
-                    var existing = tr.querySelector('.row-error');
-                    if (existing) {
-                        existing.textContent = msg;
-                    } else {
-                        var td = document.createElement('td');
-                        td.colSpan = tr.cells.length;
-                        td.className = 'row-error text-danger small';
-                        td.textContent = msg;
-                        var erTr = document.createElement('tr');
-                        erTr.className = 'row-error-row';
-                        erTr.appendChild(td);
-                        tr.parentNode.insertBefore(erTr, tr.nextSibling);
-                    }
-                });
-
-                if (firstTr && !editModalEl.classList.contains('show')) {
-                    firstTr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-
-                throw new Error('Validation errors. ' + validationErrors.map(function (error) { return error.message || 'Invalid value'; }).join(' '));
-            }
-
-            if (!data || !data.success) {
-                throw new Error((data && data.message) || "Save failed.");
-            }
-
-            showStatus(escapeHtml(data.message || "Saved successfully."), "success");
-            adminState.resetAfterSave();
-            setTimeout(function () {
-                // Prefer server-provided total (after commit) to compute the
-                // page that will contain newly inserted rows. Fall back to
-                // an estimate using the locally tracked counts.
-                try {
-                    var totalAfter = (data && typeof data.total === 'number')
-                        ? data.total
-                        : (totalRows + (adminState.locallyAddedRows ? adminState.locallyAddedRows.length : 0) - (data.deleted_count || 0));
-                    // The save total covers all rows, while a search may have only one page.
-                    var filtered = Object.entries(window.shipmentFilters.read()).some(function (entry) { return entry[0] === 'archive' ? entry[1] === 'archived' : Boolean(entry[1]); });
-                    var lastPage = filtered ? 1 : Math.max(1, Math.ceil(totalAfter / currentPerPage));
-                    loadPage(lastPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                } catch (e) {
-                    loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                }
-            }, 500);
-        } catch (error) {
-            showStatus("<strong>Save failed.</strong> " + escapeHtml(error.message || "Please check the row values and try again."), "danger");
-        } finally {
-            saveButton.disabled = false;
-            saveButton.textContent = "Save All";
-        }
+    function saveSheet() {
+        return inlineAutosave.flush(true);
     }
 
     async function loadPage(page, search, perPage, sortBy, sortOrder) {
@@ -860,11 +788,14 @@ document.addEventListener("DOMContentLoaded", function () {
         if (editModalEl.dataset.saving === 'true') event.preventDefault();
     });
     modalSaveBtn.addEventListener("click", async function () {
-        if (modalSaveBtn.disabled || saveButton.disabled) return;
+        if (modalSaveBtn.disabled) return;
         modalSaveBtn.disabled = true;
         saveButton.disabled = true;
         clearModalValidation();
         try {
+            inlineAutosave.cancelTimer();
+            await inlineAutosave.idle();
+            saveButton.disabled = true;
             await window.shipmentDocuments.ready();
             var source;
             if (isCreatingRow) {
@@ -887,6 +818,8 @@ document.addEventListener("DOMContentLoaded", function () {
             var shipment = result.shipments[0];
             adminState.pendingRows.delete(String(source.id));
             adminState.modifiedRowIds.delete(String(source.id));
+            invalidInlineRows.delete(String(source.id));
+            saveIndicator(adminState.pendingRows.size ? 'Unsaved changes' : 'Saved');
             document.getElementById('modal-consignment-number').value = shipment.lr_number;
             editModalEl.dataset.saving = 'false';
             editModal.hide();
@@ -921,6 +854,7 @@ document.addEventListener("DOMContentLoaded", function () {
         currentEditingRow = null;
         isCreatingRow = false;
         clearModal();
+        if (adminState.pendingRows.size) inlineAutosave.schedule();
     });
 
     saveButton.addEventListener("click", saveSheet);

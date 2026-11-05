@@ -123,7 +123,8 @@ No schema migration is applied automatically on startup.
 
 ## Shipment form and archive update
 
-Modal **Save** persists immediately and shows the LR number. Cancelled shipments
+Modal **Save** persists immediately and shows the LR number. Inline edits autosave
+after a short pause; **Save All** is an optional manual save or retry. Cancelled shipments
 are grey, and cancellation requires confirmation without a reason prompt.
 Administrators can archive/restore shipments; archived records are hidden until
 **Archived shipments** is selected in the Register dropdown. This update requires

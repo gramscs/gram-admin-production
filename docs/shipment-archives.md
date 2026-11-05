@@ -1,7 +1,8 @@
 # Shipment modal, cancellation and archives
 
 The shipment modal's **Save** now writes that shipment immediately and displays
-its LRN. **Save All** remains for inline register edits. Failed saves keep the
+its LRN. Inline register edits now autosave after an 800 ms pause. **Save All**
+is an optional immediate save or retry for pending edits. Failed saves keep the
 modal open, and retries of an unchanged request reuse its persistent idempotency
 key. The modal cannot close while the save request is in flight. A transport
 failure after commit can be retried to recover the same number.
@@ -125,3 +126,26 @@ runners passed. The Chromium scenario passed, including retry after a committed
 save response was lost, with no uncaught JavaScript errors. Python compilation,
 JavaScript syntax and whitespace checks also passed. The full legacy suite was
 not rerun for these targeted changes; its previously documented failures remain.
+
+## Inline autosave
+
+Valid edits to existing active shipments are saved automatically after a short
+pause. A save indicator reports unsaved changes, saving, saved, validation errors
+or transport failures. There is no table reload after inline saves, so focus and
+new edits are retained. Requests are serialized and capped at 100 rows per batch;
+only the exact acknowledged row version is cleared from pending state. Changes
+made during a request are saved in a subsequent batch. Invalid fields stay
+pending until corrected. Failed requests retain edits without an endless retry
+loop; Save All retries an unchanged payload with its existing idempotency key.
+
+Autosave pauses while the shipment modal is open. Modal Save waits for any
+already-running inline request, then persists its own shipment directly. Closing
+the modal resumes pending inline saves. The browser warns before leaving while
+there are pending edits or an in-flight save. No backend endpoint, database schema
+or migration changes are needed for this autosave update.
+
+Validation: seven queue unit tests cover coalescing/manual flush, in-flight edits,
+version acknowledgements, failed retries, invalid values, modal pause and bounded
+batches. The Chromium scenario verifies immediate modal saving, actual database
+updates from inline edits, focus retention, newer edits during a delayed response,
+invalid input protection and manual retry with the same request key.
