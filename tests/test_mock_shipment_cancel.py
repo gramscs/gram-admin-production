@@ -16,6 +16,9 @@ class MockSession:
     def get(self, model, identifier, with_for_update=False):
         return self.shipment
 
+    def execute(self, statement, parameters=None):
+        return None
+
     def flush(self):
         self.flushed = True
 
@@ -33,6 +36,7 @@ def test_mock_operator_can_cancel_shipment(monkeypatch):
     session = MockSession(shipment)
 
     monkeypatch.setattr(lr_control.db, "session", session)
+    monkeypatch.setattr(lr_control, "current_admin_user", lambda: SimpleNamespace(id=uuid4()))
 
     identifier = uuid4()
     with app.app_context(), app.test_request_context(

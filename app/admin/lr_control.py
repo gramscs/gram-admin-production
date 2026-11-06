@@ -101,6 +101,7 @@ def save_issuing_location():
 @require_admin
 def cancel_lr(identifier):
     try:
+        issuance.actor(current_admin_user())
         data = json_object()
         reason = str(data.get('reason') or 'Shipment cancelled.').strip()
         if data.get('confirmed') is not True or not 1 <= len(reason) <= 1000:
