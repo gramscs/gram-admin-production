@@ -205,3 +205,17 @@ def test_batch_pairs_terms_with_each_lr_and_uses_one_ist_timestamp(lr_app, shipm
     template = PdfReader(Path(__file__).resolve().parents[1] / 'app/assets/lr-template.pdf')
     # The whole terms page survives byte-for-byte as the original base content.
     assert template.pages[1].get_contents().get_data() in result.pages[1].get_contents().get_data()
+
+
+def test_lr_number_is_bound_to_saved_shipment(lr_client, details):
+    details['lr_number'] = 'UNAUTHORIZED-123'
+    result = lr_client.post('/admin/lr-generator/generate', json={'consignment_ids':['1'], 'lr_details':[details]})
+    assert result.status_code == 400
+    assert 'immutable shipment number' in result.json['message']
+
+
+def test_cancelled_lr_cannot_be_regenerated(lr_client, shipment, details):
+    shipment.lr_status = 'cancelled'
+    result = lr_client.post('/admin/lr-generator/generate', json={'consignment_ids':['1'], 'lr_details':[details]})
+    assert result.status_code == 400
+    assert 'Cancelled' in result.json['message']

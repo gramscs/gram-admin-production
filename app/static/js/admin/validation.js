@@ -19,8 +19,8 @@
     var pickup = (row && row.pickup_pincode) ? String(row.pickup_pincode).trim() : "";
     var drop = (row && row.drop_pincode) ? String(row.drop_pincode).trim() : "";
 
-    if (!cn) {
-      errors.push({ field: 'consignment_number', message: 'Consignment number is required.' });
+    if (!cn && !row.location_id) {
+      errors.push({ field: 'location_id', message: 'Issuing location is required.' });
     }
     if (!status) {
       errors.push({ field: 'status', message: 'Status is required.' });

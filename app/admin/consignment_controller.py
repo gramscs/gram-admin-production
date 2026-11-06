@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from openpyxl import Workbook, load_workbook
-from sqlalchemy.exc import DatabaseError, OperationalError, ProgrammingError
+from sqlalchemy.exc import SQLAlchemyError, DatabaseError, OperationalError, ProgrammingError
 
 from app import limiter
 from app.admin import admin_bp
@@ -164,6 +164,12 @@ def _serialize_consignment(consignment):
     return {
         "id": getattr(consignment, "id", None),
         "consignment_number": getattr(consignment, "consignment_number", None),
+        "location_id": str(consignment.location_id) if consignment.location_id else None,
+        "financial_year": consignment.financial_year,
+        "lr_status": consignment.lr_status,
+        "is_archived": consignment.archive_record is not None,
+        "lr_issued_at": consignment.lr_issued_at.isoformat() if consignment.lr_issued_at else None,
+        "cancellation_reason": consignment.cancellation_reason,
         "identifier_type": consignment.identifier_type or "LRN",
         "pieces": consignment.pieces or 1,
         "weight": str(consignment.weight) if consignment.weight is not None else None,
@@ -282,7 +288,7 @@ def consignments_import_template_excel():
     sheet = workbook.active
     sheet.title = "Consignments"
     sheet.append([
-        "consignment_number",
+        "location_code",
         "status",
         "pickup_address",
         "pickup_pincode",
@@ -292,7 +298,7 @@ def consignments_import_template_excel():
         "drop_pincode",
         "drop_tag",
         "drop_date",
-        "identifier_type", "boxes_pallets", "weight", "volume", "company_id", "measurement_mode", "volume_unit", "package_contents",
+        "boxes_pallets", "weight", "volume", "company_id", "measurement_mode", "volume_unit", "package_contents",
     ])
 
     buffer = io.BytesIO()
@@ -310,70 +316,8 @@ def consignments_import_template_excel():
 @limiter.limit("10 per minute")
 @require_admin
 def consignments_import_excel():
-    uploaded_file = request.files.get("file")
-    if not uploaded_file:
-        flash("Please choose an Excel file to import.", "danger")
-        return redirect(url_for("admin.consignments_panel"))
-
-    workbook = load_workbook(uploaded_file, data_only=True)
-    sheet = workbook.active
-    measurement_headers = {
-        "weight": "weight", "volume": "volume", "boxes_pallets": "pieces",
-    }
-    headers = [measurement_headers.get(_normalize_header(cell), _normalize_header(cell)) for cell in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
-
-    existing_numbers = {
-        row[0]
-        for row in models.shipment_query().with_entities(models.Consignment.consignment_number).all()
-        if row and row[0]
-    }
-
-    added_count = 0
-    skipped_duplicates = 0
-
-    for row_values in sheet.iter_rows(min_row=2, values_only=True):
-        row_data = {headers[index]: value for index, value in enumerate(row_values) if index < len(headers)}
-        consignment_number = str(row_data.get("consignment_number") or "").strip()
-        if not consignment_number:
-            continue
-        if consignment_number in existing_numbers:
-            skipped_duplicates += 1
-            continue
-
-        consignment = models.Consignment(
-            consignment_number=consignment_number,
-            status=row_data.get("status") or "",
-            pickup_address=row_data.get("pickup_address"),
-            pickup_pincode=row_data.get("pickup_pincode"),
-            pickup_tag=row_data.get("pickup_tag"),
-            pickup_date=row_data.get("pickup_date"),
-            drop_address=row_data.get("drop_address"),
-            drop_pincode=row_data.get("drop_pincode"),
-            drop_tag=row_data.get("drop_tag"),
-            drop_date=row_data.get("drop_date"),
-        )
-
-        try:
-            fields = _normalize_shipment_fields(row_data)
-            for field, value in fields.items():
-                setattr(consignment, field, value)
-        except ValueError as exc:
-            db.session.rollback()
-            flash(f"Import failed for {consignment_number}: {exc}", "danger")
-            return redirect(url_for("admin.consignments_panel"))
-        db.session.add(consignment)
-        existing_numbers.add(consignment_number)
-        added_count += 1
-
-    try:
-        db.session.commit()
-        flash(f"Import completed. Added: {added_count}, skipped duplicates: {skipped_duplicates}.", "success")
-    except Exception:
-        db.session.rollback()
-        logger.exception("Failed to import consignments")
-        flash("Import failed.", "danger")
-
-    return redirect(url_for("admin.consignments_panel"))
+    from app.admin.lr_control import preview_import
+    return preview_import()
 
 
 @admin_bp.route("/admin/consignments/export.xlsx", methods=["GET"], endpoint="consignments_export_excel")
@@ -450,7 +394,6 @@ def consignments_export_pdf():
 
 
 CONSIGNMENT_SAVE_FIELDS = (
-    "consignment_number",
     "status",
     "pickup_pincode",
     "pickup_address",
@@ -465,10 +408,19 @@ CONSIGNMENT_SAVE_FIELDS = (
 
 
 def _normalize_shipment_fields(row, existing=None):
-    if "consignment_number" in row:
+    if "consignment_number" in row and (row["consignment_number"] or existing is not None):
         number = str(row["consignment_number"] or "").strip()
         if not number or len(number) > 64 or not number.isascii() or not all(32 <= ord(char) <= 126 for char in number):
             raise ValueError("Identifier must contain 1–64 printable ASCII characters.")
+    for name in ('pickup_pincode', 'drop_pincode'):
+        raw = str(row.get(name) or '').strip()
+        if raw and not re.fullmatch('[1-9][0-9]{5}', raw):
+            raise ValueError(f'{name.replace("_", " ").title()} must be a valid six-digit Indian pincode.')
+    for name in CONSIGNMENT_SAVE_FIELDS:
+        if name in row and row[name] is not None and not isinstance(row[name], (str, int)):
+            raise ValueError(f'{name} must be text.')
+    if len(str(row.get('status') or '')) > 200:
+        raise ValueError('Status must contain at most 200 characters.')
     def value(name, default):
         return row[name] if name in row else getattr(existing, name, default)
 
@@ -530,6 +482,8 @@ def _normalize_shipment_fields(row, existing=None):
 
 def _apply_consignment_payload(consignment, row):
     for field in CONSIGNMENT_SAVE_FIELDS:
+        if field not in row:
+            continue
         value = row.get(field)
         if value is None:
             value = ""
@@ -544,12 +498,14 @@ def _normalize_save_payload():
     else:
         payload = request.form.to_dict(flat=True)
 
+    if not isinstance(payload, dict):
+        return {}
     if isinstance(payload.get("rows"), list):
         return payload
 
     # Backwards-compatible single-row payload support.
-    if payload.get("consignment_number") or payload.get("id"):
-        return {"rows": [payload], "deleted_ids": []}
+    if payload.get("location_id") or payload.get("consignment_number") or payload.get("id"):
+        return {"rows": [payload], "deleted_ids": [], "idempotency_key": payload.get("idempotency_key")}
 
     return payload
 
@@ -564,99 +520,74 @@ def consignments_save():
     if not isinstance(rows, list):
         return jsonify({"success": False, "message": "Rows payload is required."}), 400
 
-    errors = []
-    saved_count = 0
-    deleted_count = 0
-    document_plans, created_files, obsolete_files = [], [], []
-
+    from app import lr_issuance as issuance
+    from app.admin.auth import current_admin_user
+    from app.admin.lr_control import check_csrf
+    user = current_admin_user()
+    if user.role not in ('administrator', 'operator'):
+        return jsonify(success=False, message='Shipment operator access required.'), 403
+    if not check_csrf():
+        return jsonify(success=False, message='Refresh the page and retry (CSRF token required).'), 403
+    if deleted_ids:
+        return jsonify(success=False, message='Permanent deletion is disabled. Use cancellation or archiving.'), 400
+    if not 1 <= len(rows) <= 100:
+        return jsonify(success=False, message='Save between 1 and 100 shipments per request.'), 400
+    created_files, obsolete_files, document_plans, saved = [], [], [], []
     try:
-        for deleted_id in deleted_ids if isinstance(deleted_ids, list) else []:
-            try:
-                deleted_id_int = models.record_id(deleted_id)
-            except (TypeError, ValueError):
-                continue
-            consignment = db.session.get(models.Consignment, deleted_id_int, with_for_update=True)
-            if consignment:
-                purge_shipment_documents(consignment, obsolete_files)
-                db.session.delete(consignment)
-                deleted_count += 1
-
-        for index, row in enumerate(rows):
-            if not isinstance(row, dict):
-                errors.append({"index": index, "field": "row", "message": "Row must be an object."})
-                continue
-
-            consignment_number = (row.get("consignment_number") or "").strip().upper()
-            if not consignment_number:
-                errors.append({
-                    "index": index,
-                    "field": "consignment_number",
-                    "message": "Consignment number is required.",
-                })
-                continue
-
-            row = dict(row)
-            row["consignment_number"] = consignment_number
-
-            consignment = None
-            row_id = row.get("id")
-            # Older browser sessions send negative IDs for unsaved staged rows.
-            if str(row_id).startswith('-') and str(row_id)[1:].isdigit():
-                row_id = None
-            if row_id not in (None, ""):
-                try:
-                    consignment = db.session.get(models.Consignment, models.record_id(row_id), with_for_update=True)
-                except (TypeError, ValueError):
-                    errors.append({"index": index, "field": "id", "message": "Invalid consignment id."})
-                    continue
-
-            existing_by_number = models.shipment_query().filter_by(consignment_number=consignment_number).first()
-            if consignment and existing_by_number and existing_by_number.id != consignment.id:
-                errors.append({
-                    "index": index,
-                    "field": "consignment_number",
-                    "message": "Consignment number already exists.",
-                })
-                continue
-
-            if not consignment:
-                consignment = existing_by_number or models.Consignment()
-
-            if len(consignment_number) > 64 or not consignment_number.isascii() or not all(32 <= ord(char) <= 126 for char in consignment_number):
-                errors.append({"index": index, "field": "consignment_number", "message": "Identifier must contain 1–64 printable ASCII characters."})
-                continue
-            try:
-                fields = _normalize_shipment_fields(row, consignment)
-                document_changes = prepare_row_documents(row, consignment)
-            except ValueError as exc:
-                errors.append({"index": index, "field": "shipment", "message": str(exc)})
-                continue
-            _apply_consignment_payload(consignment, row)
-            for field, value in fields.items():
-                setattr(consignment, field, value)
-            db.session.add(consignment)
-            document_plans.append((consignment, document_changes))
-            saved_count += 1
-
-        if errors:
+        key, fingerprint, previous = issuance.begin_request(user, payload.get('idempotency_key'), rows)
+        if previous is not None:
             db.session.rollback()
-            return jsonify({
-                "success": False,
-                "message": "Validation errors. Please fix highlighted rows.",
-                "errors": errors,
-            }), 400
-
+            return jsonify(previous)
+        # Stable lock order across mixed-location saves avoids AB/BA lock cycles.
+        ordered = sorted(enumerate(rows), key=lambda pair: (str(pair[1].get('location_id', '')), str(pair[1].get('id', '')))
+                  if isinstance(pair[1], dict) else ('', ''))
+        for index, row in ordered:
+            if not isinstance(row, dict):
+                raise ValueError(f'Row {index + 1}: shipment must be an object.')
+            row_id = row.get('id')
+            if str(row_id).startswith('-'):
+                row_id = None
+            existing = db.session.get(models.Consignment, models.record_id(row_id), with_for_update=True) if row_id else None
+            if row_id and existing is None:
+                raise ValueError(f'Row {index + 1}: shipment no longer exists.')
+            try:
+                issuance.validate_identity(row, existing)
+                fields = _normalize_shipment_fields(row, existing)
+                if not str(row.get('status', getattr(existing, 'status', '')) or '').strip():
+                    raise ValueError('Status is required.')
+                # Keep all existing non-LR field validation and document staging.
+                candidate = existing or models.Consignment()
+                _apply_consignment_payload(candidate, row)
+                for field, value in fields.items():
+                    setattr(candidate, field, value)
+                changes = prepare_row_documents(row, candidate)
+                if existing is None:
+                    fields.update({name: getattr(candidate, name) for name in CONSIGNMENT_SAVE_FIELDS})
+                    candidate = issuance.create_shipment(row, fields)
+                saved.append((index, candidate))
+                document_plans.append((candidate, changes))
+            except ValueError as error:
+                raise ValueError(f'Row {index + 1}: {error}') from None
         for consignment, changes in document_plans:
             store_document_changes(consignment, changes, created_files, obsolete_files)
-        total = models.shipment_query().count()
+        db.session.flush()
+        from app.admin.reporting import filter_shipments
+        result = dict(success=True, message='Saved. LR numbers: ' + ', '.join(row.consignment_number for _, row in saved),
+                      saved_count=len(saved), deleted_count=0, total=filter_shipments(models.shipment_query(), {}).count(),
+                      shipments=[dict(id=str(row.id), lr_number=row.consignment_number) for _, row in sorted(saved)])
+        issuance.finish_request(user, key, fingerprint, result)
         commit_document_cleanup(obsolete_files)
-        return jsonify({
-            "success": True,
-            "message": "Saved.",
-            "saved_count": saved_count,
-            "deleted_count": deleted_count,
-            "total": total,
-        })
+        return jsonify(result)
+    except ValueError as error:
+        db.session.rollback()
+        cleanup_documents(created_files)
+        logger.warning('Rejected LR shipment mutation: %s', error)
+        return jsonify(success=False, message=str(error)), 400
+    except SQLAlchemyError as error:
+        db.session.rollback()
+        cleanup_documents(created_files)
+        logger.error('LR transaction rejected (%s)', type(error).__name__)
+        return jsonify(success=False, message=issuance.public_error(error)), 409
     except StorageSyncError as error:
         db.session.rollback()
         cleanup_documents(created_files)

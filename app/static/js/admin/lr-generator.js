@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (['date', 'time'].includes(field.kind)) input.type = field.kind;
                 else {if (field.kind !== 'textarea') input.type = 'text'; input.maxLength = field.limit;}
                 input.value = data[field.name] || '';
+                if (field.name === 'lr_number') input.readOnly = true;
                 const label = node('label', 'form-label', field.label + (field.required ? ' *' : '')); label.htmlFor = input.id;
                 wrapper.append(label, input);
                 if (row.sources.includes(field.name)) wrapper.append(node('span', 'lr-field-source', 'From shipment · review before generating'));

@@ -1,0 +1,21 @@
+{% extends 'admin/base.html' %}
+{% block title %}Shipment Import{% endblock %}
+{% block topbar_title %}Shipment Import{% endblock %}
+{% block content %}
+<h4>{{ 'Import results' if batch.response else 'Review shipment import' }}</h4>
+{% if batch.response %}
+<p>Import complete. Retrying this batch returns these same shipments.</p>
+<table class="table"><thead><tr><th>File row</th><th>Generated LR</th></tr></thead><tbody>
+{% for row in batch.response.shipments %}<tr><td>{{ row.row }}</td><td>{{ row.lr_number }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}
+<p>No LR numbers have been reserved. Confirm to issue all {{ batch.rows|length }} shipments in one transaction.</p>
+<table class="table"><thead><tr><th>File row</th><th>Issuing location</th><th>Status</th><th>Pickup</th><th>Drop</th><th>Boxes / pallets</th></tr></thead><tbody>
+{% for row in batch.rows %}<tr><td>{{ loop.index+1 }}</td><td>{{ row.location_code }}</td><td>{{ row.status }}</td><td>{{ row.get('pickup_address','') }}</td><td>{{ row.get('drop_address','') }}</td><td>{{ row.get('pieces',1) }}</td></tr>{% endfor %}
+</tbody></table>
+<form action="{{ url_for('admin.confirm_lr_import') }}" method="post" onsubmit="this.querySelector('button').disabled=true">
+<input type="hidden" name="batch_id" value="{{ batch.id }}"><input type="hidden" name="csrf_token" value="{{ auth_csrf_token() }}">
+<button class="btn btn-primary">Confirm and issue LRs</button></form>
+{% endif %}
+<a class="btn btn-link" href="{{ url_for('admin.consignments_panel') }}">Back to shipments</a>
+{% endblock %}

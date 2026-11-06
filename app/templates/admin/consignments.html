@@ -3,7 +3,7 @@
 {% block title %}Shipment Tracker – Gram SCS{% endblock %}
 {% block topbar_title %}Shipments{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='shared-label-details-1') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-consignments.css', v='shipment-autosave-1') }}" />
 {% endblock %}
 
 {% macro sort_button(column, label) -%}
@@ -18,7 +18,7 @@
     <div>
       <span class="page-eyebrow">SHIPMENT MANAGEMENT</span>
       <h4 class="mb-1 fw-bold">Shipment Tracker</h4>
-      <p class="text-muted small mb-0">Add or edit shipment details, then click Save All to save your changes.</p>
+      <p class="text-muted small mb-0">Modal Save writes immediately. Inline changes autosave after a short pause; Save All is an optional manual save.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
       <div class="dropdown">
@@ -33,6 +33,7 @@
       </div>
       <button id="add-row-btn" type="button" class="btn btn-outline-primary btn-sm">Add Row</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#bulkDocumentsModal">Bulk documents <span id="bulk-selected-count" class="badge text-bg-secondary">0</span></button>
+      <span id="autosave-status" class="small text-muted" role="status" aria-live="polite">All changes saved</span>
       <button id="save-btn" type="button" class="btn btn-success btn-sm">Save All</button>
     </div>
   </div>
@@ -89,7 +90,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/admin/company-presets.js') }}"></script>
-{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/state.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'admin/package-contents.js', 'consignments.js'] %}
-<script src="{{ url_for('static', filename='js/' ~ script, v='shared-label-details-1') }}"></script>
+{% for script in ['admin/shipment-filters.js', 'admin/api.js', 'admin/lr-control.js', 'admin/state.js', 'admin/autosave.js', 'admin/validation.js', 'admin/documents.js', 'admin/bulk-documents.js', 'admin/package-contents.js', 'consignments.js'] %}
+<script src="{{ url_for('static', filename='js/' ~ script, v='shipment-autosave-1') }}"></script>
 {% endfor %}
 {% endblock %}

@@ -63,7 +63,7 @@
   function saveRows(saveUrl, payload) {
     return _fetchJson(saveUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]')?.content || '' },
       body: JSON.stringify(payload),
       timeout: 60000
     }).catch(function (err) {

@@ -13,3 +13,7 @@ from app.admin import documents  # noqa: E402,F401
 from app.admin import bulk_documents  # noqa: E402,F401
 from app.admin import document_library  # noqa: E402,F401
 from app.admin import mis  # noqa: E402,F401
+
+from app.admin import lr_control  # noqa: E402,F401
+
+from app.admin import shipment_archives  # noqa: E402,F401
