@@ -20,7 +20,7 @@ def test_cancel_without_reason_retains_identity_and_actor(lr_app,panel):
     with lr_app.app_context():
         row=db.session.get(Consignment,issued['id'])
         assert row.identifier_value==issued['lr_number']
-        assert row.cancellation_reason=='Cancelled by administrator.'
+        assert row.cancellation_reason=='Shipment cancelled.'
         assert row.cancelled_by is not None and row.cancelled_at is not None
         assert db.session.query(LRAudit).filter_by(shipment_id=row.id,action='cancelled').count()==1
 

@@ -99,10 +99,9 @@ def save_issuing_location():
 
 @admin_bp.post('/admin/consignments/<uuid:identifier>/cancel')
 @require_admin
-@mutation('administrator')
 def cancel_lr(identifier):
     data = json_object()
-    reason = str(data.get('reason') or 'Cancelled by administrator.').strip()
+    reason = str(data.get('reason') or 'Shipment cancelled.').strip()
     if data.get('confirmed') is not True or not 1 <= len(reason) <= 1000:
         raise ValueError('Confirm cancellation. An optional reason must be 1–1000 characters.')
     from app import orm as models

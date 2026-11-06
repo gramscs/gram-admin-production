@@ -10,7 +10,7 @@ failure after commit can be retried to recover the same number.
 Cancelled shipments retain their number and history. They use grey rows rather
 than a large CANCELLED label. The row has an accessible cancellation label and
 its editable controls are disabled. Cancellation still asks for confirmation,
-but no longer asks for a reason: the server records `Cancelled by administrator.`,
+but no longer asks for a reason: the server records `Shipment cancelled.`,
 the verified administrator and database timestamp. Existing clients may still
 send a custom reason. The existing database cancellation safeguards are retained.
 

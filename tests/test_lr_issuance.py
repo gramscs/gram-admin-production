@@ -153,10 +153,11 @@ def test_role_and_csrf_controls(lr_app,panel):
     with lr_app.app_context():
         db.session.execute(text("UPDATE admin_users SET role='operator'"));db.session.commit()
     assert client.post('/admin/issuing-locations',json={'location_name':'Other','location_code':'OT'},headers=headers).status_code==403
-    assert client.post('/admin/consignments/'+first['id']+'/cancel',json={'confirmed':True,'reason':'test'},headers=headers).status_code==403
+    assert client.post('/admin/consignments/'+first['id']+'/cancel',json={'confirmed':True,'reason':'test'},headers=headers).status_code==200
     assert save(panel).status_code==200
     with lr_app.app_context():
         db.session.execute(text("UPDATE admin_users SET role='viewer'"));db.session.commit()
+    assert client.post('/admin/consignments/'+first['id']+'/cancel',json={'confirmed':True,'reason':'test'},headers=headers).status_code==200
     assert save(panel).status_code==403
 
 

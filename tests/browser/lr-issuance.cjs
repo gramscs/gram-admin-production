@@ -51,7 +51,7 @@ const {chromium} = require('playwright');
         assert.equal(await page.locator('#sheet-body .consignment_number').inputValue(),data.shipments[0].lr_number);
         await page.locator('.lr-history-row').click();
         await page.locator('dialog[open]').waitFor();
-        assert.match(await page.locator('dialog').innerText(),/Cancelled by administrator/);
+        assert.match(await page.locator('dialog').innerText(),/Shipment cancelled/);
         await page.locator('dialog button').click();
         const archived=page.waitForResponse(r=>r.url().endsWith('/archive'));
         await page.locator('.archive-row').click();
