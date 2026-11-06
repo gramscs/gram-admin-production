@@ -1,0 +1,170 @@
+ .env.example                                        |   19 [32m+[m
+ .gitattributes                                      |    1 [32m+[m
+ .gitignore                                          |   11 [32m+[m
+ AGENTS.md                                           |   36 [32m+[m
+ Procfile                                            |    1 [32m+[m
+ README.md                                           |   82 [32m+[m[31m-[m
+ THIRD_PARTY_NOTICES.md                              |   13 [32m+[m
+ app/__init__.py                                     |  200 [32m++[m
+ app/admin/__init__.py                               |   14 [32m+[m
+ app/admin/auth.py                                   |  121 [32m+[m
+ app/admin/auth_routes.py                            |   49 [32m+[m
+ app/admin/backup.py                                 |  333 [32m+++[m
+ app/admin/bulk_documents.py                         |  194 [32m++[m
+ app/admin/companies.py                              |  155 [32m++[m
+ app/admin/consignment_controller.py                 |  650 [32m+++++[m
+ app/admin/document_library.py                       |   18 [32m+[m
+ app/admin/document_lifecycle.py                     |  185 [32m++[m
+ app/admin/documents.py                              |  282 [32m+++[m
+ app/admin/input_validation.py                       |   48 [32m+[m
+ app/admin/label_runs.py                             |   96 [32m+[m
+ app/admin/labels.py                                 |  332 [32m+++[m
+ app/admin/mis.py                                    |  199 [32m++[m
+ app/admin/mis_exports.py                            |  308 [32m+++[m
+ app/admin/reporting.py                              |  271 [32m++[m
+ app/admin/routes.py                                 |   62 [32m+[m
+ app/db_maintenance.py                               |   64 [32m+[m
+ app/er_adapter.py                                   |  312 [32m+++[m
+ app/models.py                                       |  102 [32m+[m
+ app/orm.py                                          |   68 [32m+[m
+ app/shipment_packages.py                            |   64 [32m+[m
+ app/static/css/admin-consignments.css               |   34 [32m+[m
+ app/static/css/admin-document-library.css           |   13 [32m+[m
+ app/static/css/admin-labels.css                     |   20 [32m+[m
+ app/static/css/admin-reporting.css                  |   32 [32m+[m
+ app/static/css/admin-theme.css                      |  145 [32m++[m
+ app/static/css/font-awesome.min.css                 |    4 [32m+[m
+ app/static/fonts/FontAwesome.otf                    |  Bin [31m0[m -> [32m134808[m bytes
+ app/static/fonts/fontawesome-webfont.eot            |  Bin [31m0[m -> [32m165742[m bytes
+ app/static/fonts/fontawesome-webfont.svg            | 2671 [32m++++++++++++++++++++[m
+ app/static/fonts/fontawesome-webfont.ttf            |  Bin [31m0[m -> [32m165548[m bytes
+ app/static/fonts/fontawesome-webfont.woff           |  Bin [31m0[m -> [32m98024[m bytes
+ app/static/fonts/fontawesome-webfont.woff2          |  Bin [31m0[m -> [32m77160[m bytes
+ app/static/fonts/labels/LiberationMono-Bold.ttf     |  Bin [31m0[m -> [32m308068[m bytes
+ app/static/fonts/labels/LiberationMono-Regular.ttf  |  Bin [31m0[m -> [32m319624[m bytes
+ app/static/fonts/labels/LiberationSans-Bold.ttf     |  Bin [31m0[m -> [32m414568[m bytes
+ app/static/fonts/labels/LiberationSans-Regular.ttf  |  Bin [31m0[m -> [32m410820[m bytes
+ app/static/fonts/labels/OFL.txt                     |  106 [32m+[m
+ app/static/images/logo.png                          |  Bin [31m0[m -> [32m13116[m bytes
+ app/static/js/admin/api.js                          |   79 [32m+[m
+ app/static/js/admin/bulk-documents.js               |  115 [32m+[m
+ app/static/js/admin/companies.js                    |   59 [32m+[m
+ app/static/js/admin/company-presets.js              |   73 [32m+[m
+ app/static/js/admin/dashboard-documents.js          |   55 [32m+[m
+ app/static/js/admin/document-editor.js              |  107 [32m+[m
+ app/static/js/admin/document-library.js             |  124 [32m+[m
+ app/static/js/admin/documents.js                    |  150 [32m++[m
+ app/static/js/admin/labels.js                       |  204 [32m++[m
+ app/static/js/admin/mis.js                          |   76 [32m+[m
+ app/static/js/admin/package-contents.js             |   28 [32m+[m
+ app/static/js/admin/report-downloads.js             |   53 [32m+[m
+ app/static/js/admin/reporting.js                    |   84 [32m+[m
+ app/static/js/admin/shipment-filters.js             |   28 [32m+[m
+ app/static/js/admin/state.js                        |   42 [32m+[m
+ app/static/js/admin/theme.js                        |   41 [32m+[m
+ app/static/js/admin/ui.js                           |   22 [32m+[m
+ app/static/js/admin/validation.js                   |   44 [32m+[m
+ app/static/js/consignments.js                       |  965 [32m+++++++[m
+ app/static/vendor/bootstrap/LICENSE                 |   21 [32m+[m
+ app/static/vendor/bootstrap/SOURCE.json             |    6 [32m+[m
+ app/static/vendor/bootstrap/bootstrap.bundle.min.js |    7 [32m+[m
+ app/static/vendor/bootstrap/bootstrap.min.css       |    6 [32m+[m
+ app/static/vendor/space-grotesk/LICENSE             |   93 [32m+[m
+ app/static/vendor/space-grotesk/SOURCE.json         |    6 [32m+[m
+ app/static/vendor/space-grotesk/font.css            |    4 [32m+[m
+ .../space-grotesk-latin-400-normal.woff2            |  Bin [31m0[m -> [32m13388[m bytes
+ .../space-grotesk-latin-500-normal.woff2            |  Bin [31m0[m -> [32m13312[m bytes
+ .../space-grotesk-latin-600-normal.woff2            |  Bin [31m0[m -> [32m13284[m bytes
+ .../space-grotesk-latin-700-normal.woff2            |  Bin [31m0[m -> [32m12840[m bytes
+ app/templates/admin/_dashboard_documents.html       |   25 [32m+[m
+ app/templates/admin/_report_filters.html            |   10 [32m+[m
+ app/templates/admin/_shipment_filters.html          |    7 [32m+[m
+ app/templates/admin/_theme_head.html                |    6 [32m+[m
+ app/templates/admin/_theme_toggle.html              |    3 [32m+[m
+ app/templates/admin/base.html                       |   52 [32m+[m
+ app/templates/admin/companies.html                  |   48 [32m+[m
+ app/templates/admin/consignments.html               |   95 [32m+[m
+ .../admin/consignments/bulk_documents.html          |   26 [32m+[m
+ .../admin/consignments/document_editor.html         |   15 [32m+[m
+ app/templates/admin/consignments/modals.html        |  131 [32m+[m
+ app/templates/admin/dashboard.html                  |   41 [32m+[m
+ app/templates/admin/document_library.html           |   35 [32m+[m
+ app/templates/admin/labels.html                     |   59 [32m+[m
+ app/templates/admin/login.html                      |   28 [32m+[m
+ app/templates/admin/mis.html                        |   23 [32m+[m
+ database/__init__.py                                |    5 [32m+[m
+ database/integrity.py                               |   69 [32m+[m
+ database/models.py                                  |  324 [32m+++[m
+ database/schema.py                                  |   32 [32m+[m
+ docs/b2b-label-example.pdf                          |  Bin [31m0[m -> [32m93835[m bytes
+ docs/database-migration.md                          |  106 [32m+[m
+ docs/database-model.md                              |  102 [32m+[m
+ docs/database-schema.sql                            |  279 [32m++[m
+ docs/management-mis-example.pdf                     |  Bin [31m0[m -> [32m63902[m bytes
+ docs/screenshots/b2b-label-volume.png               |  Bin [31m0[m -> [32m63403[m bytes
+ docs/screenshots/b2b-label.png                      |  Bin [31m0[m -> [32m63533[m bytes
+ docs/screenshots/box-contents-mobile.png            |  Bin [31m0[m -> [32m47684[m bytes
+ docs/screenshots/box-contents.png                   |  Bin [31m0[m -> [32m155209[m bytes
+ docs/screenshots/company-view-mobile.png            |  Bin [31m0[m -> [32m41547[m bytes
+ docs/screenshots/company-view.png                   |  Bin [31m0[m -> [32m118949[m bytes
+ docs/screenshots/dashboard-dark.png                 |  Bin [31m0[m -> [32m139834[m bytes
+ docs/screenshots/dashboard-light.png                |  Bin [31m0[m -> [32m141232[m bytes
+ docs/screenshots/dashboard-mobile.png               |  Bin [31m0[m -> [32m262475[m bytes
+ docs/screenshots/label-review.png                   |  Bin [31m0[m -> [32m131847[m bytes
+ docs/screenshots/labels-settings.png                |  Bin [31m0[m -> [32m247272[m bytes
+ docs/screenshots/mis-reports-dark.png               |  Bin [31m0[m -> [32m137662[m bytes
+ docs/screenshots/shipment-validation-desktop.png    |  Bin [31m0[m -> [32m169290[m bytes
+ docs/screenshots/shipment-validation-mobile.png     |  Bin [31m0[m -> [32m45339[m bytes
+ docs/system-testing.md                              |   77 [32m+[m
+ downloads/gram-scs-admin.zip                        |  Bin [31m0[m -> [32m3612689[m bytes
+ git                                                 |    0
+ migrations/001_shipment_database.py                 |  104 [32m+[m
+ migrations/002_label_runs.py                        |  157 [32m++[m
+ migrations/__init__.py                              |    1 [32m+[m
+ migrations/er_copy.py                               |   72 [32m+[m
+ migrations/shipment_v1.py                           |  547 [32m++++[m
+ migrations/storage.py                               |  120 [32m+[m
+ requirements-dev.txt                                |    2 [32m+[m
+ requirements.txt                                    |   26 [32m+[m
+ run.py                                              |   14 [32m+[m
+ tests/browser/admin-followup.cjs                    |  101 [32m+[m
+ tests/browser/box-contents.cjs                      |   98 [32m+[m
+ tests/browser/consignment-staging.cjs               |  100 [32m+[m
+ tests/browser/dashboard-documents.cjs               |   95 [32m+[m
+ tests/browser/document-editor.cjs                   |  109 [32m+[m
+ tests/browser/label-record-ids.cjs                  |   67 [32m+[m
+ tests/browser/label-review.cjs                      |  124 [32m+[m
+ tests/browser/modal-validation.cjs                  |  136 [32m+[m
+ tests/browser/serve.py                              |  125 [32m+[m
+ tests/browser/shipment-documents.cjs                |  139 [32m+[m
+ tests/conftest.py                                   |  156 [32m++[m
+ tests/label_helpers.py                              |    9 [32m+[m
+ tests/test_backup_legacy_keys.py                    |   89 [32m+[m
+ tests/test_bulk_documents.py                        |  200 [32m++[m
+ tests/test_companies_presets.py                     |   93 [32m+[m
+ tests/test_complete_backup.py                       |   61 [32m+[m
+ tests/test_complete_database_import.py              |   13 [32m+[m
+ tests/test_dashboard_overview.py                    |   39 [32m+[m
+ tests/test_database_model.py                        |  370 [32m+++[m
+ tests/test_document_deletion.py                     |  339 [32m+++[m
+ tests/test_document_names.py                        |   98 [32m+[m
+ tests/test_er_dashboard.py                          |  262 [32m++[m
+ tests/test_label_layout.py                          |  100 [32m+[m
+ tests/test_label_names_metrics.py                   |  100 [32m+[m
+ tests/test_label_review.py                          |  273 [32m++[m
+ tests/test_label_runs_migration.py                  |  145 [32m++[m
+ tests/test_migration_progress.py                    |   51 [32m+[m
+ tests/test_mis_storage_separation.py                |   70 [32m+[m
+ tests/test_package_contents.py                      |  197 [32m++[m
+ tests/test_reporting_mis.py                         |  327 [32m+++[m
+ tests/test_shipment_documents.py                    |  218 [32m++[m
+ tests/test_shipment_fields_labels.py                |  113 [32m+[m
+ tests/test_shipment_filters_documents.py            |  228 [32m++[m
+ tests/test_shipment_migration.py                    |  218 [32m++[m
+ tests/test_standalone.py                            |  244 [32m++[m
+ tests/test_storage_diagnostics.py                   |  106 [32m+[m
+ tests/test_storage_download_cache.py                |   61 [32m+[m
+ tests/test_storage_isolation.py                     |   36 [32m+[m
+ workflows/database-change.md                        |  212 [32m++[m
+ wsgi.py                                             |    5 [32m+[m
+ 169 files changed, 17974 insertions(+), 1 deletion(-)
