@@ -62,6 +62,8 @@ def _selected_rows(values):
     if len(found) != len(selected):
         raise ValueError('A selected shipment no longer exists. Refresh the list and select again.')
     rows = [found[row_id] for row_id in selected]
+    if any(row.lr_status == 'cancelled' for row in rows):
+        raise ValueError('Cancelled shipments cannot receive new labels. Historical documents remain available.')
     if sum(row.pieces or 1 for row in rows) > 500:
         raise ValueError('Selected shipments exceed 500 box/pallet labels. Select fewer shipments.')
     return rows

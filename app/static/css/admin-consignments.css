@@ -32,3 +32,18 @@
 #shipment-form-error { flex-shrink: 0; max-height: 22vh; overflow-y: auto; font-size: .85rem; }
 @media (max-width: 767.98px) { .pagination-buttons { flex-wrap: wrap; } .consignment-page h4 { font-size: 1.2rem; } }
 #package-contents-editor input[type="number"] { min-width: 5rem; }
+
+/* Cancellation keeps the original LR visible, using a quiet grey row. */
+#sheet-body tr.shipment-cancelled > td {
+    --bs-table-bg: var(--bs-secondary-bg, #e9ecef);
+    --bs-table-color: var(--bs-secondary-color, #6c757d);
+    --bs-table-accent-bg: transparent;
+    background-color: var(--bs-secondary-bg, #e9ecef);
+    color: var(--bs-secondary-color, #6c757d);
+}
+#sheet-body tr.shipment-cancelled input,
+#sheet-body tr.shipment-cancelled select {
+    background-color: transparent;
+    color: inherit;
+    border-color: transparent;
+}

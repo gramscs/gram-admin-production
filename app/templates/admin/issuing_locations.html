@@ -1,0 +1,17 @@
+{% extends 'admin/base.html' %}
+{% block title %}Issuing Locations{% endblock %}
+{% block topbar_title %}Issuing Locations{% endblock %}
+{% block content %}
+<h4>Issuing Location Master</h4>
+<p>Locations saved by an administrator are ready to use immediately. You can rename or deactivate a location; its registered code stays fixed.</p>
+<div id="location-message" class="alert" role="status"></div>
+<form id="location-form" class="surface-panel p-3 mb-3">
+ <input name="id" type="hidden">
+ <label class="form-label">Location name<input name="location_name" class="form-control" required maxlength="120"></label>
+ <label class="form-label">Registered code<input name="location_code" class="form-control" required pattern="[A-Za-z]{2,10}" maxlength="10"></label>
+ <label><input name="is_active" type="checkbox" checked> Active</label>
+ <button class="btn btn-primary">Save location</button><button type="reset" class="btn btn-secondary">Clear</button>
+</form>
+<table class="table"><thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead><tbody id="location-rows"></tbody></table>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/admin/lr-control.js', v='auto-ready-1') }}"></script>{% endblock %}

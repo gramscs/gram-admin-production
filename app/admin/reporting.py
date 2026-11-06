@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 
 from app import orm as models
 from app.shipment_packages import volume_ft3
@@ -65,7 +65,21 @@ def normalize_shipment_filters(values):
     search = values.get('search', '')
     if not isinstance(search, str) or len(search.strip()) > 200:
         raise ValueError('Search must contain at most 200 characters.')
-    filters = {'search': search.strip(), 'company': company, 'identifier_type': identifier_type}
+    location = str(values.get('issuing_location', '') or '')
+    fy = str(values.get('financial_year', '') or '')
+    if location:
+        from uuid import UUID
+        try:
+            UUID(location)
+        except ValueError:
+            raise ValueError('Choose a registered issuing location.') from None
+    if fy and (len(fy) != 4 or not fy.isascii() or not fy.isdigit()):
+        raise ValueError('Financial year must contain four digits, for example 2627.')
+    archive = values.get('archive', 'active') or 'active'
+    if archive not in ('active', 'archived'):
+        raise ValueError('Choose Active or Archived shipments.')
+    filters = {'archive': archive, 'search': search.strip(), 'company': company, 'identifier_type': identifier_type,
+               'issuing_location': location, 'financial_year': fy}
     if values.get('shipment_id'):
         try:
             filters['shipment_id'] = str(models.record_id(values['shipment_id']))
@@ -75,6 +89,9 @@ def normalize_shipment_filters(values):
 
 
 def filter_shipments(query, filters):
+    from database.lr import ShipmentArchive
+    exists = select(ShipmentArchive.shipment_id).where(ShipmentArchive.shipment_id == models.Consignment.id).exists()
+    query = query.filter(exists if filters.get('archive') == 'archived' else ~exists)
     query = search_shipments(query, filters.get('search', ''))
     company = filters.get('company', '')
     if company == 'unassigned':
@@ -83,6 +100,10 @@ def filter_shipments(query, filters):
         query = query.filter_by(company_id=models.record_id(company))
     if filters.get('identifier_type'):
         query = query.filter_by(identifier_type=filters['identifier_type'])
+    if filters.get('issuing_location'):
+        query = query.filter_by(location_id=filters['issuing_location'])
+    if filters.get('financial_year'):
+        query = query.filter_by(financial_year=filters['financial_year'])
     if filters.get('shipment_id'):
         query = query.filter_by(id=models.record_id(filters['shipment_id']))
     return query

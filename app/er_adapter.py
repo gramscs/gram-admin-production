@@ -18,6 +18,7 @@ from app.models import db
 from database.models import (Base, Company, CompanyLocation, Consignment, MisView,
     MisReport, AdminUser, File, ShipmentDocument, ShipmentEvent, AuditLog, LabelRun, JSON_DATA)
 from migrations.shipment_v1 import COLUMN_MAP, RECORDS, json_value
+from database.lr import ShipmentArchive
 
 
 class ExtraBase(DeclarativeBase):
@@ -66,6 +67,7 @@ def _extra_field(model, key):
 
 for _model in (Consignment, MisView, MisReport):
     _attach_extras(_model)
+Consignment.archive_record = relationship(ShipmentArchive, primaryjoin=Consignment.id == foreign(ShipmentArchive.shipment_id), viewonly=True, uselist=False)
 Company.address = synonym('registered_address')
 Consignment.consignment_number = synonym('identifier_value')
 Consignment.pickup_address = synonym('pickup_address_snapshot')

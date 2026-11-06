@@ -21,6 +21,50 @@ document.addEventListener("DOMContentLoaded", function () {
     var listUrl = tableBody.dataset.listUrl || "";
     var currentEditingRow = null;
     var isCreatingRow = false;
+    var modalDraft = null;
+    var invalidInlineRows = new Map();
+    var inlineVersions = new Map();
+    var autosaveStatus = document.getElementById('autosave-status');
+    function saveIndicator(message, failed) {
+        autosaveStatus.textContent = message;
+        autosaveStatus.className = failed ? 'small text-danger' : 'small text-muted';
+    }
+    var inlineAutosave = createShipmentAutosave({
+        pending: adminState.pendingRows,
+        version: function (id) { return inlineVersions.get(id) || 0; },
+        paused: function () { return editModalEl.classList.contains('show') || editModalEl.dataset.saving === 'true'; },
+        validate: function (row) {
+            if (!row.id || String(row.id).startsWith('-') || row.lr_status === 'cancelled' || row.is_archived) return 'Only saved, active shipments can be edited inline.';
+            var validation = adminValidation.validateRow(row);
+            return invalidInlineRows.get(String(row.id)) || (!validation.valid && validation.errors[0].message) || '';
+        },
+        pendingChanged: function () { saveIndicator('Unsaved changes'); },
+        start: function () { saveButton.disabled = true; saveIndicator('Saving…'); },
+        finish: function () { saveButton.disabled = false; },
+        acknowledged: function (id) { adminState.modifiedRowIds.delete(id); invalidInlineRows.delete(id); },
+        success: function (result, pending) {
+            saveIndicator(pending ? 'New edits waiting to save…' : 'Saved');
+        },
+        invalid: function (errors) { saveIndicator('Not saved: ' + errors[0], true); },
+        error: function (error) { saveIndicator('Not saved: ' + error.message + ' Your edits are kept; correct them or click Save All to retry.', true); },
+        empty: function () { saveIndicator('All changes saved'); },
+        send: async function (rows) {
+            var outgoing = rows.map(function (row) {
+                var copy = Object.assign({}, row);
+                ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason','is_archived'].forEach(function (key) { delete copy[key]; });
+                return copy;
+            });
+            var serialized = JSON.stringify(outgoing), previous = null;
+            try { previous = JSON.parse(sessionStorage.getItem('lr-inline-pending') || 'null'); } catch (_) {}
+            var key = previous && previous.rows === serialized ? previous.key : crypto.randomUUID();
+            sessionStorage.setItem('lr-inline-pending', JSON.stringify({rows:serialized,key:key}));
+            return adminAPI.saveRows(saveUrl, {rows:outgoing,idempotency_key:key});
+        }
+    });
+    window.addEventListener('beforeunload', function (event) {
+        if (adminState.pendingRows.size || inlineAutosave.busy()) { event.preventDefault(); event.returnValue = ''; }
+    });
+
     var searchTimeout;
     var currentPage = 1;
     var currentPerPage = perPageSelect ? (parseInt(perPageSelect.value, 10) || 10) : 10;
@@ -224,6 +268,15 @@ document.addEventListener("DOMContentLoaded", function () {
         packageStep(false);
         var consInput = document.getElementById("modal-consignment-number");
         consInput.value = row.consignment_number || "";
+        var locationSelect = document.getElementById('modal-location-id');
+        window.lrControl.locations.then(function (locations) {
+            locationSelect.replaceChildren(new Option('Choose issuing location', ''));
+            locations.filter(function (l) { return l.is_active || l.id === row.location_id; }).forEach(function (l) {
+                locationSelect.add(new Option(l.location_code + ' — ' + l.location_name, l.id));
+            });
+            locationSelect.value = row.location_id || '';
+            locationSelect.disabled = !!(row.id && !String(row.id).startsWith('-'));
+        });
         ['identifier_type', 'pieces', 'weight', 'volume'].forEach(function (name) {
             document.getElementById('modal-' + name.replaceAll('_', '-')).value = row[name] ?? (name === 'identifier_type' ? 'LRN' : name === 'pieces' ? 1 : '');
         });
@@ -231,7 +284,7 @@ document.addEventListener("DOMContentLoaded", function () {
         updateModalMeasurement();
         // Ensure the input is editable (some scripts may toggle readOnly)
         try {
-            consInput.readOnly = false;
+            consInput.readOnly = true;
         } catch (e) {
             // ignore
         }
@@ -274,6 +327,8 @@ document.addEventListener("DOMContentLoaded", function () {
         var data = source || {};
         return {
             id: data.id || fallbackId ? String(data.id || fallbackId) : null,
+            location_id: data.location_id || null, lr_status: data.lr_status || '', is_archived: !!data.is_archived,
+            client_row_key: data.client_row_key || crypto.randomUUID(),
             company_id: data.company_id ?? null, company_name: data.company_name || '',
             consignment_number: data.consignment_number || "",
             identifier_type: data.identifier_type || "LRN", pieces: data.pieces ?? 1,
@@ -334,8 +389,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         tr.innerHTML =
             '<td><input type="checkbox" class="form-check-input select-shipment" aria-label="Select ' + escapeHtml(source.consignment_number || 'shipment') + '"' + (!source.id || source.id.startsWith('-') ? ' disabled' : '') + ' /></td>' +
-            '<td><div class="cell-stack">' + buildIdentifierSelect(source.identifier_type) +
-                buildTextInput("consignment_number", source.consignment_number || "", "Identifier", 64) +
+            '<td><div class="cell-stack">' + '<span>' + escapeHtml(source.identifier_type || 'LRN') + '</span>' +
+                '<input class="form-control form-control-sm consignment_number" readonly placeholder="Generated on save" value="' + escapeHtml(source.consignment_number || '') + '">' +
                 '<span class="client-name small text-muted">' + escapeHtml(source.company_name || '') + '</span></div></td>' +
             "<td>" + buildNumberInput('pieces', source.pieces ?? 1, 1, 1) + "</td>" +
             '<td><div class="cell-stack"><select class="form-select form-select-sm measurement_mode" aria-label="Measurement basis"><option value="weight"' + (source.measurement_mode === 'weight' ? ' selected' : '') + '>Weight</option><option value="volume"' + (source.measurement_mode === 'volume' ? ' selected' : '') + '>Volume (CBFT)</option></select>' +
@@ -347,7 +402,9 @@ document.addEventListener("DOMContentLoaded", function () {
             '<td><div class="cell-stack">' + buildTextInput("drop_pincode", source.drop_pincode || "", "Drop pin", 6) +
                 buildTextInput("drop_date", source.drop_date || source.eta || "", "Drop estimated") + '</div></td>' +
             '<td><div class="d-flex justify-content-center gap-1"><button type="button" class="btn btn-sm btn-outline-primary edit-row" title="Edit" aria-label="Edit consignment"><i class="fa fa-pencil" aria-hidden="true"></i></button>' +
-                '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Delete" aria-label="Delete consignment"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
+                (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary lr-history-row">History</button>' : '') +
+                (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary archive-row">' + (source.is_archived ? 'Restore' : 'Archive') + '</button>' : '') +
+                '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Cancel / discard" aria-label="Cancel shipment or discard draft"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
 
         if (rowClass) {
             tr.className = rowClass;
@@ -356,6 +413,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var editButton = tr.querySelector(".edit-row");
         if (editButton) {
             editButton.addEventListener("click", function () {
+                if (source.lr_status === 'cancelled' || source.is_archived) { window.lrControl.history(source.id); return; }
                 isCreatingRow = false;
                 document.getElementById('editConsignmentLabel').textContent = 'Edit Shipment';
                 currentEditingRow = tr;
@@ -364,12 +422,45 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }
 
+        var historyButton = tr.querySelector('.lr-history-row');
+        if (historyButton) historyButton.onclick = function () { window.lrControl.history(source.id); };
+        var archiveButton = tr.querySelector('.archive-row');
+        if (archiveButton) archiveButton.onclick = async function () {
+            if (adminState.modifiedRowIds.has(String(source.id))) { await inlineAutosave.flush(true); if (adminState.modifiedRowIds.has(String(source.id))) return; }
+            const action = source.is_archived ? 'restore' : 'archive';
+            if (!confirm((source.is_archived ? 'Restore this shipment to the active register?' : 'Archive this shipment? It will be hidden from the active register.'))) return;
+            archiveButton.disabled = true;
+            try {
+                await window.lrControl.post('/admin/consignments/' + source.id + '/' + action, {confirmed:true});
+                adminState.pendingRows.delete(String(source.id)); adminState.modifiedRowIds.delete(String(source.id));
+                window.shipmentBulkDocuments.forget(String(source.id));
+                await loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
+            } catch (error) { showStatus(escapeHtml(error.message), 'danger'); archiveButton.disabled = false; }
+        };
         var deleteButton = tr.querySelector(".delete-row");
         if (deleteButton) {
-            deleteButton.addEventListener("click", function () {
+            deleteButton.addEventListener("click", async function () {
                 var existingId = tr.dataset.id ? String(tr.dataset.id) : null;
                 if (existingId && !String(existingId).startsWith('-')) {
-                    adminState.addDeleted(existingId);
+                    if (!confirm('Cancel this shipment? Its LR and documents will be retained.')) return;
+                    deleteButton.disabled = true;
+                    try {
+                        inlineAutosave.cancelTimer();
+                        await inlineAutosave.idle();
+                        await window.lrControl.post('/admin/consignments/' + existingId + '/cancel', {confirmed: true});
+                        adminState.pendingRows.delete(existingId);
+                        adminState.modifiedRowIds.delete(existingId);
+                        invalidInlineRows.delete(existingId);
+                        saveIndicator(adminState.pendingRows.size ? 'Unsaved changes' : 'All changes saved');
+                        if (adminState.pendingRows.size) inlineAutosave.schedule();
+                        window.shipmentBulkDocuments.forget(existingId);
+                        source.lr_status = 'cancelled';
+                        tr.dataset.row = JSON.stringify(source);
+                        tr.classList.add('shipment-cancelled');
+                        tr.setAttribute('aria-label', 'Cancelled shipment ' + source.consignment_number);
+                        tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
+                    } catch (error) { showStatus(escapeHtml(error.message), 'danger'); deleteButton.disabled = false; }
+                    return;
                 }
                 // Remove from local tracking
                 adminState.removeLocalRowById(existingId);
@@ -380,13 +471,29 @@ document.addEventListener("DOMContentLoaded", function () {
 
         Array.prototype.forEach.call(tr.querySelectorAll('input:not(.select-shipment), select'), function (field) {
             if (field.classList.contains('measurement_mode')) field.addEventListener('change', function () { updateMeasurementControls(tr, field.value); });
-            field.addEventListener('input', function () { adminState.rememberRow(syncRowDataset(tr)); });
-            field.addEventListener('change', function () { adminState.rememberRow(syncRowDataset(tr)); });
+            function edited() {
+                var row = syncRowDataset(tr);
+                adminState.rememberRow(row);
+                inlineVersions.set(String(row.id), (inlineVersions.get(String(row.id)) || 0) + 1);
+                var invalid = Array.from(tr.querySelectorAll('input,select')).find(function (input) { return !input.checkValidity(); });
+                if (invalid) invalidInlineRows.set(String(row.id), 'Check the highlighted shipment value.');
+                else invalidInlineRows.delete(String(row.id));
+                inlineAutosave.schedule();
+            }
+            field.addEventListener('input', edited);
+            field.addEventListener('change', edited);
         });
 
         tableBody.appendChild(tr);
         window.shipmentBulkDocuments.restore(tr);
         updateMeasurementControls(tr, source.measurement_mode);
+        if (source.lr_status === 'cancelled' || source.is_archived) {
+            if (source.lr_status === 'cancelled') {
+                tr.classList.add('shipment-cancelled');
+                tr.setAttribute('aria-label', 'Cancelled shipment ' + source.consignment_number);
+            }
+            tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
+        }
         syncRowDataset(tr);
 
     }
@@ -397,12 +504,9 @@ document.addEventListener("DOMContentLoaded", function () {
         var pickupPincode = document.getElementById("modal-pickup-pincode").value.trim();
         var dropPincode = document.getElementById("modal-drop-pincode").value.trim();
 
-        if (!consignmentNumber) {
-            showModalError("Consignment number cannot be empty.", document.getElementById('modal-consignment-number'));
-            return false;
-        }
-        if (!/^[\x20-\x7E]{1,64}$/.test(consignmentNumber)) {
-            showModalError("Identifier must contain 1–64 printable ASCII characters.", document.getElementById('modal-consignment-number'));
+        var issuingLocation = document.getElementById('modal-location-id');
+        if (!consignmentNumber && !issuingLocation.value) {
+            showModalError('Choose an issuing location.', issuingLocation);
             return false;
         }
 
@@ -436,6 +540,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         source.consignment_number = consignmentNumber;
+        source.location_id = document.getElementById('modal-location-id').value || null;
         source.company_id = document.getElementById('modal-company-id').value || null;
         source.measurement_mode = document.getElementById('modal-measurement-mode').value;
         source.volume_unit = 'ft3';
@@ -487,128 +592,8 @@ document.addEventListener("DOMContentLoaded", function () {
         return true;
     }
 
-    function collectRows() {
-        var rows = [];
-        var tableRows = document.querySelectorAll("#sheet-body tr");
-
-        tableRows.forEach(function (tr) {
-            var rowData = getRowDataFromTr(tr);
-            if (rowData.consignment_number && rowData.consignment_number.trim()) {
-                rows.push(rowData);
-            }
-        });
-
-        return rows;
-    }
-
-    async function saveSheet() {
-        if (!saveUrl) {
-            showStatus("Save endpoint is missing.", "danger");
-            return;
-        }
-
-        // A list refresh can replace a row while its edit modal is open.
-        // Pending edits remain authoritative even if the visible row is older.
-        var rawRows = collectRows().map(function (row) {
-            return adminState.pendingRows.get(String(row.id)) || row;
-        });
-        adminState.pendingRows.forEach(function (row, id) {
-            if (!adminState.deletedIds.has(id) && !rawRows.some(item => String(item.id) === String(id))) rawRows.push(row);
-        });
-        // Include staged local rows that may not be present in DOM (user hasn't navigated to last page)
-        try {
-            var staged = (adminState && adminState.locallyAddedRows) ? adminState.locallyAddedRows : [];
-            staged.forEach(function (s) {
-                var exists = rawRows.some(function (r) { return String(r.id) === String(s.id); });
-                if (!exists) rawRows.push(s);
-            });
-        } catch (e) {}
-        if (!rawRows.length && adminState.deletedIds.size === 0) {
-            showStatus("No changes to save.", "warning");
-            return;
-        }
-
-        try {
-            saveButton.disabled = true;
-            var originalButtonText = saveButton.textContent;
-            saveButton.textContent = "Saving...";
-            showStatus('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving rows to database...', "info");
-
-            // Delegate network call to adminAPI
-            var data = await adminAPI.saveRows(saveUrl, {
-                rows: rawRows.map(function (row) {
-                    return Object.assign({}, row, {id: String(row.id || '').startsWith('-') ? null : row.id});
-                }),
-                deleted_ids: Array.from(adminState.deletedIds)
-            });
-
-            // Handle structured per-row validation errors from the server
-            var validationErrors = data && (data.errors || (data.body && data.body.errors));
-            if (Array.isArray(validationErrors) && validationErrors.length) {
-                // Clear any previous row error markers
-                document.querySelectorAll('#sheet-body tr .row-error').forEach(function (el) { el.remove(); });
-                document.querySelectorAll('#sheet-body .row-error-row').forEach(function (el) { el.remove(); });
-                var trs = Array.from(document.querySelectorAll('#sheet-body tr'));
-                var firstTr = null;
-                validationErrors.forEach(function (err) {
-                    var idx = err.index || 0;
-                    var msg = err.message || 'Invalid value';
-                    var row = rawRows[idx];
-                    var tr = row && trs.find(function (item) { return item.dataset.id === String(row.id); });
-                    if (!tr) return;
-                    firstTr = firstTr || tr;
-                    tr.classList.add('table-danger');
-                    // insert or update an inline error element
-                    var existing = tr.querySelector('.row-error');
-                    if (existing) {
-                        existing.textContent = msg;
-                    } else {
-                        var td = document.createElement('td');
-                        td.colSpan = tr.cells.length;
-                        td.className = 'row-error text-danger small';
-                        td.textContent = msg;
-                        var erTr = document.createElement('tr');
-                        erTr.className = 'row-error-row';
-                        erTr.appendChild(td);
-                        tr.parentNode.insertBefore(erTr, tr.nextSibling);
-                    }
-                });
-
-                if (firstTr && !editModalEl.classList.contains('show')) {
-                    firstTr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-
-                throw new Error('Validation errors. ' + validationErrors.map(function (error) { return error.message || 'Invalid value'; }).join(' '));
-            }
-
-            if (!data || !data.success) {
-                throw new Error((data && data.message) || "Save failed.");
-            }
-
-            showStatus("<strong>Saved successfully.</strong> Your internal database has been updated.", "success");
-            adminState.resetAfterSave();
-            setTimeout(function () {
-                // Prefer server-provided total (after commit) to compute the
-                // page that will contain newly inserted rows. Fall back to
-                // an estimate using the locally tracked counts.
-                try {
-                    var totalAfter = (data && typeof data.total === 'number')
-                        ? data.total
-                        : (totalRows + (adminState.locallyAddedRows ? adminState.locallyAddedRows.length : 0) - (data.deleted_count || 0));
-                    // The save total covers all rows, while a search may have only one page.
-                    var filtered = Object.values(window.shipmentFilters.read()).some(Boolean);
-                    var lastPage = filtered ? 1 : Math.max(1, Math.ceil(totalAfter / currentPerPage));
-                    loadPage(lastPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                } catch (e) {
-                    loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                }
-            }, 500);
-        } catch (error) {
-            showStatus("<strong>Save failed.</strong> " + escapeHtml(error.message || "Please check the row values and try again."), "danger");
-        } finally {
-            saveButton.disabled = false;
-            saveButton.textContent = "Save All";
-        }
+    function saveSheet() {
+        return inlineAutosave.flush(true);
     }
 
     async function loadPage(page, search, perPage, sortBy, sortOrder) {
@@ -799,58 +784,63 @@ document.addEventListener("DOMContentLoaded", function () {
             if (pending) merge(pending);
         });
     });
+    editModalEl.addEventListener('hide.bs.modal', function (event) {
+        if (editModalEl.dataset.saving === 'true') event.preventDefault();
+    });
     modalSaveBtn.addEventListener("click", async function () {
+        if (modalSaveBtn.disabled) return;
+        modalSaveBtn.disabled = true;
+        saveButton.disabled = true;
         clearModalValidation();
         try {
+            inlineAutosave.cancelTimer();
+            await inlineAutosave.idle();
+            saveButton.disabled = true;
             await window.shipmentDocuments.ready();
+            var source;
+            if (isCreatingRow) {
+                modalDraft = modalDraft || buildRowData({}, null);
+                source = modalDraft;
+            } else if (currentEditingRow) {
+                source = getRowDataFromTr(currentEditingRow);
+            } else return;
+            // Validate without staging or altering the register before commit.
+            if (!updateRowFromModal(null, source)) return;
+            var copy = Object.assign({}, source);
+            ['lr_number','lr_sequence','financial_year','lr_issued_at','created_at','lr_status','cancelled_at','cancelled_by','cancellation_reason','is_archived'].forEach(function (key) { delete copy[key]; });
+            var serialized = JSON.stringify([copy]);
+            var previous = JSON.parse(sessionStorage.getItem('lr-modal-pending') || 'null');
+            var requestKey = previous && previous.rows === serialized ? previous.key : crypto.randomUUID();
+            sessionStorage.setItem('lr-modal-pending', JSON.stringify({rows:serialized,key:requestKey}));
+            editModalEl.dataset.saving = 'true';
+            var result = await adminAPI.saveRows(saveUrl, {rows:[copy],idempotency_key:requestKey});
+            if (!result.success) throw new Error(result.message || 'Save failed. Retry to safely recover the same LR number.');
+            var shipment = result.shipments[0];
+            adminState.pendingRows.delete(String(source.id));
+            adminState.modifiedRowIds.delete(String(source.id));
+            invalidInlineRows.delete(String(source.id));
+            saveIndicator(adminState.pendingRows.size ? 'Unsaved changes' : 'Saved');
+            document.getElementById('modal-consignment-number').value = shipment.lr_number;
+            editModalEl.dataset.saving = 'false';
+            editModal.hide();
+            showStatus(escapeHtml('Shipment saved successfully. LR Number: ' + shipment.lr_number), 'success');
+            modalDraft = null;
+            currentEditingRow = null;
+            isCreatingRow = false;
+            await loadPage(currentPage, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
         } catch (error) {
-            showModalError('Check the selected documents. ' + (error.message || 'Please select the file again.'));
-            return;
-        }
-
-        if (isCreatingRow) {
-            var newId = adminState.nextLocalId();
-            var newSource = buildRowData({}, newId);
-            if (updateRowFromModal(null, newSource)) {
-                // Stage row in admin state and show it immediately if possible.
-                adminState.pushLocalRow(newSource);
-
-                // Update totals and pagination UI
-                totalRows = (typeof totalRows === "number" ? totalRows : 0) + 1;
-                totalPages = Math.max(1, Math.ceil(totalRows / currentPerPage));
-                updatePaginationUI();
-
-                // If the new row belongs on the current page, render it immediately.
-                if (currentPage === totalPages) {
-                    addRow(newSource, true);
-                } else {
-                    // Otherwise navigate to the page that will contain the new staged row.
-                    loadPage(totalPages, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
-                }
-
-                showStatus("Row staged locally. Click 'Save All' to persist changes.", "info");
-
-                // Close modal and reset local editing state
-                editModal.hide();
-                currentEditingRow = null;
-                isCreatingRow = false;
-            }
-            return;
-        }
-
-        if (currentEditingRow) {
-            var source = getRowDataFromTr(currentEditingRow);
-            if (updateRowFromModal(currentEditingRow, source)) {
-                editModal.hide();
-                currentEditingRow = null;
-                isCreatingRow = false;
-            }
+            showModalError(error.message || 'Unable to save shipment. Please retry.');
+        } finally {
+            editModalEl.dataset.saving = 'false';
+            modalSaveBtn.disabled = false;
+            saveButton.disabled = false;
         }
     });
 
     addRowButton.addEventListener("click", function () {
         currentEditingRow = null;
         isCreatingRow = true;
+        modalDraft = null;
         clearModal();
         document.getElementById('editConsignmentLabel').textContent = 'Add Shipment';
         editModal.show();
@@ -864,6 +854,7 @@ document.addEventListener("DOMContentLoaded", function () {
         currentEditingRow = null;
         isCreatingRow = false;
         clearModal();
+        if (adminState.pendingRows.size) inlineAutosave.schedule();
     });
 
     saveButton.addEventListener("click", saveSheet);
@@ -877,7 +868,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 500);
     });
 
-    ['company-filter', 'identifier-type-filter'].forEach(function (id) {
+    ['company-filter', 'identifier-type-filter', 'issuing-location-filter', 'financial-year-filter', 'archive-filter'].forEach(function (id) {
         document.getElementById(id).addEventListener('change', function () {
             clearTimeout(searchTimeout);
             loadPage(1, searchInput.value.trim(), currentPerPage, currentSortBy, currentSortOrder);

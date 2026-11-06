@@ -89,6 +89,22 @@ def main():
             expected_delivery_date=date(2026, 10, 2),
         ) for index in range(60))
         session.commit()
+    # Install centralized LR controls only in this disposable browser schema.
+    import importlib
+    migration = importlib.import_module('migrations.005_centralized_lr')
+    from sqlalchemy import text
+    from app.lr_issuance import digest
+    with engine.begin() as connection:
+        for name in ('location_id','lr_sequence','financial_year','created_at','lr_issued_at','lr_status','cancelled_at','cancelled_by','cancellation_reason'):
+            connection.exec_driver_sql(f'ALTER TABLE consignments DROP COLUMN {name}')
+    from migrations.shipment_v1 import LEDGER
+    LEDGER.create_all(engine)
+    migration.migrate(engine, apply=True)
+    importlib.import_module('migrations.006_shipment_archives').migrate(engine, apply=True)
+    with engine.begin() as connection:
+        location = connection.execute(text("INSERT INTO issuing_locations(location_name,location_code) VALUES('Test HQ','HQ') RETURNING id")).scalar_one()
+        connection.execute(text("UPDATE issuing_locations SET reconciliation_digest=:digest,reconciliation_reason='Reviewed disposable browser fixtures',opening_counters='{}' WHERE id=:id"),
+                           {'digest': digest([]), 'id': location})
     client = BrowserClient()
     os.environ.update(
         DATABASE_URL=app_url.render_as_string(hide_password=False),

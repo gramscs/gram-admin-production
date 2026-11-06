@@ -225,6 +225,10 @@ def consignment_document(consignment_id, kind):
         return _response_error('Consignment not found.', 404)
     field, name_field = DOCUMENTS[kind]
     if request.method != 'GET':
+        if row.archive_record is not None:
+            return _response_error('Restore the archived shipment before changing documents.', 409)
+        if row.lr_status == 'cancelled':
+            return _response_error('Cancelled shipment documents are read-only.', 409)
         origin = request.headers.get('Origin')
         if origin and urlsplit(origin).netloc != request.host:
             return _response_error('Document changes must come from this admin app.', 403)
