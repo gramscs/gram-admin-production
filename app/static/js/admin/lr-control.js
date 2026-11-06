@@ -2,8 +2,16 @@
     'use strict';
     async function post(url, data) {
         const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content}, body:JSON.stringify(data)});
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || 'Request failed.');
+        const contentType = response.headers.get('content-type') || '';
+        const text = await response.text();
+        let result = {};
+        if (contentType.includes('application/json')) {
+            try { result = text ? JSON.parse(text) : {}; } catch (_) {}
+        }
+        if (!response.ok) {
+            throw new Error(result.message || result.error || (!contentType.includes('application/json') && text ? 'The server returned an unexpected response. Please refresh and retry.' : 'Request failed.'));
+        }
+        if (!result.success && contentType.includes('application/json')) return result;
         return result;
     }
     const locations = fetch('/admin/issuing-locations/options').then(async r => {

@@ -100,21 +100,29 @@ def save_issuing_location():
 @admin_bp.post('/admin/consignments/<uuid:identifier>/cancel')
 @require_admin
 def cancel_lr(identifier):
-    data = json_object()
-    reason = str(data.get('reason') or 'Shipment cancelled.').strip()
-    if data.get('confirmed') is not True or not 1 <= len(reason) <= 1000:
-        raise ValueError('Confirm cancellation. An optional reason must be 1–1000 characters.')
-    from app import orm as models
-    row = db.session.get(models.Consignment, identifier, with_for_update=True)
-    if row is None:
-        raise ValueError('Shipment not found.')
-    if row.archive_record is not None:
-        raise ValueError('Restore the archived shipment before cancelling it.')
-    if row.lr_status != 'cancelled':
-        row.lr_status, row.cancellation_reason = 'cancelled', reason
-        db.session.flush()
-    db.session.commit()
-    return jsonify(success=True, lr_number=row.identifier_value, lr_status='cancelled')
+    try:
+        data = json_object()
+        reason = str(data.get('reason') or 'Shipment cancelled.').strip()
+        if data.get('confirmed') is not True or not 1 <= len(reason) <= 1000:
+            raise ValueError('Confirm cancellation. An optional reason must be 1–1000 characters.')
+        from app import orm as models
+        row = db.session.get(models.Consignment, identifier, with_for_update=True)
+        if row is None:
+            raise ValueError('Shipment not found.')
+        if row.archive_record is not None:
+            raise ValueError('Restore the archived shipment before cancelling it.')
+        if row.lr_status != 'cancelled':
+            row.lr_status, row.cancellation_reason = 'cancelled', reason
+            db.session.flush()
+        db.session.commit()
+        return jsonify(success=True, lr_number=row.identifier_value, lr_status='cancelled')
+    except (ValueError, TypeError) as error:
+        db.session.rollback()
+        return jsonify(success=False, message=str(error)), 400
+    except SQLAlchemyError as error:
+        db.session.rollback()
+        current_app.logger.exception('LR cancellation failed')
+        return jsonify(success=False, message=issuance.public_error(error)), 409
 
 
 @admin_bp.get('/admin/consignments/<uuid:identifier>/lr-history')
