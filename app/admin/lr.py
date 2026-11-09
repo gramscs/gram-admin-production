@@ -118,15 +118,15 @@ def _review_details(items, rows):
                     except ValueError:
                         raise ValueError(f'Enter a valid {title.lower()}.') from None
             values[name] = value
-        if not re.fullmatch(r'[ -~]{1,64}', values['lr_number']):
+        if values['lr_number'] and not re.fullmatch(r'[ -~]{1,64}', values['lr_number']):
             raise ValueError('LR number must use printable English letters, numbers or symbols for its barcode.')
-        if values['lr_number'].casefold() in numbers:
+        if values['lr_number'] and values['lr_number'].casefold() in numbers:
             raise ValueError('Each shipment in this batch needs a different LR number.')
         numbers.add(values['lr_number'].casefold())
         shipment = next(row for row in rows if str(row.id) == identifier)
         if getattr(shipment, 'lr_status', 'legacy') == 'cancelled':
             raise ValueError('Cancelled LRs cannot be regenerated. Historical PDFs remain available.')
-        if values['lr_number'] != shipment.consignment_number:
+        if values['lr_number'] and values['lr_number'] != shipment.consignment_number:
             raise ValueError('LR number must match the immutable shipment number.')
         if values['eway_bill_date'] and values['eway_valid_until'] and values['eway_valid_until'] < values['eway_bill_date']:
             raise ValueError('E-way bill validity must not end before its issue date.')
