@@ -16,16 +16,19 @@ send a custom reason. The existing database cancellation safeguards are retained
 
 Administrators can **Archive** a saved shipment and **Restore** it later. The
 register defaults to **Active shipments**; choose **Archived shipments** in the
-Register dropdown to see archived records. Search, paging and exports respect
-this selection. Unsaved inline edits must be saved before archiving.
+Register dropdown to see archived records. Search and paging respect this
+selection. Archived shipments appear only in this register view; exports, dashboard/MIS totals, labels, LR generation and the
+document library always use active shipments. Unsaved inline edits must be saved
+before archiving.
 
 ## Storage and integrity
 
 Archives use a separate `shipment_archives` table in the existing PostgreSQL
 (Supabase) database. It stores a server-generated snapshot, shipment ID, actor and
 archive timestamp. Canonical shipment identity rows are retained to preserve
-foreign keys, LR counters, audit history and document retrieval. They are hidden
-from normal filtered registers/reports while archived; archiving does not reset,
+foreign keys, LR counters, audit history and documents for restoration. The shared
+shipment query excludes them by default; only the consignments archive list explicitly requests archived rows. Direct document viewing and
+downloads are unavailable until restoration; archiving does not reset,
 reassign or release an LRN. Snapshot data includes canonical fields, dashboard
 extras and document references; stored document bytes remain in their existing
 private Supabase buckets.

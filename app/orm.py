@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from flask import current_app
-from sqlalchemy import inspect
+from sqlalchemy import inspect, false
 from flask_sqlalchemy.query import Query
 
 from app import models as legacy
@@ -47,16 +47,19 @@ def export_id(value):
     return str(value) if isinstance(value, UUID) else value
 
 
-def shipment_query():
-    """Fetch screen relationships in batches rather than per remote shipment."""
+def shipment_query(*, archived=False):
+    """Active shipments by default; only the consignments archive list opts in."""
     model = __getattr__('Consignment')
     query = model.query
     if using_er():
         from sqlalchemy.orm import selectinload
         from database.models import ShipmentDocument
+        query = query.filter(model.archive_record.has() if archived else ~model.archive_record.has())
         query = query.options(selectinload(model.archive_record), selectinload(model.company),
                               selectinload(model.extra_record),
                               selectinload(model.documents).selectinload(ShipmentDocument.file))
+    elif archived:
+        query = query.filter(false())
     return query
 
 

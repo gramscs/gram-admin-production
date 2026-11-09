@@ -228,6 +228,7 @@ def consignments_panel():
         )
 
 
+@admin_bp.route("/admin/documents/list", methods=["GET"], endpoint="documents_list_api")
 @admin_bp.route("/admin/consignments/list", methods=["GET"], endpoint="consignments_list_api")
 @require_admin
 def consignments_list_api():
@@ -246,7 +247,9 @@ def consignments_list_api():
         sort_order = "asc" if sort_order.lower() == "asc" else "desc"
 
         from app.admin.reporting import filter_shipments, normalize_shipment_filters
-        query = filter_shipments(models.shipment_query(), normalize_shipment_filters(request.args))
+        filters = normalize_shipment_filters(request.args)
+        archived = request.endpoint == 'admin.consignments_list_api' and filters['archive'] == 'archived'
+        query = filter_shipments(models.shipment_query(archived=archived), filters)
 
         total = query.count()
         sort_column = getattr(models.Consignment, sort_by)
