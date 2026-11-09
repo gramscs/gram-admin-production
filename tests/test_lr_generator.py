@@ -134,7 +134,7 @@ def test_deduplicated_selection_and_details_have_one_to_one_mapping(lr_client, d
 
 
 @pytest.mark.parametrize('field,value', [
-    ('lr_number', ''), ('lr_number', 'हिंदी'), ('lr_number', 'bad\x00number'),
+    ('lr_number', 'हिंदी'), ('lr_number', 'bad\x00number'),
     ('invoice_value', 'NaN'), ('invoice_value', '-1'), ('invoice_value', '10.001'),
     ('invoice_value', '1000000000'), ('gross_weight', 'Infinity'), ('gross_weight', '1.0001'),
     ('packages', '0'), ('packages', '1.5'), ('packages', True), ('package_type', 'INVALID'),
@@ -219,3 +219,15 @@ def test_cancelled_lr_cannot_be_regenerated(lr_client, shipment, details):
     result = lr_client.post('/admin/lr-generator/generate', json={'consignment_ids':['1'], 'lr_details':[details]})
     assert result.status_code == 400
     assert 'Cancelled' in result.json['message']
+
+
+def test_all_fields_optional_and_blank_batch_numbers_allowed(lr_client, lr_app, shipment):
+    assert all(not field['required'] for field in FIELDS)
+    with lr_app.app_context():
+        receipts = lr._review_details([{'id': '1'}, {'id': '2'}], [shipment, SimpleNamespace(id=2)])
+    assert all(value == '' for receipt in receipts for value in receipt.values())
+    response = lr_client.post('/admin/lr-generator/generate', json={
+        'consignment_ids': ['1'], 'lr_details': [{'id': '1'}],
+    })
+    assert response.status_code == 200
+    assert len(PdfReader(BytesIO(response.data)).pages) == 2

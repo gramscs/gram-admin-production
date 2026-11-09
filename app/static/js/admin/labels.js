@@ -200,5 +200,21 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     part('preview-labels-btn').addEventListener('click', () => generate('preview'));
     part('download-labels-btn').addEventListener('click', () => generate('download'));
+    async function refreshSelection() {
+        if (busy || !selected.size || !form.dataset.selectionUrl) return;
+        busy = true; update();
+        try {
+            const removed = await window.shipmentSelection.prune(form.dataset.selectionUrl, selected);
+            if (removed) {
+                Object.keys(drafts).forEach(id => {if (!selected.has(id)) delete drafts[id];});
+                review = []; job = null;
+                part('label-review-rows').replaceChildren();
+                bootstrap.Modal.getOrCreateInstance(part('labelReviewModal')).hide();
+            }
+        } catch (failure) {error('labels-error', failure.message);}
+        finally {busy = false; update();}
+    }
     update();
+    refreshSelection();
+    window.addEventListener?.('focus', refreshSelection);
 });

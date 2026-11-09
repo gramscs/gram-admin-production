@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_
 
 from app import orm as models
 from app.shipment_packages import volume_ft3
@@ -89,9 +89,6 @@ def normalize_shipment_filters(values):
 
 
 def filter_shipments(query, filters):
-    from database.lr import ShipmentArchive
-    exists = select(ShipmentArchive.shipment_id).where(ShipmentArchive.shipment_id == models.Consignment.id).exists()
-    query = query.filter(exists if filters.get('archive') == 'archived' else ~exists)
     query = search_shipments(query, filters.get('search', ''))
     company = filters.get('company', '')
     if company == 'unassigned':

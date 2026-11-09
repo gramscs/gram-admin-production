@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const input = node(field.kind === 'textarea' ? 'textarea' : field.kind === 'package' ? 'select' : 'input', field.kind === 'package' ? 'form-select' : 'form-control');
                 input.id = 'lr-' + index + '-' + field.name; input.dataset.field = field.name; input.required = field.required;
                 if (field.kind === 'package') {
-                    ['BOX', 'PALLET', 'BAG', 'BUNDLE', 'DRUM', 'CARTON', 'PACKAGE'].forEach(value => {
+                    ['', 'BOX', 'PALLET', 'BAG', 'BUNDLE', 'DRUM', 'CARTON', 'PACKAGE'].forEach(value => {
                         const option = node('option', '', value); option.value = value; input.append(option);
                     });
                 } else if (['money', 'weight', 'integer'].includes(field.kind)) {
@@ -96,7 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (['date', 'time'].includes(field.kind)) input.type = field.kind;
                 else {if (field.kind !== 'textarea') input.type = 'text'; input.maxLength = field.limit;}
                 input.value = data[field.name] || '';
-                if (field.name === 'lr_number') input.readOnly = true;
                 const label = node('label', 'form-label', field.label + (field.required ? ' *' : '')); label.htmlFor = input.id;
                 wrapper.append(label, input);
                 if (row.sources.includes(field.name)) wrapper.append(node('span', 'lr-field-source', 'From shipment · review before generating'));
@@ -199,5 +198,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     part('lr-preview').addEventListener('click', () => generate('preview'));
     part('lr-download').addEventListener('click', () => generate('download'));
+    async function refreshSelection() {
+        if (busy || !selected.size || !workspace.dataset.selectionUrl) return;
+        busy = true; update();
+        try {
+            const removed = await window.shipmentSelection.prune(workspace.dataset.selectionUrl, selected);
+            if (removed) {
+                Object.keys(drafts).forEach(id => {if (!selected.has(id)) delete drafts[id];});
+                review = []; invalidatePreview();
+                part('lr-review-rows').replaceChildren();
+                bootstrap.Modal.getOrCreateInstance(part('lrReviewModal')).hide();
+            }
+        } catch (failure) {error('lr-error', failure.message);}
+        finally {busy = false; update();}
+    }
     update();
+    refreshSelection();
+    window.addEventListener?.('focus', refreshSelection);
 });

@@ -45,17 +45,36 @@ const {chromium} = require('playwright');
         const cancelled=page.waitForResponse(r=>r.url().endsWith('/cancel'));
         await page.locator('.delete-row').click();
         assert.equal((await cancelled).status(),200);
-        await page.reload();
+        await page.waitForFunction(()=>document.querySelector('#total-count').textContent==='0');
+        await page.locator('#archive-filter').selectOption('archived');
         await page.locator('#sheet-body .shipment-cancelled').waitFor();
+        assert.equal(await page.locator('.archive-row').count(),0);
         assert.equal(await page.locator('#sheet-body strong.text-danger').count(),0);
         assert.equal(await page.locator('#sheet-body .consignment_number').inputValue(),data.shipments[0].lr_number);
         await page.locator('.lr-history-row').click();
         await page.locator('dialog[open]').waitFor();
         assert.match(await page.locator('dialog').innerText(),/Shipment cancelled/);
         await page.locator('dialog button').click();
+        // A separate, non-cancelled shipment can still be archived and restored.
+        const restorable = await page.evaluate(async () => {
+            const locations = await window.lrControl.locations;
+            const response = await window.lrControl.post('/admin/consignments/save', {
+                idempotency_key: crypto.randomUUID(), rows: [{location_id: locations[0].id, status: 'In Transit'}],
+            });
+            return response.shipments[0];
+        });
+        await page.goto(base+'/admin/consignments?search='+restorable.lr_number);
+        await page.waitForFunction(()=>document.querySelector('#total-count').textContent==='1');
         const archived=page.waitForResponse(r=>r.url().endsWith('/archive'));
         await page.locator('.archive-row').click();
         assert.equal((await archived).status(),200);
+        for (const path of ['/admin/labels', '/admin/lr-generator']) {
+            const response = await page.request.get(base+path);
+            assert.equal(response.status(),200);
+            const html = await response.text();
+            assert.ok(!html.includes(data.shipments[0].lr_number), 'Cancelled shipments must be hidden');
+            assert.ok(!html.includes(restorable.lr_number), 'Archived shipments must be hidden');
+        }
         await page.waitForFunction(()=>document.querySelector('#total-count').textContent==='0');
         await page.locator('#archive-filter').selectOption('archived');
         await page.waitForFunction(()=>document.querySelector('#total-count').textContent==='1');
@@ -79,6 +98,6 @@ const {chromium} = require('playwright');
         assert.equal(numbers.length,2); assert.notEqual(numbers[0],numbers[1]);
         assert.ok(numbers.every(n=>/^HQ\d{10}$/.test(n)));
         assert.deepEqual(errors,[]);
-        console.log('PASS: mandatory location, read-only LR, immediate modal issuance, grey cancellation without a reason prompt, archive/restore filtering, retained history and confirmed CSV import.');
+        console.log('PASS: mandatory location, read-only LR, immediate modal issuance, cancellation disappears from Active and remains in Archived, labels/LR exclude inactive shipments, archive/restore filtering, retained history and confirmed CSV import.');
     } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -46,6 +46,8 @@ def restore_shipment(identifier):
         raise ValueError('Shipment not found.')
     if json_object().get('confirmed') is not True:
         raise ValueError('Confirm restoring this shipment.')
+    if row.lr_status == 'cancelled':
+        raise ValueError('Cancelled shipments cannot return to the active register.')
     archive=db.session.get(ShipmentArchive,identifier)
     if archive:
         db.session.add(AuditLog(actor_id=current_admin_user().id,entity_type='consignments',entity_id=row.id,
