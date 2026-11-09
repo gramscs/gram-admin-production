@@ -109,3 +109,46 @@ def test_archive_rollback_refuses_existing_snapshots(lr_app,panel):
             with db.engine.begin() as connection:
                 connection.exec_driver_sql(script,execution_options={'no_parameters':True})
         assert db.session.query(ShipmentArchive).count()==1
+
+
+@pytest.mark.parametrize('state', ['archived', 'cancelled', 'both'])
+def test_archives_are_excluded_from_every_fresh_shipment_view(lr_app, panel, state):
+    client, headers, _ = panel
+    hidden = save(panel).json['shipments'][0]
+    visible = save(panel).json['shipments'][0]
+    archive_url = '/admin/consignments/' + hidden['id']
+    if state in ('cancelled', 'both'):
+        response = client.post(archive_url + '/cancel', json={'confirmed': True}, headers=headers)
+        assert response.status_code == 200, response.json
+    if state in ('archived', 'both'):
+        result = client.post(archive_url + '/archive', json={'confirmed': True}, headers=headers)
+        assert result.status_code == 200, result.json
+
+    def assert_visibility(archived):
+        active = client.get('/admin/consignments/list?archive=active').json
+        archives = client.get('/admin/consignments/list?archive=archived').json
+        assert {row['id'] for row in active['rows']} == ({visible['id']} if archived else {visible['id'], hidden['id']})
+        assert {row['id'] for row in archives['rows']} == ({hidden['id']} if archived else set())
+        for path in ('/admin/labels', '/admin/lr-generator'):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert visible['lr_number'].encode() in response.data
+            assert (hidden['lr_number'].encode() in response.data) is not archived
+        documents = client.get('/admin/documents/list?archive=archived').json
+        assert {row['id'] for row in documents['rows']} == {row['id'] for row in active['rows']}
+        selection = client.post('/admin/consignments/selection', json={'consignment_ids': [hidden['id'], visible['id']]}).json
+        assert set(selection['consignment_ids']) == {row['id'] for row in active['rows']}
+
+    assert_visibility(True)
+    for path in ('/admin/labels/review', '/admin/lr-generator/review'):
+        response = client.post(path, json={'consignment_ids': [hidden['id']]})
+        assert response.status_code == 400 and 'no longer exists' in response.json['message']
+    for kind in ('pod', 'invoice', 'lr'):
+        assert client.get(archive_url + '/' + kind).status_code == 404
+    response = client.post(archive_url + '/restore', json={'confirmed': True}, headers=headers)
+    if state == 'archived':
+        assert response.status_code == 200, response.json
+        assert_visibility(False)
+    else:
+        assert response.status_code == 400, response.json
+        assert_visibility(True)

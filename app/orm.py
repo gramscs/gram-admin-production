@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from flask import current_app
-from sqlalchemy import inspect, false
+from sqlalchemy import inspect, false, or_
 from flask_sqlalchemy.query import Query
 
 from app import models as legacy
@@ -48,13 +48,14 @@ def export_id(value):
 
 
 def shipment_query(*, archived=False):
-    """Active shipments by default; only the consignments archive list opts in."""
+    """Hide archived and cancelled shipments unless the archive list opts in."""
     model = __getattr__('Consignment')
     query = model.query
     if using_er():
         from sqlalchemy.orm import selectinload
         from database.models import ShipmentDocument
-        query = query.filter(model.archive_record.has() if archived else ~model.archive_record.has())
+        inactive = or_(model.archive_record.has(), model.lr_status == 'cancelled')
+        query = query.filter(inactive if archived else ~inactive)
         query = query.options(selectinload(model.archive_record), selectinload(model.company),
                               selectinload(model.extra_record),
                               selectinload(model.documents).selectinload(ShipmentDocument.file))

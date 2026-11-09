@@ -33,7 +33,7 @@
 @media (max-width: 767.98px) { .pagination-buttons { flex-wrap: wrap; } .consignment-page h4 { font-size: 1.2rem; } }
 #package-contents-editor input[type="number"] { min-width: 5rem; }
 
-/* Cancellation keeps the original LR visible, using a quiet grey row. */
+/* Cancelled shipments use grey rows when viewing the archived register. */
 #sheet-body tr.shipment-cancelled > td {
     --bs-table-bg: var(--bs-secondary-bg, #e9ecef);
     --bs-table-color: var(--bs-secondary-color, #6c757d);

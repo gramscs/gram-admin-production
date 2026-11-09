@@ -7,8 +7,9 @@ modal open, and retries of an unchanged request reuse its persistent idempotency
 key. The modal cannot close while the save request is in flight. A transport
 failure after commit can be retried to recover the same number.
 
-Cancelled shipments retain their number and history. They use grey rows rather
-than a large CANCELLED label. The row has an accessible cancellation label and
+Cancelled shipments retain their number and history. They appear only in the
+Archived shipments register, using grey rows rather than a large CANCELLED label.
+The row has an accessible cancellation label and
 its editable controls are disabled. Cancellation still asks for confirmation,
 but no longer asks for a reason: the server records `Cancelled by administrator.`,
 the verified administrator and database timestamp. Existing clients may still
@@ -18,7 +19,8 @@ Administrators can **Archive** a saved shipment and **Restore** it later. The
 register defaults to **Active shipments**; choose **Archived shipments** in the
 Register dropdown to see archived records. Search and paging respect this
 selection. Archived shipments appear only in this register view; exports, dashboard/MIS totals, labels, LR generation and the
-document library always use active shipments. Unsaved inline edits must be saved
+document library always exclude both archived and cancelled shipments. Unsaved
+inline edits must be saved
 before archiving.
 
 ## Storage and integrity
@@ -33,8 +35,12 @@ reassign or release an LRN. Snapshot data includes canonical fields, dashboard
 extras and document references; stored document bytes remain in their existing
 private Supabase buckets.
 
-Archived shipments are read-only. Restore them before editing, cancelling or
-changing documents. Restoring removes the current archive marker/snapshot, while
+Archived shipments are read-only. Non-cancelled archived shipments can be
+restored before editing or changing documents. Cancellation is permanent: a
+cancelled shipment stays in the Archived register and cannot be restored to
+Active. This visibility rule also covers cancellations without an archive
+snapshot; no existing records need to be rewritten. Restoring removes the current
+archive marker/snapshot, while
 an immutable generic audit event retains the previous snapshot. Archive and
 restore are atomic, administrator-only, session/CSRF-protected and safe to retry.
 Database triggers independently enforce actor permissions, snapshot immutability

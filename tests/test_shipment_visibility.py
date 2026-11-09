@@ -15,12 +15,13 @@ from test_lr_generator import lr_app, lr_client, shipment
 def test_shared_query_excludes_archives_even_for_direct_ids(monkeypatch):
     # Only identity columns are needed to exercise the real archive predicate.
     engine = create_engine('sqlite://')
-    active, archived = uuid4(), uuid4()
+    active, archived, cancelled = uuid4(), uuid4(), uuid4()
     with engine.begin() as connection:
-        connection.execute(text('CREATE TABLE consignments (id CHAR(32) PRIMARY KEY)'))
+        connection.execute(text('CREATE TABLE consignments (id CHAR(32) PRIMARY KEY, lr_status TEXT NOT NULL)'))
         connection.execute(text('CREATE TABLE shipment_archives (shipment_id CHAR(32) PRIMARY KEY)'))
-        for identifier in (active, archived):
-            connection.execute(text('INSERT INTO consignments VALUES (:id)'), {'id': identifier.hex})
+        for identifier in (active, archived, cancelled):
+            connection.execute(text('INSERT INTO consignments VALUES (:id, :status)'),
+                               {'id': identifier.hex, 'status': 'cancelled' if identifier == cancelled else 'issued'})
         connection.execute(text('INSERT INTO shipment_archives VALUES (:id)'), {'id': archived.hex})
     session = scoped_session(sessionmaker(bind=engine))
     monkeypatch.setattr(db, 'session', session)
@@ -31,14 +32,14 @@ def test_shared_query_excludes_archives_even_for_direct_ids(monkeypatch):
             def ids(query):
                 return {row.id for row in query.with_entities(models.Consignment.id).all()}
             assert ids(models.shipment_query()) == {active}
-            assert ids(models.shipment_query(archived=True)) == {archived}
+            assert ids(models.shipment_query(archived=True)) == {archived, cancelled}
             assert ids(filter_shipments(models.shipment_query(), {'archive': 'archived'})) == {active}
             assert ids(models.shipment_query().filter_by(id=archived)) == set()
             from app.admin.consignment_controller import active_shipment_selection
-            with app.test_request_context(json={'consignment_ids': [str(active), str(archived)]}):
+            with app.test_request_context(json={'consignment_ids': [str(active), str(archived), str(cancelled)]}):
                 response = active_shipment_selection.__wrapped__()
                 assert response.json == {'success': True, 'consignment_ids': [str(active)]}
-            assert ids(models.shipment_query().filter(models.Consignment.id.in_([active, archived]))) == {active}
+            assert ids(models.shipment_query().filter(models.Consignment.id.in_([active, archived, cancelled]))) == {active}
             with engine.begin() as connection:
                 connection.execute(text('DELETE FROM shipment_archives'))
             assert ids(models.shipment_query()) == {active, archived}

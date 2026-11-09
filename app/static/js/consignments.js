@@ -403,7 +403,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 buildTextInput("drop_date", source.drop_date || source.eta || "", "Drop estimated") + '</div></td>' +
             '<td><div class="d-flex justify-content-center gap-1"><button type="button" class="btn btn-sm btn-outline-primary edit-row" title="Edit" aria-label="Edit consignment"><i class="fa fa-pencil" aria-hidden="true"></i></button>' +
                 (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary lr-history-row">History</button>' : '') +
-                (source.id && !String(source.id).startsWith('-') ? '<button type="button" class="btn btn-sm btn-outline-secondary archive-row">' + (source.is_archived ? 'Restore' : 'Archive') + '</button>' : '') +
+                (source.id && !String(source.id).startsWith('-') && source.lr_status !== 'cancelled' ? '<button type="button" class="btn btn-sm btn-outline-secondary archive-row">' + (source.is_archived ? 'Restore' : 'Archive') + '</button>' : '') +
                 '<button type="button" class="btn btn-sm btn-outline-danger delete-row" title="Cancel / discard" aria-label="Cancel shipment or discard draft"><i class="fa fa-times" aria-hidden="true"></i></button></div></td>';
 
         if (rowClass) {
@@ -454,11 +454,9 @@ document.addEventListener("DOMContentLoaded", function () {
                         saveIndicator(adminState.pendingRows.size ? 'Unsaved changes' : 'All changes saved');
                         if (adminState.pendingRows.size) inlineAutosave.schedule();
                         window.shipmentBulkDocuments.forget(existingId);
-                        source.lr_status = 'cancelled';
-                        tr.dataset.row = JSON.stringify(source);
-                        tr.classList.add('shipment-cancelled');
-                        tr.setAttribute('aria-label', 'Cancelled shipment ' + source.consignment_number);
-                        tr.querySelectorAll('input,select,.delete-row').forEach(function (field) { field.disabled = true; });
+                        tr.remove();
+                        await loadPage(1, currentSearch, currentPerPage, currentSortBy, currentSortOrder);
+                        showStatus('Shipment cancelled and moved to Archived shipments.', 'success');
                     } catch (error) { showStatus(escapeHtml(error.message), 'danger'); deleteButton.disabled = false; }
                     return;
                 }
