@@ -228,6 +228,22 @@ def consignments_panel():
         )
 
 
+@admin_bp.post('/admin/consignments/selection')
+@require_admin
+def active_shipment_selection():
+    """Revalidate browser selections without returning archived shipment details."""
+    data = request.get_json(silent=True)
+    ids = data.get('consignment_ids') if isinstance(data, dict) else None
+    if not isinstance(ids, list) or len(ids) > 500:
+        return jsonify(success=False, message='Select at most 500 saved shipments.'), 400
+    try:
+        ids = list(dict.fromkeys(models.record_id(value) for value in ids))
+    except ValueError as error:
+        return jsonify(success=False, message=str(error)), 400
+    rows = models.shipment_query().filter(models.Consignment.id.in_(ids)).with_entities(models.Consignment.id).all() if ids else []
+    return jsonify(success=True, consignment_ids=[str(row.id) for row in rows])
+
+
 @admin_bp.route("/admin/documents/list", methods=["GET"], endpoint="documents_list_api")
 @admin_bp.route("/admin/consignments/list", methods=["GET"], endpoint="consignments_list_api")
 @require_admin

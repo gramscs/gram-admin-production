@@ -198,5 +198,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     part('lr-preview').addEventListener('click', () => generate('preview'));
     part('lr-download').addEventListener('click', () => generate('download'));
+    async function refreshSelection() {
+        if (busy || !selected.size || !workspace.dataset.selectionUrl) return;
+        busy = true; update();
+        try {
+            const removed = await window.shipmentSelection.prune(workspace.dataset.selectionUrl, selected);
+            if (removed) {
+                Object.keys(drafts).forEach(id => {if (!selected.has(id)) delete drafts[id];});
+                review = []; invalidatePreview();
+                part('lr-review-rows').replaceChildren();
+                bootstrap.Modal.getOrCreateInstance(part('lrReviewModal')).hide();
+            }
+        } catch (failure) {error('lr-error', failure.message);}
+        finally {busy = false; update();}
+    }
     update();
+    refreshSelection();
+    window.addEventListener?.('focus', refreshSelection);
 });

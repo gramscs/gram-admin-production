@@ -34,6 +34,10 @@ def test_shared_query_excludes_archives_even_for_direct_ids(monkeypatch):
             assert ids(models.shipment_query(archived=True)) == {archived}
             assert ids(filter_shipments(models.shipment_query(), {'archive': 'archived'})) == {active}
             assert ids(models.shipment_query().filter_by(id=archived)) == set()
+            from app.admin.consignment_controller import active_shipment_selection
+            with app.test_request_context(json={'consignment_ids': [str(active), str(archived)]}):
+                response = active_shipment_selection.__wrapped__()
+                assert response.json == {'success': True, 'consignment_ids': [str(active)]}
             assert ids(models.shipment_query().filter(models.Consignment.id.in_([active, archived]))) == {active}
             with engine.begin() as connection:
                 connection.execute(text('DELETE FROM shipment_archives'))
@@ -85,3 +89,12 @@ def test_generators_reject_unavailable_selected_shipments(lr_app, monkeypatch, m
     monkeypatch.setattr(models, 'shipment_query', lambda: EmptyQuery())
     with lr_app.app_context(), pytest.raises(ValueError, match='no longer exists'):
         {'labels': labels, 'lr': lr}[module]._selected_rows(['1'])
+
+
+@pytest.mark.parametrize('payload', [None, {}, {'consignment_ids': '1'}, {'consignment_ids': ['bad']}, {'consignment_ids': ['1'] * 501}])
+def test_selection_revalidation_rejects_invalid_requests(lr_client, payload):
+    assert lr_client.post('/admin/consignments/selection', json=payload).status_code == 400
+
+
+def test_selection_revalidation_requires_authentication(lr_app):
+    assert lr_app.test_client().post('/admin/consignments/selection', json={'consignment_ids': []}).status_code == 401
