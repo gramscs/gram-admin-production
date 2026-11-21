@@ -104,14 +104,15 @@ def _review_details(values, rows):
         description = item.get('goods_description')
         if not isinstance(description, str) or not 1 <= len(description.strip()) <= 160 or any(ord(char) < 32 and char not in '\n\t' for char in description):
             raise ValueError('Enter a goods description of 1–160 characters for every shipment.')
-        names = {}
-        for key, title in (('sender_name', 'Sender name'), ('receiver_name', 'Receiver name')):
-            name = item.get(key, '')
-            if not isinstance(name, str) or len(name.strip()) > 120 or any(ord(char) < 32 or ord(char) == 127 for char in name):
-                raise ValueError(f'{title} must be text of up to 120 characters.')
-            # Omit blank names to keep previously saved label runs compatible.
-            if name.strip():
-                names[key] = name.strip()
+        optional_text = {}
+        for key, title, limit in (('sender_name', 'Sender name', 120), ('receiver_name', 'Receiver name', 120),
+                                  ('mps', 'MPS', 80)):
+            value = item.get(key, '')
+            if not isinstance(value, str) or len(value.strip()) > limit or any(ord(char) < 32 or ord(char) == 127 for char in value):
+                raise ValueError(f'{title} must be text of up to {limit} characters.')
+            # Omit blank fields to keep previously saved label runs compatible.
+            if value.strip():
+                optional_text[key] = value.strip()
         exists = item.get('eway_bill_exists', False)
         if not isinstance(exists, bool):
             raise ValueError('EWBN exists must be true or false.')
@@ -120,7 +121,7 @@ def _review_details(values, rows):
             raise ValueError('Enter the 12-digit EWBN, or uncheck EWBN exists.')
         details[identifier] = {'invoice_amount': f'{amount:.2f}', 'payment_mode': payment,
                                'goods_description': description.strip(), 'eway_bill_exists': exists,
-                               'eway_bill_number': eway.strip(), **names}
+                               'eway_bill_number': eway.strip(), **optional_text}
     if set(details) != {str(row.id) for row in rows}:
         raise ValueError('Label details must match exactly the selected shipments.')
     return [{**label_shipment(row), **details[str(row.id)]} for row in rows]
@@ -276,24 +277,38 @@ def generate_labels_pdf(shipments, assignments, include_barcode=True):
                       size=14 if include_barcode else 18, leading=16 if include_barcode else 20, alignment=1)
             pdf.line(18, 128, 270, 128)
 
-            # Compact two-column reference grid, followed by full-width goods.
+            # Tighten the reference grid when a separate MPS row is needed.
+            mps = shipment.get('mps')
+            if mps:
+                invoice_caption, invoice_text, invoice_rule = 118, 113, 100
+                order_caption, order_text, order_rule = 92, 86, 75
+                goods_caption, goods_text = 67, 62
+            else:
+                invoice_caption, invoice_text, invoice_rule = 116, 109, 92
+                order_caption, order_text, order_rule = 82, 75, 59
+                goods_caption, goods_text = 49, 42
             pdf.setFont('LabelSansBold', 6)
-            for caption, baseline in [('INVOICE AMOUNT', 116), ('ORDER ID', 82), ('GOODS', 49)]:
+            for caption, baseline in [('INVOICE AMOUNT', invoice_caption), ('ORDER ID', order_caption), ('GOODS', goods_caption)]:
                 pdf.drawString(18, baseline, caption)
-            pdf.drawString(152, 82, 'INVOICE NO.')
-            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, 109, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
-            _fit_text(pdf, assignment['order_id'], 18, 75, 118, 12, font='LabelMono', size=7.5)
-            _fit_text(pdf, assignment['invoice_number'], 152, 75, 118, 12, font='LabelMono', size=7.5)
-            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, 42, 252, 26, font='LabelMono', size=7.5, leading=8.5)
+            pdf.drawString(152, order_caption, 'INVOICE NO.')
+            _fit_text(pdf, 'Rs ' + f"{Decimal(shipment['invoice_amount']):,.2f}", 18, invoice_text, 118 if shipment['eway_bill_exists'] else 252, 13, font='LabelMonoBold', size=10)
+            _fit_text(pdf, assignment['order_id'], 18, order_text, 118, 12, font='LabelMono', size=7.5)
+            _fit_text(pdf, assignment['invoice_number'], 152, order_text, 118, 12, font='LabelMono', size=7.5)
+            _fit_text(pdf, escape(shipment['goods_description']).replace('\n', '<br/>'), 18, goods_text, 252, 26, font='LabelMono', size=7.5, leading=8.5)
             pdf.setLineWidth(.4)
-            pdf.line(18, 92, 270, 92)
-            pdf.line(18, 59, 270, 59)
-            pdf.line(144, 92, 144, 59)
+            pdf.line(18, invoice_rule, 270, invoice_rule)
+            pdf.line(18, order_rule, 270, order_rule)
+            pdf.line(144, invoice_rule, 144, order_rule)
             if shipment['eway_bill_exists']:
                 pdf.setFont('LabelSansBold', 6)
-                pdf.drawString(152, 116, 'EWBN:')
-                _fit_text(pdf, shipment['eway_bill_number'], 152, 109, 118, 13, font='LabelMonoBold', size=9)
-                pdf.line(144, 128, 144, 92)
+                pdf.drawString(152, invoice_caption, 'EWBN:')
+                _fit_text(pdf, shipment['eway_bill_number'], 152, invoice_text, 118, 13, font='LabelMonoBold', size=9)
+                pdf.line(144, 128, 144, invoice_rule)
+            if mps:
+                pdf.line(18, 34, 270, 34)
+                pdf.setFont('LabelSansBold', 6)
+                pdf.drawString(18, 26, 'MPS')
+                _fit_text(pdf, escape(mps), 44, 33, 226, 16, font='LabelMono', size=7.5, leading=8)
             pdf.showPage()
     pdf.save()
     buffer.seek(0)

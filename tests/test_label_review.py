@@ -10,8 +10,10 @@ import pytest
 from pypdf import PdfReader
 from sqlalchemy import inspect, text
 
+from app import orm
 from app.models import db
 from app.admin import label_runs, labels
+from database.lr import LRBase
 from test_er_dashboard import migrated_admin, populated, legacy_engine, disposable_engine
 from label_helpers import label_form
 
@@ -25,12 +27,15 @@ def create(client, count=1):
     rows = [{'consignment_number': f'LABEL-{index:03d}', 'identifier_type': 'AWB', 'pieces': 2,
         'pickup_date': '2026-10-09', 'pickup_address': '429 Jagraj Gram, Delhi',
         'drop_address': 'Ms Ashiya, Delhi', 'pickup_pincode': '110001', 'drop_pincode': '110037',
-        'weight': '100', 'volume': '1.5',
+        'weight': '100', 'volume': '1.5', 'volume_unit': 'ft3',
         'measurement_mode': 'volume' if index % 2 else 'weight'} for index in range(count)]
-    saved = client.post('/admin/consignments/save', json={'rows': rows})
-    assert saved.status_code == 200, saved.json
-    found = client.get('/admin/consignments/list', query_string={'search': 'LABEL-', 'per_page': 100}).json['rows']
-    return sorted(found, key=lambda row: row['consignment_number'])
+    with client.application.app_context():
+        LRBase.metadata.create_all(db.engine)
+        db.session.add_all(orm.Consignment(**row) for row in rows)
+        db.session.commit()
+    response = client.get('/admin/consignments/list', query_string={'search': 'LABEL-', 'per_page': 100})
+    assert response.status_code == 200, response.json
+    return sorted(response.json['rows'], key=lambda row: row['consignment_number'])
 
 
 def snapshot(app, *, include_label_runs=True):
@@ -52,13 +57,15 @@ def test_review_and_pdf_use_db_fields_without_changing_shipment_records(panel, m
     before = snapshot(app, include_label_runs=False)
     review = client.post('/admin/labels/review', json={'consignment_ids': [row['id'] for row in rows]})
     assert review.status_code == 200 and review.json['shipments'][0]['pickup_date'] == '09/10/2026'
+    assert all('mps' not in shipment for shipment in review.json['shipments'])
     data = label_form([row['id'] for row in rows])
     details = json.loads(data['label_details'])
-    details[0].update(invoice_amount='6000.50', payment_mode='to-pay', eway_bill_exists=True, eway_bill_number='123456789012')
-    details[1].update(invoice_amount='8000', payment_mode='cash-on-delivery', goods_description='Tyres & wheels <boxed>', eway_bill_number='ignore unchecked')
-    data['label_details'] = json.dumps(details)
+    details[0].update(invoice_amount='6000.50', payment_mode='to-pay', eway_bill_exists=True,
+                      eway_bill_number='123456789012', mps='  Batch <12> & A  ')
+    details[1].update(invoice_amount='8000', payment_mode='cash-on-delivery', goods_description='Tyres & wheels <boxed>',
+                      eway_bill_number='ignore unchecked', mps='   ')
     monkeypatch.setattr(label_runs, 'order_date', lambda: date(2026, 10, 11))
-    output = pages(client.post('/admin/labels/generate', data=data))
+    output = pages(client.post('/admin/labels/generate', json={**data, 'label_details': details}))
     assert len(output) == 4
     for index, page in enumerate(output):
         extracted = page.extract_text()
@@ -81,9 +88,14 @@ def test_review_and_pdf_use_db_fields_without_changing_shipment_records(panel, m
         if index < 2:
             assert 'Rs 6,000.50' in extracted and 'TO PAY' in extracted
             assert 'EWBN:' in extracted and '123456789012' in extracted
+            assert 'MPS' in extracted and 'Batch <12> & A' in extracted
         else:
             assert 'CASH ON DELIVERY' in extracted and 'Tyres & wheels <boxed>' in extracted
             assert 'EWBN' not in extracted and 'ignore unchecked' not in extracted
+            assert 'MPS' not in extracted
+    del details[1]['mps']
+    reprint = pages(client.post('/admin/labels/generate', data={**data, 'label_details': json.dumps(details)}))
+    assert [page.extract_text() for page in reprint] == [page.extract_text() for page in output]
     assert snapshot(app, include_label_runs=False) == before
     from database.models import LabelRun
     with app.app_context():
@@ -122,6 +134,7 @@ def test_fifty_shipments_and_reprints_keep_one_number_per_shipment(panel, monkey
     {'goods_description': 'x' * 161}, {'eway_bill_exists': 'yes'},
     {'sender_name': 'x' * 121}, {'receiver_name': None}, {'sender_name': 123},
     {'receiver_name': 'Name\nInjected'}, {'sender_name': 'Name\x7f'},
+    {'mps': 'x' * 81}, {'mps': 123}, {'mps': 'Reference\nInjected'},
     {'eway_bill_exists': True, 'eway_bill_number': '123'},
 ])
 def test_invalid_label_details_do_not_allocate_or_touch_shipments(app, admin_client, change):

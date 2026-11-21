@@ -121,9 +121,18 @@ document.addEventListener('DOMContentLoaded', function () {
             const number = node('input', 'form-control'); number.id = 'label-eway-' + index; number.type = 'text'; number.inputMode = 'numeric'; number.pattern = '[0-9]{12}'; number.maxLength = 12; number.value = data.eway_bill_number; number.dataset.field = 'eway_bill_number'; number.setAttribute('aria-label', 'EWBN for ' + row.consignment_number); number.placeholder = '12-digit EWBN';
             function toggleEway() {number.disabled = !exists.checked; number.required = exists.checked; number.classList.toggle('d-none', !exists.checked);}
             toggleEway(); exists.addEventListener('change', toggleEway);
-            eway.append(label, number); card.append(eway); root.append(card);
+            eway.append(label, number); card.append(eway);
+            const mpsSection = node('div', 'mt-3');
+            const mps = node('input', 'form-control');
+            mps.id = 'label-mps-' + index;
+            mps.type = 'text';
+            mps.maxLength = 80;
+            mps.value = data.mps || '';
+            mps.dataset.field = 'mps';
+            field(mpsSection, 'MPS (optional)', mps);
+            card.append(mpsSection); root.append(card);
             reviewFields.set(card, {id: row.id, inputs: {invoice_amount: amount, payment_mode: paymentInput,
-                goods_description: description, eway_bill_exists: exists, eway_bill_number: number, ...nameInputs}});
+                goods_description: description, eway_bill_exists: exists, eway_bill_number: number, ...nameInputs, mps}});
             card.addEventListener('input', () => changed(card)); card.addEventListener('change', () => changed(card));
         });
         const pieces = review.reduce((sum, row) => sum + row.pieces, 0);
