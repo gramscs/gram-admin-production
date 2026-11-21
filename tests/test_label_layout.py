@@ -98,3 +98,16 @@ def test_addresses_references_and_goods_stay_inside_distinct_print_blocks(app, b
     assert len(mono) == 2
     assert all('/FontFile2' in font['/FontDescriptor'].get_object() for font in mono)
     assert (float(page.mediabox.width), float(page.mediabox.height)) == (288, 432)
+
+
+def test_mps_uses_its_own_print_row_with_full_goods_details(app):
+    row = shipment()
+    row.update(mps='M' * 79 + 'Z', goods_description='First goods line\nSecond goods line\nLast goods line')
+    items = positioned_text(render(app, row))
+    mps_lines = [(value, y) for value, x, y in items if x >= 44 and y < 34]
+    assert ''.join(value for value, _ in mps_lines) == row['mps']
+    assert len(mps_lines) == 2
+    assert all(16 <= y < 34 for _, y in mps_lines)
+    assert 34 < baseline(items, 'Last goods line') < 75
+    assert 75 < baseline(items, 'B2B-20261011-0001') < 100
+    assert 100 < baseline(items, '123456789012') < 128
